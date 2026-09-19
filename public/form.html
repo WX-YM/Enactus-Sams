@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Application Form — Enactus SAMS Maadi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-main: #F7F5F0;
+      --bg-dark: #0E1013;
+      --primary: #FFC629;
+      --primary-hover: #FFD75E;
+      --border-color: #0E1013;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Archivo', sans-serif;
+      background-color: var(--bg-main);
+      color: var(--bg-dark);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .font-mono {
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    header {
+      background: var(--bg-dark);
+      border-bottom: 3px solid var(--border-color);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .logo-container img {
+      height: 38px;
+      width: auto;
+    }
+    .container {
+      max-width: 720px;
+      width: 100%;
+      margin: 40px auto;
+      padding: 0 20px 60px;
+      flex: 1;
+    }
+    .form-card {
+      background: #FFF;
+      border: 3px solid var(--border-color);
+      box-shadow: 8px 8px 0px var(--border-color);
+      padding: clamp(24px, 5vw, 44px);
+    }
+    .form-header {
+      background: var(--primary);
+      border: 2.5px solid var(--border-color);
+      padding: 24px;
+      margin-bottom: 32px;
+      box-shadow: 4px 4px 0px var(--border-color);
+    }
+    .form-kicker {
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 8px;
+      display: block;
+    }
+    .form-title {
+      font-size: clamp(24px, 4vw, 36px);
+      font-weight: 900;
+      text-transform: uppercase;
+      line-height: 1.1;
+      margin-bottom: 10px;
+    }
+    .form-desc {
+      font-size: 15px;
+      line-height: 1.5;
+      font-weight: 500;
+      opacity: 0.9;
+    }
+    .field-group {
+      margin-bottom: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .field-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .field-label .required {
+      color: #E53935;
+    }
+    .field-input, .field-textarea, .field-select {
+      width: 100%;
+      padding: 14px 18px;
+      border: 2.5px solid var(--border-color);
+      background: #F7F5F0;
+      color: var(--bg-dark);
+      font-family: 'Archivo', sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      box-shadow: 4px 4px 0px var(--border-color);
+      outline: none;
+      transition: background 0.15s;
+    }
+    .field-input:focus, .field-textarea:focus, .field-select:focus {
+      background: #FFF;
+      border-color: #0E1013;
+    }
+    .btn-submit {
+      width: 100%;
+      padding: 18px;
+      background: var(--bg-dark);
+      color: var(--primary);
+      border: 3px solid var(--border-color);
+      box-shadow: 5px 5px 0px var(--border-color);
+      font-family: 'Archivo', sans-serif;
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      margin-top: 12px;
+      transition: all 0.15s;
+    }
+    .btn-submit:hover {
+      background: #1C222B;
+      transform: translate(-1px, -1px);
+      box-shadow: 6px 6px 0px var(--border-color);
+    }
+    .btn-submit:active {
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0px var(--border-color);
+    }
+    .success-card {
+      background: var(--primary);
+      border: 3px solid var(--border-color);
+      box-shadow: 8px 8px 0px var(--border-color);
+      padding: 44px 36px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .success-icon {
+      width: 60px;
+      height: 60px;
+      background: var(--bg-dark);
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+    }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      padding: 12px 24px;
+      background: var(--bg-dark);
+      color: #FFF;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      box-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+    }
+    .back-link:hover {
+      background: #1C222B;
+      color: var(--primary);
+    }
+    .loading-spinner {
+      text-align: center;
+      padding: 40px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-container">
+      <a href="/" style="display:flex; align-items:center;">
+        <img src="/assets/logo-trim.png" alt="Enactus SAMS">
+      </a>
+      <span class="font-mono" style="color:rgba(247,245,240,0.7); font-size:11px; letter-spacing:0.15em; text-transform:uppercase;">
+        Sadat Academy — Maadi
+      </span>
+    </div>
+    <a href="/" class="font-mono" style="color:var(--primary); text-decoration:none; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.1em;">
+      ← Return to Main Site
+    </a>
+  </header>
+
+  <div class="container">
+    <div id="loading-state" class="loading-spinner">
+      Loading application form...
+    </div>
+
+    <div id="form-container" style="display: none;">
+      <div class="form-header">
+        <span class="form-kicker font-mono">05 — Official Application</span>
+        <h1 id="form-title" class="form-title">Application Form</h1>
+        <p id="form-desc" class="form-desc"></p>
+      </div>
+
+      <div class="form-card">
+        <form id="dynamic-form">
+          <div id="fields-container"></div>
+          <button type="submit" id="submit-btn" class="btn-submit">Submit Application</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="success-container" style="display: none;">
+      <div class="success-card">
+        <div class="success-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </div>
+        <span class="font-mono" style="font-size:12px; letter-spacing:0.2em; text-transform:uppercase; font-weight:700;">
+          Status: Received
+        </span>
+        <h2 style="font-size:36px; font-weight:900; text-transform:uppercase; line-height:1.1;">
+          Application Submitted!
+        </h2>
+        <p style="font-size:16px; font-weight:600; max-width:440px; line-height:1.6; opacity:0.9;">
+          Thank you for applying. Your response has been securely saved to our database. Our leadership team will review your submission and contact you soon.
+        </p>
+        <a href="/" class="back-link">
+          ← Back to Enactus SAMS
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let formSchema = null;
+
+    async function initForm() {
+      try {
+        const res = await fetch('/api/form_schema');
+        const data = await res.json();
+        
+        if (data && data.schema && data.schema.fields && data.schema.fields.length > 0) {
+          formSchema = data.schema;
+          renderForm(data.schema);
+        } else {
+          // Fallback schema
+          formSchema = {
+            title: 'Recruitment Application Form',
+            description: 'Pick the team you want to start in, tell us why, and join the next season at Enactus SAMS Maadi.',
+            fields: [
+              { id: 'fname', label: 'First Name', type: 'text', placeholder: 'First Name', required: true },
+              { id: 'lname', label: 'Last Name', type: 'text', placeholder: 'Last Name', required: true },
+              { id: 'email', label: 'Email Address', type: 'email', placeholder: 'name@example.com', required: true },
+              { id: 'phone', label: 'Phone Number', type: 'tel', placeholder: '+20 1xx xxx xxxx', required: true },
+              { id: 'team', label: 'Preferred Team', type: 'select', placeholder: 'Select Team', required: true, options: 'Presentation, Project Management, HR, External Affairs, Social Media, Media Production' },
+              { id: 'reason', label: 'Why do you want to join?', type: 'textarea', placeholder: 'Tell us about your motivation and expectations...', required: true }
+            ]
+          };
+          renderForm(formSchema);
+        }
+      } catch (err) {
+        console.error('Failed to fetch form schema:', err);
+        document.getElementById('loading-state').innerText = 'Failed to load form. Please try again later.';
+      }
+    }
+
+    function renderForm(schema) {
+      document.getElementById('loading-state').style.display = 'none';
+      document.getElementById('form-container').style.display = 'block';
+
+      document.getElementById('form-title').innerText = schema.title || 'Application Form';
+      document.getElementById('form-desc').innerText = schema.description || '';
+
+      const container = document.getElementById('fields-container');
+      container.innerHTML = '';
+
+      schema.fields.forEach(f => {
+        const group = document.createElement('div');
+        group.className = 'field-group';
+
+        const label = document.createElement('label');
+        label.className = 'field-label';
+        label.htmlFor = 'field-' + f.id;
+        label.innerHTML = f.label + (f.required ? ' <span class="required">*</span>' : '');
+        group.appendChild(label);
+
+        let inputEl;
+        if (f.type === 'textarea') {
+          inputEl = document.createElement('textarea');
+          inputEl.className = 'field-textarea';
+          inputEl.rows = 4;
+        } else if (f.type === 'select') {
+          inputEl = document.createElement('select');
+          inputEl.className = 'field-select';
+          const defOpt = document.createElement('option');
+          defOpt.value = '';
+          defOpt.innerText = f.placeholder || 'Select...';
+          inputEl.appendChild(defOpt);
+          const opts = (f.options || '').split(',').map(s => s.trim()).filter(Boolean);
+          opts.forEach(opt => {
+            const o = document.createElement('option');
+            o.value = opt;
+            o.innerText = opt;
+            inputEl.appendChild(o);
+          });
+        } else {
+          inputEl = document.createElement('input');
+          inputEl.className = 'field-input';
+          inputEl.type = f.type || 'text';
+        }
+
+        inputEl.id = 'field-' + f.id;
+        inputEl.name = f.label;
+        inputEl.placeholder = f.placeholder || '';
+        if (f.required) inputEl.required = true;
+
+        group.appendChild(inputEl);
+        container.appendChild(group);
+      });
+    }
+
+    document.getElementById('dynamic-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const submitBtn = document.getElementById('submit-btn');
+      submitBtn.innerText = 'Submitting...';
+      submitBtn.disabled = true;
+
+      const formData = {};
+      formSchema.fields.forEach(f => {
+        const el = document.getElementById('field-' + f.id);
+        if (el) {
+          formData[f.label] = el.value;
+        }
+      });
+
+      try {
+        const res = await fetch('/api/form_submissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            formTitle: formSchema.title,
+            data: formData
+          })
+        });
+
+        const result = await res.json();
+        if (result && result.status === 'ok') {
+          document.getElementById('form-container').style.display = 'none';
+          document.getElementById('success-container').style.display = 'block';
+        } else {
+          alert('Submission failed. Please check your answers and try again.');
+          submitBtn.innerText = 'Submit Application';
+          submitBtn.disabled = false;
+        }
+      } catch (err) {
+        console.error('Error submitting form:', err);
+        alert('Network error. Please try again.');
+        submitBtn.innerText = 'Submit Application';
+        submitBtn.disabled = false;
+      }
+    });
+
+    initForm();
+  </script>
+</body>
+</html>

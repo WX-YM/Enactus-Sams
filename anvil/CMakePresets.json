@@ -1,0 +1,199 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/build/${presetName}/install",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "VCPKG_MANIFEST_FEATURES": "tests",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_POLICY_VERSION_MINIMUM": "3.5",
+        "VCPKG_OVERLAY_PORTS": "${sourceDir}/ports"
+      },
+      "environment": {
+        "VCPKG_FORCE_DOWNLOADED_BINARIES": "1"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "asan",
+      "displayName": "Debug + ASan/UBSan",
+      "description": "The default for local development and the full CI test suite. ANVIL_WITH_EGY is ON here and OFF by default: the option decides whether a CONSUMER ships a locale's validators, and a test preset that left it off would compile past every case written for them",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ANVIL_SANITIZERS": "address;undefined",
+        "ANVIL_WITH_EGY": "ON"
+      }
+    },
+    {
+      "name": "tsan",
+      "displayName": "Debug + TSan",
+      "description": "Concurrency tests only. Mutually exclusive with ASan",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ANVIL_SANITIZERS": "thread"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "ANVIL_BUILD_TESTS": "OFF",
+        "VCPKG_MANIFEST_FEATURES": ""
+      }
+    },
+    {
+      "name": "dist",
+      "displayName": "Release, no debug info",
+      "description": "-O3 -DNDEBUG and no -g, tests ON so the suite runs against binaries built with the SAME flags a consumer will ship with",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ANVIL_BUILD_TESTS": "ON",
+        "ANVIL_WITH_EGY": "ON"
+      }
+    },
+    {
+      "name": "no-vips",
+      "displayName": "Debug without the image subsystem",
+      "description": "Bootstrap preset for machines without system libvips",
+      "inherits": "debug",
+      "cacheVariables": {
+        "ANVIL_WITH_VIPS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "asan",
+      "configurePreset": "asan"
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "dist",
+      "configurePreset": "dist"
+    },
+    {
+      "name": "no-vips",
+      "configurePreset": "no-vips"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "asan",
+      "configurePreset": "asan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      },
+      "environment": {
+        "LSAN_OPTIONS": "suppressions=${sourceDir}/tests/lsan.supp print_suppressions=0"
+      },
+      "filter": {
+        "exclude": {
+          "label": "load"
+        }
+      }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "description": "The `database` label is excluded: vcpkg builds libmongoc uninstrumented, so every recycled pool client reports as a race that is not one",
+      "filter": {
+        "include": {
+          "label": "concurrency"
+        },
+        "exclude": {
+          "label": "database|load"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "environment": {
+        "TSAN_OPTIONS": "suppressions=${sourceDir}/tests/tsan.supp halt_on_error=1 second_deadlock_stack=1"
+      }
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "exclude": {
+          "label": "load"
+        }
+      }
+    },
+    {
+      "name": "dist",
+      "configurePreset": "dist",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 1,
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      },
+      "filter": {
+        "exclude": {
+          "label": "load"
+        }
+      }
+    },
+    {
+      "name": "load",
+      "configurePreset": "dist",
+      "description": "The load gate only, against ship flags. It saturates pools on purpose, so it runs alone",
+      "filter": {
+        "include": {
+          "label": "load"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 1,
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    }
+  ]
+}

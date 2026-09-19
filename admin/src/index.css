@@ -1,0 +1,312 @@
+:root {
+  --bg-main: #F7F5F0;
+  --bg-card: #FFFFFF;
+  --bg-sidebar: #0E1013;
+  
+  --brand-yellow: #FFC629;
+  --brand-yellow-hover: #FFD75E;
+  
+  --text-dark: #0E1013;
+  --text-light: #F7F5F0;
+  
+  --border-thick: 2px solid #0E1013;
+  --shadow-hard: 6px 6px 0px #0E1013;
+  --shadow-hard-hover: 2px 2px 0px #0E1013;
+}
+
+body {
+  margin: 0;
+  font-family: 'Archivo', Helvetica, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-dark);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.font-mono {
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+button {
+  font-family: 'Archivo', sans-serif;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+/* NEO-BRUTALIST BUTTONS */
+.btn-primary {
+  background: var(--brand-yellow);
+  color: var(--text-dark);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 14px;
+  padding: 14px 28px;
+  border: var(--border-thick);
+  border-radius: 0;
+  box-shadow: 4px 4px 0px var(--text-dark);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.btn-primary:hover {
+  background: var(--brand-yellow-hover);
+}
+.btn-primary:active {
+  transform: translate(4px, 4px);
+  box-shadow: 0px 0px 0px var(--text-dark);
+}
+
+.btn-outline {
+  background: #FFFFFF;
+  color: var(--text-dark);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 14px;
+  padding: 14px 28px;
+  border: var(--border-thick);
+  border-radius: 0;
+  box-shadow: 4px 4px 0px var(--text-dark);
+}
+.btn-outline:hover {
+  background: var(--bg-main);
+}
+.btn-outline:active {
+  transform: translate(4px, 4px);
+  box-shadow: 0px 0px 0px var(--text-dark);
+}
+
+.btn-danger {
+  background: #E53935;
+  color: #FFFFFF;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 14px;
+  padding: 10px 20px;
+  border: var(--border-thick);
+  border-radius: 0;
+  box-shadow: 4px 4px 0px var(--text-dark);
+}
+.btn-danger:active {
+  transform: translate(4px, 4px);
+  box-shadow: 0px 0px 0px var(--text-dark);
+}
+
+/* NEO-BRUTALIST INPUTS */
+.input-field {
+  background: #FFFFFF;
+  border: var(--border-thick);
+  color: var(--text-dark);
+  padding: 14px 16px;
+  font-family: 'Archivo', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 0;
+  width: 100%;
+  box-shadow: 2px 2px 0px rgba(14,16,19,0.2);
+  transition: all 0.1s;
+}
+.input-field:focus {
+  outline: none;
+  background: #FFFFFF;
+  box-shadow: 4px 4px 0px var(--brand-yellow);
+}
+
+/* NEO-BRUTALIST CARDS */
+.card {
+  background: var(--bg-card);
+  border: var(--border-thick);
+  border-radius: 0;
+  padding: 32px;
+  box-shadow: var(--shadow-hard);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0px var(--text-dark);
+}
+
+/* SIDEBAR (DARK TO SHOW WHITE LOGO) */
+.layout-sidebar {
+  width: 280px;
+  background: var(--bg-sidebar);
+  border-right: 2px solid var(--text-dark);
+  display: flex;
+  flex-direction: column;
+  padding: 32px 24px;
+  transition: transform 0.3s ease;
+  z-index: 50;
+  color: var(--text-light);
+}
+
+.layout-main {
+  flex: 1;
+  background: var(--bg-main);
+  background-image: radial-gradient(#0E1013 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: 0 0;
+  background-color: var(--bg-main);
+  padding: 48px;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* NAV LINKS */
+.nav-link {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(247,245,240,0.6);
+  padding: 16px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  border: 2px solid transparent;
+  transition: all 0.1s;
+  margin-bottom: 8px;
+}
+.nav-link:hover {
+  color: var(--brand-yellow);
+  border-color: rgba(255,198,41,0.2);
+}
+.nav-link.active {
+  color: var(--text-dark);
+  background: var(--brand-yellow);
+  border-color: var(--brand-yellow);
+  box-shadow: 3px 3px 0px var(--text-light);
+  transform: translate(-2px, -2px);
+}
+.nav-link.active svg {
+  color: var(--text-dark);
+}
+
+/* TYPOGRAPHY */
+.heading-lg {
+  font-size: clamp(40px, 5vw, 64px);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  margin: 0;
+  color: var(--text-dark);
+  text-transform: uppercase;
+}
+
+.heading-sm {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  background: var(--brand-yellow);
+  display: inline-block;
+  padding: 4px 8px;
+  border: 2px solid var(--text-dark);
+  margin-bottom: 16px;
+}
+
+/* TABLES */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table th {
+  text-align: left;
+  padding: 16px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dark);
+  border-bottom: 3px solid var(--text-dark);
+}
+.table td {
+  padding: 16px;
+  border-bottom: 2px solid rgba(14,16,19,0.1);
+  font-weight: 600;
+}
+
+/* BADGES */
+.badge {
+  padding: 6px 12px;
+  border: 2px solid var(--text-dark);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 2px 2px 0px var(--text-dark);
+}
+.badge-pending { background: #FFFFFF; }
+.badge-accepted { background: #4ADE80; }
+.badge-rejected { background: #F87171; }
+.badge-referred { background: #60A5FA; }
+
+/* Responsive adjustments */
+.mobile-toggle {
+  display: none;
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 100;
+  background: var(--brand-yellow);
+  border: 2px solid var(--text-dark);
+  padding: 10px;
+  box-shadow: 4px 4px 0px var(--text-dark);
+}
+
+@media (max-width: 768px) {
+  .layout-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+  }
+  .layout-sidebar.open {
+    transform: translateX(0);
+    box-shadow: 10px 0 0px rgba(0,0,0,1);
+  }
+  .layout-main {
+    padding: 24px 16px;
+  }
+  .mobile-toggle {
+    display: block;
+  }
+}
+
+/* React DatePicker Neo-Brutalist Styles */
+.react-datepicker {
+  font-family: 'IBM Plex Mono', monospace !important;
+  border: 2px solid #0E1013 !important;
+  border-radius: 0 !important;
+  box-shadow: 4px 4px 0px #0E1013 !important;
+}
+.react-datepicker__header {
+  background: var(--brand-yellow) !important;
+  border-bottom: 2px solid #0E1013 !important;
+  border-radius: 0 !important;
+}
+.react-datepicker__day--selected, .react-datepicker__day--keyboard-selected {
+  background: #0E1013 !important;
+  color: #FFF !important;
+  border-radius: 0 !important;
+}
+.react-datepicker__day:hover {
+  background: #E0DFDB !important;
+  border-radius: 0 !important;
+}
+.react-datepicker__time-container {
+  border-left: 2px solid #0E1013 !important;
+}
+.react-datepicker-time__header {
+  color: #0E1013 !important;
+}

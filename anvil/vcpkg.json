@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "anvil",
+  "version": "0.1.0",
+  "description": "A hardened C++20 web-application library for Drogon + MongoDB + Redis",
+  "dependencies": [
+    {
+      "name": "drogon",
+      "default-features": false,
+      "features": ["orm"]
+    },
+    "mongo-cxx-driver",
+    "redis-plus-plus",
+    "openssl",
+    "argon2",
+    "simdutf",
+    "icu",
+    "xxhash"
+  ],
+  "features": {
+    "tests": {
+      "description": "Unit tests and micro-benchmarks",
+      "dependencies": ["gtest", "benchmark"]
+    },
+    "re2": {
+      "description": "Linear-time regex engine. Only for the rare case a hand-written scanner is insufficient; std::regex stays banned in request paths (docs/06-input-validation.md)",
+      "dependencies": ["re2"]
+    }
+  },
+  "builtin-baseline": "e6ed7c5be05eaedc2d06ee3e51bd059409429c5e"
+}

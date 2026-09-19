@@ -1,0 +1,76 @@
+# Checks selected to enforce ENGINEERING_RULES.md mechanically rather than by review.
+Checks: >
+  bugprone-*,
+  cert-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -misc-non-private-member-variables-in-classes,
+  -modernize-use-trailing-return-type,
+  -readability-identifier-length,
+  -readability-magic-numbers
+
+WarningsAsErrors: >
+  bugprone-dangling-handle,
+  bugprone-use-after-move,
+  bugprone-integer-division,
+  bugprone-signed-char-misuse,
+  bugprone-suspicious-memory-comparison,
+  cert-err34-c,
+  cert-flp30-c,
+  cert-msc50-cpp,
+  cert-msc51-cpp,
+  concurrency-mt-unsafe,
+  cppcoreguidelines-owning-memory,
+  cppcoreguidelines-pro-type-cstyle-cast,
+  cppcoreguidelines-pro-type-reinterpret-cast,
+  cppcoreguidelines-prefer-member-initializer,
+  performance-unnecessary-value-param,
+  performance-for-range-copy,
+  misc-throw-by-value-catch-by-reference
+
+# Notes on the error list, all of which trace to a rule:
+#   bugprone-dangling-handle       string_view outliving its owner (F96)
+#   cert-msc50/51-cpp              std::rand and predictable seeds are banned (§4)
+#   concurrency-mt-unsafe          localtime, getenv, strtok on the request path
+#   performance-unnecessary-value-param  const& is the default (§2.1)
+#   cppcoreguidelines-prefer-member-initializer  init in the list, not the body (§2.2)
+#   cppcoreguidelines-owning-memory              no raw new/delete (§7)
+
+HeaderFilterRegex: '^.*/src/.*\.h$'
+FormatStyle: file
+
+CheckOptions:
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstexprVariablePrefix
+    value: 'k'
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantPrefix
+    value: 'k'
+  - key: readability-function-cognitive-complexity.Threshold
+    value: 25

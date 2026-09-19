@@ -1,0 +1,34 @@
+{
+  "recordedFrom": "anvil/include/anvil/http/errors.h",
+  "codes": [
+    {"name": "OK", "value": 0, "status": 200, "stealthHidden": false, "carriesFieldDetail": false, "body": null, "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "UNAUTHENTICATED", "value": 1, "status": 401, "stealthHidden": true, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"UNAUTHENTICATED\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "FORBIDDEN", "value": 2, "status": 403, "stealthHidden": true, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"FORBIDDEN\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "NOT_FOUND", "value": 3, "status": 404, "stealthHidden": false, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"NOT_FOUND\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "CAPABILITY_REQUIRED", "value": 4, "status": 428, "stealthHidden": true, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"CAPABILITY_REQUIRED\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "CAPABILITY_INVALID", "value": 5, "status": 403, "stealthHidden": true, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"CAPABILITY_INVALID\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "VALIDATION_FAILED", "value": 6, "status": 400, "stealthHidden": false, "carriesFieldDetail": true, "body": "{\"error\":{\"code\":\"VALIDATION_FAILED\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "CONFLICT", "value": 7, "status": 409, "stealthHidden": false, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"CONFLICT\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "VERSION_MISMATCH", "value": 8, "status": 409, "stealthHidden": false, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"VERSION_MISMATCH\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "RATE_LIMITED", "value": 9, "status": 429, "stealthHidden": false, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"RATE_LIMITED\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "PAYLOAD_TOO_LARGE", "value": 10, "status": 413, "stealthHidden": false, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"PAYLOAD_TOO_LARGE\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "UNSUPPORTED_MEDIA", "value": 11, "status": 415, "stealthHidden": false, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"UNSUPPORTED_MEDIA\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "SERVICE_UNAVAILABLE", "value": 12, "status": 503, "stealthHidden": false, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"SERVICE_UNAVAILABLE\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "INTERNAL", "value": 13, "status": 500, "stealthHidden": false, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"INTERNAL\"}}", "contentType": "application/json", "cacheControl": "no-store"},
+    {"name": "INSUFFICIENT_STORAGE", "value": 14, "status": 507, "stealthHidden": false, "carriesFieldDetail": false, "body": "{\"error\":{\"code\":\"INSUFFICIENT_STORAGE\"}}", "contentType": "application/json", "cacheControl": "no-store"}
+  ],
+  "reasons": [
+    {"name": "OK", "value": 0},
+    {"name": "REQUIRED", "value": 1},
+    {"name": "TOO_SHORT", "value": 2},
+    {"name": "TOO_LONG", "value": 3},
+    {"name": "BAD_FORMAT", "value": 4},
+    {"name": "BAD_CHARSET", "value": 5},
+    {"name": "OUT_OF_RANGE", "value": 6},
+    {"name": "NOT_ALLOWED", "value": 7},
+    {"name": "BAD_CHECKSUM", "value": 8},
+    {"name": "WEAK", "value": 9},
+    {"name": "BREACHED", "value": 10}
+  ],
+  "stealth": {"status": 404, "body": "{\"error\":{\"code\":\"NOT_FOUND\"}}", "contentType": "application/json", "cacheControl": "no-store", "contentTypeOptions": "nosniff"}
+}

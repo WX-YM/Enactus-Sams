@@ -1,0 +1,22 @@
+# Build output. One directory per entry point, all generated.
+/dist/
+
+# Dependencies. package-lock.json IS committed — a lockfile is the only thing
+# standing between a zero-dependency library and whatever a transitive dev
+# dependency decided to publish this morning.
+/node_modules/
+
+# Generated from an application's descriptor. Never committed here: the
+# reference application's copy under tests/testapp/ is committed on purpose,
+# because a generator whose output nobody reads is a generator nobody reviews.
+/src/**/*.generated.ts
+
+# Coverage and test scratch.
+/coverage/
+/.vitest/
+
+# Editor and tooling scratch.
+/.cache/
+/.idea/
+/.vscode/
+*.swp

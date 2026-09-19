@@ -1,0 +1,24 @@
+# Build directories
+build/
+bin/
+out/
+dist/
+
+# Dependencies
+node_modules/
+admin/node_modules/
+admin/dist/
+vcpkg_installed/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs and temporary files
+*.log
+.system_generated/
+scratch/

@@ -1,0 +1,49 @@
+---
+Language: Cpp
+BasedOnStyle: Google
+Standard: c++20
+
+ColumnLimit: 96
+IndentWidth: 4
+AccessModifierOffset: -4
+UseTab: Never
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+QualifierAlignment: Left
+
+BinPackArguments: false
+BinPackParameters: false
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignTrailingComments: true
+
+SeparateDefinitionBlocks: Always
+EmptyLineBeforeAccessModifier: LogicalBlock
+FixNamespaceComments: true
+NamespaceIndentation: None
+
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Matching header first (Google default, priority 0)
+  - Regex: '^<(argon2|openssl/|simdutf|unicode/|xxhash)'
+    Priority: 3
+  - Regex: '^<(drogon/|trantor/|mongocxx/|bsoncxx/|sw/redis)'
+    Priority: 4
+  - Regex: '^<gtest/|^<benchmark/'
+    Priority: 5
+  - Regex: '^<.*\.h>'
+    Priority: 1
+  - Regex: '^<.*>'
+    Priority: 2
+  - Regex: '^"lib/'
+    Priority: 6
+  - Regex: '.*'
+    Priority: 7

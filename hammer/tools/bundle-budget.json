@@ -1,0 +1,11 @@
+{
+    "gzipCeilingBytes": {
+        ".": 8192,
+        "./wire": 12288,
+        "./state": 12288,
+        "./dom": 18432,
+        "./chart": 9216,
+        "./react": 3072
+    },
+    "buildTimeOnly": ["./codegen"]
+}

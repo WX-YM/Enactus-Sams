@@ -1,0 +1,33 @@
+# ThreadSanitizer suppressions.
+#
+# Keep this file SHORT and every entry justified. A suppression is a claim that
+# a reported race is not real; an unjustified one hides the bugs TSan exists to
+# find. Prefer fixing the code every time it is our code.
+#
+# ---------------------------------------------------------------------------
+# trantor::Logger lazy statics
+# ---------------------------------------------------------------------------
+# Reported as: data race in trantor::Logger::~Logger() (Logger.cc:490) on the
+# std::function returned by Logger::outputFunc_() / flushFunc_().
+#
+# Both are function-local statics ("magic statics"), whose initialisation IS
+# thread-safe per [stmt.dcl]/4 — GCC implements it with __cxa_guard_acquire /
+# __cxa_guard_release, which TSan normally understands.
+#
+# It is reported anyway because vcpkg builds libtrantor.a WITHOUT TSan
+# instrumentation. The inline accessor is emitted in both trantor's objects and
+# ours; the linker keeps one copy, and when the surviving copy comes from the
+# uninstrumented archive TSan observes the loads and stores but not the guard
+# synchronisation around them. That is a false positive.
+#
+# Evidence it is not our thread pool: only the one test that logs at ERROR from
+# two workers simultaneously ever reported it. The tests that hammer the queue
+# with eight concurrent producers never did.
+#
+# The real fix is building every dependency with -fsanitize=thread. That is a
+# full from-source rebuild of the dependency graph, so it belongs in a dedicated
+# CI job rather than in every developer's loop. Revisit if trantor is ever built
+# instrumented, and delete this entry then.
+race:trantor::Logger::~Logger
+race:trantor/utils/Logger.h
+

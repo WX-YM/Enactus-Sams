@@ -1,0 +1,38 @@
+# LeakSanitizer suppressions.
+#
+# Same rule as tests/tsan.supp: keep this file SHORT and every entry justified.
+# A suppression is a claim that a reported leak is not real, and an unjustified
+# one hides the bugs the sanitizer exists to find. Prefer fixing the code every
+# time it is our code.
+#
+# ---------------------------------------------------------------------------
+# OpenSSL provider and DRBG state orphaned by OPENSSL_thread_stop
+# ---------------------------------------------------------------------------
+# Reported as: ~7.5 KB in ~40 CRYPTO_zalloc allocations reached through
+# EVP_RAND_fetch / ossl_method_construct, in any test binary where a thread pool
+# worker has run and exited.
+#
+# It is OpenSSL's own one-time provider registry and seed DRBG, allocated on the
+# first RAND_bytes and normally reachable for the life of the process. It
+# becomes UNREACHABLE — and therefore reported — because BoundedThreadPool::run
+# calls OPENSSL_thread_stop() as each worker exits, which is correct and
+# deliberate: without it, every worker's per-thread DRBG and error queue would
+# live until the process ended, and that IS a real leak for a pool that recycles
+# threads (src/core/thread_pools.cc). Releasing the per-thread state takes some
+# of OpenSSL's shared bookkeeping out of its registry with it.
+#
+# Evidence it is not ours:
+#   * Every frame in every one of the reported stacks is inside libcrypto; the
+#     only anvil frame is the RAND_bytes call site.
+#   * The amount is fixed. It does not grow with the number of hashes, the
+#     number of pool threads, or the number of test cases — a leak proportional
+#     to work would not be suppressible on these grounds and is not what this is.
+#   * A binary that links no pool at all reports none of it, with identical
+#     calls into the same Argon2 and RAND_bytes paths.
+#
+# The alternative to suppressing it is dropping OPENSSL_thread_stop, which
+# trades a bounded one-time report for an unbounded real leak. Revisit if
+# OpenSSL ever frees its provider registry on the last thread_stop, and delete
+# this entry then.
+leak:CRYPTO_zalloc
+leak:CRYPTO_malloc

@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+<script>
+  // Track page visit dynamically via Anvil backend
+  fetch('/api/track_visit', { method: 'POST' }).catch(e => console.error(e));
+
+  // Handle dynamic apply button
+  document.addEventListener('click', function(e) {
+    if (e.target && e.target.textContent && e.target.textContent.includes('Submit Application')) {
+      e.preventDefault();
+      fetch('/api/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team: 'Selected Team' }) // in a real app, capture form data
+      }).then(res => res.json()).then(data => {
+        alert(data.message);
+      });
+    }
+  });
+
+  // CMS Hydration (Mocking Backend for Demo)
+  document.addEventListener('DOMContentLoaded', () => {
+    const saved = localStorage.getItem('sams_content');
+    if (saved) {
+      const content = JSON.parse(saved);
+      const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+      let n;
+      while (n = walk.nextNode()) {
+        if (n.nodeValue.includes('A club that builds businesses to solve problems.')) n.nodeValue = content.aboutText;
+        if (n.nodeValue.includes('Enactus is a global network of students, academics and business leaders.')) n.nodeValue = content.aboutDesc;
+        if (n.nodeValue.includes('Tafrah')) n.nodeValue = n.nodeValue.replace('Tafrah', content.projectName);
+        if (n.nodeValue.includes('A training and employment platform built for autistic people in Egypt')) n.nodeValue = content.projectDesc;
+        if (n.nodeValue.includes('Join the next season.')) n.nodeValue = content.joinKicker;
+        if (n.nodeValue.includes('Entrepreneurial action')) n.nodeValue = content.heroSubtitle;
+      }
+      
+      const img1 = document.querySelector('img[src="assets/bench.jpg"]');
+      if (img1 && content.aboutImg1) img1.src = content.aboutImg1;
+      
+      const img2 = document.querySelector('img[src="assets/certificate.jpg"]');
+      if (img2 && content.aboutImg2) img2.src = content.aboutImg2;
+      
+      const img3 = document.querySelector('img[src="assets/glasses.jpg"]');
+      if (img3 && content.aboutImg3) img3.src = content.aboutImg3;
+      
+      if (content.heroImage) {
+        const topHeader = document.getElementById('top');
+        if (topHeader) topHeader.style.backgroundImage = `url(${content.heroImage})`;
+      }
+    }
+  });
+</script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: #0E1013; color: #F7F5F0; font-family: Archivo, Helvetica, sans-serif; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: #FFC629; text-decoration: none; }
+  a:hover { color: #FFE08A; }
+  ::selection { background: #FFC629; color: #0E1013; }
+  @keyframes riseIn { from { opacity: 0; transform: translateY(0.16em); } to { opacity: 1; transform: none; } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+</style>
+</helmet>
+
+<div style="background:#0E1013; overflow-x:hidden">
+
+  <sc-if value="{{ desktop }}" hint-placeholder-val="{{ true }}">
+  <nav style="position:sticky; top:0; z-index:60; background:#0E1013; border-bottom:1px solid rgba(247,245,240,0.16)">
+    <div style="max-width:1440px; margin:0 auto; height:clamp(78px,6vw,112px); display:flex; align-items:center; justify-content:space-between; gap:clamp(16px,3vw,48px); padding:0 clamp(16px,4vw,48px)">
+      <a href="#top" style="display:flex; align-items:center; gap:14px; color:#F7F5F0; flex:0 0 auto">
+        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="height:clamp(42px,3.8vw,58px); width:auto; display:block" />
+      </a>
+      <div style="display:flex; align-items:center; gap:clamp(14px,2.2vw,34px); flex-wrap:wrap; justify-content:flex-end">
+        <a href="#about" style="font-size:clamp(13px,1.05vw,15px); font-weight:700; letter-spacing:0.17em; text-transform:uppercase; color:#F7F5F0; padding:6px 0; border-bottom:2px solid transparent" style-hover="color:#FFC629; border-bottom-color:#FFC629">About</a>
+        <a href="#tafrah" style="font-size:clamp(13px,1.05vw,15px); font-weight:700; letter-spacing:0.17em; text-transform:uppercase; color:#F7F5F0; padding:6px 0; border-bottom:2px solid transparent" style-hover="color:#FFC629; border-bottom-color:#FFC629">Projects</a>
+        <a href="#teams" style="font-size:clamp(13px,1.05vw,15px); font-weight:700; letter-spacing:0.17em; text-transform:uppercase; color:#F7F5F0; padding:6px 0; border-bottom:2px solid transparent" style-hover="color:#FFC629; border-bottom-color:#FFC629">Teams</a>
+        <a href="#life" style="font-size:clamp(13px,1.05vw,15px); font-weight:700; letter-spacing:0.17em; text-transform:uppercase; color:#F7F5F0; padding:6px 0; border-bottom:2px solid transparent" style-hover="color:#FFC629; border-bottom-color:#FFC629">Life</a>
+        <a href="#join" style="display:flex; align-items:center; gap:10px; padding:14px 26px; border-radius:2px; background:#FFC629; color:#0E1013; font-size:clamp(13px,1.05vw,15px); font-weight:800; letter-spacing:0.12em; text-transform:uppercase; min-height:48px" style-hover="background:#0E1013; color:#FFC629; box-shadow:inset 0 0 0 2px #FFC629">Join us
+          <span style="font-size:17px; line-height:1">→</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+  </sc-if>
+
+  <sc-if value="{{ mobile }}">
+  <nav style="position:sticky; top:0; z-index:60; background:#0E1013; border-bottom:1px solid rgba(247,245,240,0.16)">
+    <div style="height:68px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px">
+      <a href="#top" style="display:flex; align-items:center">
+        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="height:42px; width:auto; display:block" />
+      </a>
+      <div style="display:flex; align-items:center; gap:9px">
+        <a href="#join" style="display:flex; align-items:center; gap:7px; padding:0 16px; background:#FFC629; color:#0E1013; font-size:12px; font-weight:800; letter-spacing:0.12em; text-transform:uppercase; border-radius:2px; height:46px">Join <span style="font-size:15px; line-height:1">→</span></a>
+        <button type="button" onClick="{{ toggleMenu }}" aria-label="Open menu" style="width:46px; height:46px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; background:transparent; border:1px solid rgba(247,245,240,0.32); border-radius:2px; cursor:pointer; padding:0; flex:0 0 auto">
+          <span style="width:20px; height:2px; background:#F7F5F0; display:block"></span>
+          <span style="width:20px; height:2px; background:#F7F5F0; display:block"></span>
+          <span style="width:20px; height:2px; background:#F7F5F0; display:block"></span>
+        </button>
+      </div>
+    </div>
+  </nav>
+  </sc-if>
+
+  <sc-if value="{{ menu }}">
+    <div style="position:fixed; inset:0; z-index:90; background:#0E1013; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.06) 0 1px, transparent 1px 16px); display:flex; flex-direction:column; padding:11px 16px 24px; animation:fadeIn 200ms ease both">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px">
+        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="height:40px; width:auto; display:block" />
+        <button type="button" onClick="{{ closeMenu }}" aria-label="Close menu" style="width:46px; height:46px; border:1px solid rgba(247,245,240,0.32); border-radius:2px; background:transparent; color:#F7F5F0; font-size:26px; line-height:1; font-family:Archivo,sans-serif; cursor:pointer; flex:0 0 auto">×</button>
+      </div>
+      <div style="display:flex; flex-direction:column; margin:auto 0">
+        <a href="#about" onClick="{{ closeMenu }}" style="display:flex; align-items:baseline; gap:14px; padding:18px 0; border-bottom:1px solid rgba(247,245,240,0.12); color:#F7F5F0; font-size:clamp(28px,8.6vw,38px); font-weight:900; letter-spacing:-0.03em; text-transform:uppercase; line-height:1">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:400; letter-spacing:0.2em; color:#FFC629">01</span>About</a>
+        <a href="#tafrah" onClick="{{ closeMenu }}" style="display:flex; align-items:baseline; gap:14px; padding:18px 0; border-bottom:1px solid rgba(247,245,240,0.12); color:#F7F5F0; font-size:clamp(28px,8.6vw,38px); font-weight:900; letter-spacing:-0.03em; text-transform:uppercase; line-height:1">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:400; letter-spacing:0.2em; color:#FFC629">02</span>Projects</a>
+        <a href="#teams" onClick="{{ closeMenu }}" style="display:flex; align-items:baseline; gap:14px; padding:18px 0; border-bottom:1px solid rgba(247,245,240,0.12); color:#F7F5F0; font-size:clamp(28px,8.6vw,38px); font-weight:900; letter-spacing:-0.03em; text-transform:uppercase; line-height:1">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:400; letter-spacing:0.2em; color:#FFC629">03</span>Teams</a>
+        <a href="#life" onClick="{{ closeMenu }}" style="display:flex; align-items:baseline; gap:14px; padding:18px 0; border-bottom:1px solid rgba(247,245,240,0.12); color:#F7F5F0; font-size:clamp(28px,8.6vw,38px); font-weight:900; letter-spacing:-0.03em; text-transform:uppercase; line-height:1">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:400; letter-spacing:0.2em; color:#FFC629">04</span>Life</a>
+      </div>
+      <a href="#join" onClick="{{ closeMenu }}" style="display:flex; align-items:center; justify-content:center; gap:10px; height:56px; background:#FFC629; color:#0E1013; font-size:14px; font-weight:800; letter-spacing:0.12em; text-transform:uppercase; border-radius:2px">Join the next season <span style="font-size:18px; line-height:1">→</span></a>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ desktop }}" hint-placeholder-val="{{ true }}">
+  <header id="top" style="position:relative; background:#0E1013; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.055) 0 1px, transparent 1px 16px); overflow:hidden">
+    <div style="max-width:1560px; margin:0 auto; height:calc(100dvh - clamp(78px,6vw,112px) - 1px); padding:min(clamp(26px,3vw,44px),3.2vh) clamp(16px,4vw,52px) min(clamp(22px,2.6vw,38px),2.8vh); display:flex; flex-direction:column; justify-content:space-between; gap:min(clamp(20px,4vw,56px),3.2vh)">
+
+      <div style="display:flex; flex-wrap:wrap; gap:18px; align-items:center; justify-content:space-between; font-family:'IBM Plex Mono',monospace; font-size:clamp(10px,0.82vw,12.5px); letter-spacing:0.24em; text-transform:uppercase; animation:fadeIn 700ms ease both">
+        <span style="display:flex; align-items:center; gap:13px; color:#FFC629">
+          <span style="width:11px; height:11px; background:#FFC629; display:block; transform:rotate(45deg); flex:0 0 auto"></span>
+          Sadat Academy — Maadi
+        </span>
+        <span style="color:rgba(247,245,240,0.58)">Student chapter · Enactus Egypt</span>
+      </div>
+
+      <h1 style="margin:0; font-weight:900; letter-spacing:-0.05em; text-transform:uppercase; line-height:0.84; font-size:min(clamp(46px,8.6vw,150px),13vh); display:flex; flex-direction:column; min-height:0">
+        <span style="display:flex; align-items:center; gap:clamp(14px,2vw,34px); animation:riseIn 900ms cubic-bezier(0.2,0.7,0.2,1) both">
+          <span style="color:transparent; -webkit-text-stroke:clamp(1.5px,0.16vw,3px) rgba(247,245,240,0.7)">We</span>
+          <span style="flex:1 1 auto; height:1px; background:rgba(247,245,240,0.22)"></span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:clamp(10px,0.82vw,12.5px); font-weight:400; letter-spacing:0.22em; color:rgba(247,245,240,0.58); white-space:nowrap">Entrepreneurial action</span>
+        </span>
+        <span style="color:#F7F5F0; animation:riseIn 900ms cubic-bezier(0.2,0.7,0.2,1) 120ms both">Change</span>
+        <span style="color:#FFC629; animation:riseIn 900ms cubic-bezier(0.2,0.7,0.2,1) 240ms both">The World</span>
+      </h1>
+
+      <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:clamp(20px,3vw,64px); align-items:end; border-top:1px solid rgba(247,245,240,0.16); padding-top:min(clamp(20px,2.4vw,32px),2.2vh); animation:fadeIn 900ms ease 420ms both; min-height:0">
+        <div style="display:flex; flex-direction:column; gap:min(22px,2.2vh); max-width:52ch; min-height:0">
+          <p style="margin:0; font-size:min(clamp(15px,1.35vw,20px),2.7vh); line-height:1.5; color:rgba(247,245,240,0.84)">A student team building real ventures for real problems — six teams, one project a year, and a campus that hears about all of it.</p>
+          <div style="display:flex; gap:12px; align-items:center; flex-wrap:nowrap">
+            <a href="#join" style="display:inline-flex; align-items:center; gap:10px; padding:0 clamp(20px,1.9vw,30px); background:#FFC629; color:#0E1013; font-size:min(14px,1.9vh); font-weight:800; letter-spacing:0.12em; text-transform:uppercase; border-radius:2px; height:min(52px,8vh); white-space:nowrap; flex:0 0 auto" style-hover="background:#FFD75E; color:#0E1013">Join the next season <span style="font-size:18px; line-height:1">→</span></a>
+            <a href="#tafrah" style="display:inline-flex; align-items:center; gap:10px; padding:0 clamp(20px,1.9vw,30px); color:#F7F5F0; font-size:min(14px,1.9vh); font-weight:800; letter-spacing:0.12em; text-transform:uppercase; border-radius:2px; box-shadow:inset 0 0 0 1.5px rgba(247,245,240,0.4); height:min(52px,8vh); white-space:nowrap; flex:0 0 auto" style-hover="color:#FFC629; box-shadow:inset 0 0 0 1.5px #FFC629">See Tafrah</a>
+          </div>
+        </div>
+        <div style="display:flex; gap:clamp(18px,2.4vw,52px); flex:0 0 auto">
+          <div style="display:flex; flex-direction:column; gap:min(6px,0.9vh)">
+            <span style="font-size:min(clamp(28px,2.9vw,42px),4.8vh); font-weight:900; letter-spacing:-0.04em; color:#FFC629; line-height:1">06</span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:min(11px,1.6vh); letter-spacing:0.2em; text-transform:uppercase; color:rgba(247,245,240,0.66); white-space:nowrap">Teams</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:min(6px,0.9vh)">
+            <span style="font-size:min(clamp(28px,2.9vw,42px),4.8vh); font-weight:900; letter-spacing:-0.04em; color:#FFC629; line-height:1">01</span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:min(11px,1.6vh); letter-spacing:0.2em; text-transform:uppercase; color:rgba(247,245,240,0.66); white-space:nowrap">Project at nationals</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:min(6px,0.9vh)">
+            <span style="font-size:min(clamp(28px,2.9vw,42px),4.8vh); font-weight:900; letter-spacing:-0.04em; color:#FFC629; line-height:1">∞</span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:min(11px,1.6vh); letter-spacing:0.2em; text-transform:uppercase; color:rgba(247,245,240,0.66); white-space:nowrap">Reasons to start</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+  </sc-if>
+
+  <sc-if value="{{ mobile }}">
+  <header id="top" style="position:relative; background:#0E1013; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.055) 0 1px, transparent 1px 16px); overflow:hidden">
+    <div style="height:calc(100dvh - 69px); overflow:hidden; padding:min(24px,2.8vh) 18px min(26px,2.8vh); display:flex; flex-direction:column; justify-content:space-between; gap:min(26px,3vh); min-height:0">
+
+      <div style="display:flex; flex-direction:column; gap:9px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:0.22em; text-transform:uppercase; animation:fadeIn 700ms ease both">
+        <span style="display:flex; align-items:center; gap:11px; color:#FFC629">
+          <span style="width:10px; height:10px; background:#FFC629; display:block; transform:rotate(45deg); flex:0 0 auto"></span>
+          Sadat Academy — Maadi
+        </span>
+        <span style="color:rgba(247,245,240,0.55); padding-left:21px">Entrepreneurial action · Enactus Egypt</span>
+      </div>
+
+      <h1 style="margin:0; font-weight:900; letter-spacing:-0.045em; text-transform:uppercase; line-height:0.84; font-size:min(clamp(50px,15.6vw,108px),15vh); display:flex; flex-direction:column; min-height:0; flex:0 1 auto">
+        <span style="color:transparent; -webkit-text-stroke:2px rgba(247,245,240,0.7); animation:riseIn 900ms cubic-bezier(0.2,0.7,0.2,1) both">We</span>
+        <span style="color:#F7F5F0; animation:riseIn 900ms cubic-bezier(0.2,0.7,0.2,1) 120ms both">Change</span>
+        <span style="color:#FFC629; animation:riseIn 900ms cubic-bezier(0.2,0.7,0.2,1) 240ms both">The World</span>
+      </h1>
+
+      <div style="display:flex; flex-direction:column; gap:min(20px,2.4vh); border-top:1px solid rgba(247,245,240,0.16); padding-top:min(20px,2.2vh); animation:fadeIn 900ms ease 420ms both; min-height:0">
+        <p style="margin:0; font-size:min(16px,2vh); line-height:1.5; color:rgba(247,245,240,0.84)">A student team building real ventures for real problems — six teams, one project a year, and a campus that hears about all of it.</p>
+        <div style="display:flex; flex-direction:column; gap:min(9px,1.2vh)">
+          <a href="#join" style="display:flex; align-items:center; justify-content:center; gap:10px; height:min(56px,7vh); flex:0 0 auto; background:#FFC629; color:#0E1013; font-size:13.5px; font-weight:800; letter-spacing:0.12em; text-transform:uppercase; border-radius:2px">Join the next season <span style="font-size:18px; line-height:1">→</span></a>
+          <a href="#tafrah" style="display:flex; align-items:center; justify-content:center; gap:10px; height:min(54px,6.8vh); flex:0 0 auto; color:#F7F5F0; font-size:13.5px; font-weight:800; letter-spacing:0.12em; text-transform:uppercase; border-radius:2px; box-shadow:inset 0 0 0 1.5px rgba(247,245,240,0.4)">See Tafrah</a>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; border-top:1px solid rgba(247,245,240,0.12); padding-top:min(16px,2vh)">
+          <div style="display:flex; flex-direction:column; gap:5px">
+            <span style="font-size:min(30px,4vh); font-weight:900; letter-spacing:-0.04em; color:#FFC629; line-height:1">06</span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:0.16em; text-transform:uppercase; color:rgba(247,245,240,0.66); line-height:1.4">Teams</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:5px">
+            <span style="font-size:min(30px,4vh); font-weight:900; letter-spacing:-0.04em; color:#FFC629; line-height:1">01</span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:0.16em; text-transform:uppercase; color:rgba(247,245,240,0.66); line-height:1.4">Project at nationals</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:5px">
+            <span style="font-size:min(30px,4vh); font-weight:900; letter-spacing:-0.04em; color:#FFC629; line-height:1">∞</span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:0.16em; text-transform:uppercase; color:rgba(247,245,240,0.66); line-height:1.4">Reasons to start</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+  </sc-if>
+
+  <section id="about" style="padding:clamp(56px,9vw,132px) clamp(16px,4vw,48px); background:#F7F5F0; color:#0E1013">
+    <div style="max-width:1280px; margin:0 auto; display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr)); gap:clamp(32px,5vw,72px); align-items:start">
+      <div style="display:flex; flex-direction:column; gap:22px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.22em; text-transform:uppercase; color:#6D5E2C">01 — Who we are</span>
+        <h2 style="margin:0; font-size:clamp(32px,4.6vw,62px); line-height:1.02; font-weight:900; letter-spacing:-0.035em; text-wrap:balance">A club that builds businesses to solve problems.</h2>
+        <p style="margin:0; font-size:clamp(16px,1.4vw,19px); line-height:1.6; color:#33383F; max-width:56ch">Enactus is a global network of students, academics and business leaders. Our chapter at Sadat Academy — Maadi runs the full cycle ourselves: we find a problem in our community, design a venture that answers it, build it, measure it, and defend it in front of national judges.</p>
+        <p style="margin:0; font-size:clamp(16px,1.4vw,19px); line-height:1.6; color:#33383F; max-width:56ch">Nobody here is only a member. You write, you pitch, you film, you negotiate, you manage a budget — usually in the same week.</p>
+        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:6px">
+          <span style="padding:9px 15px; border:1px solid rgba(14,16,19,0.16); border-radius:999px; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.08em">Social entrepreneurship</span>
+          <span style="padding:9px 15px; border:1px solid rgba(14,16,19,0.16); border-radius:999px; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.08em">Field research</span>
+          <span style="padding:9px 15px; border:1px solid rgba(14,16,19,0.16); border-radius:999px; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.08em">Pitching</span>
+          <span style="padding:9px 15px; border:1px solid rgba(14,16,19,0.16); border-radius:999px; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.08em">Production</span>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:clamp(10px,1.4vw,18px)">
+        <img src="assets/bench.jpg" alt="Members together on campus" data-src="assets/bench.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:200px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" />
+        <img src="assets/certificate.jpg" alt="Members holding the Enactus recognition certificate" data-src="assets/certificate.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+        <img src="assets/glasses.jpg" alt="A student laughing during a campus activation" data-src="assets/glasses.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+      </div>
+    </div>
+  </section>
+
+  <section id="tafrah" style="padding:clamp(56px,9vw,132px) clamp(16px,4vw,48px); background:#141B2E; color:#F7F5F0">
+    <div style="max-width:1280px; margin:0 auto; display:flex; flex-direction:column; gap:clamp(34px,5vw,64px)">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:clamp(28px,4vw,64px); align-items:end">
+        <div style="display:flex; flex-direction:column; gap:20px">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.22em; text-transform:uppercase; color:#FFC629">02 — This year's project</span>
+          <h2 style="margin:0; font-size:clamp(40px,7vw,104px); line-height:0.9; font-weight:900; letter-spacing:-0.04em">Tafrah<span style="color:#FFC629">.</span></h2>
+          <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:clamp(13px,1.2vw,15px); letter-spacing:0.06em; color:rgba(247,245,240,0.7)">طفـــرة — the leap</p>
+        </div>
+        <p style="margin:0; font-size:clamp(17px,1.7vw,24px); line-height:1.5; color:rgba(247,245,240,0.9); max-width:52ch">A training and employment platform built for autistic people in Egypt: a calm working environment, direct instruction, and real job opportunities that protect their rights.</p>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:clamp(16px,2.2vw,28px); align-items:stretch">
+        <img src="assets/tafrah-site.jpg" alt="The Tafrah platform open on a laptop during filming" data-src="assets/tafrah-site.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:260px; object-fit:cover; border-radius:6px; cursor:zoom-in" />
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:clamp(12px,1.6vw,20px)">
+          <div style="background:rgba(247,245,240,0.06); border:1px solid rgba(247,245,240,0.12); border-radius:6px; padding:clamp(18px,2.1vw,26px); display:flex; flex-direction:column; gap:10px" style-hover="border-color:rgba(255,198,41,0.5); background:rgba(247,245,240,0.09)">
+            <span style="font-size:clamp(26px,2.4vw,34px); font-weight:900; letter-spacing:-0.04em; line-height:1; color:#FFC629">01</span>
+            <h3 style="margin:0; font-size:clamp(19px,1.85vw,24px); font-weight:800; letter-spacing:-0.025em; line-height:1.1">Courses</h3>
+            <p style="margin:0; font-size:15px; line-height:1.5; color:rgba(247,245,240,0.82); text-wrap:pretty">Skill tracks written in plain, literal language with predictable structure and no sensory noise.</p>
+          </div>
+          <div style="background:rgba(247,245,240,0.06); border:1px solid rgba(247,245,240,0.12); border-radius:6px; padding:clamp(18px,2.1vw,26px); display:flex; flex-direction:column; gap:10px" style-hover="border-color:rgba(255,198,41,0.5); background:rgba(247,245,240,0.09)">
+            <span style="font-size:clamp(26px,2.4vw,34px); font-weight:900; letter-spacing:-0.04em; line-height:1; color:#FFC629">02</span>
+            <h3 style="margin:0; font-size:clamp(19px,1.85vw,24px); font-weight:800; letter-spacing:-0.025em; line-height:1.1">Assistant</h3>
+            <p style="margin:0; font-size:15px; line-height:1.5; color:rgba(247,245,240,0.82); text-wrap:pretty">Step-by-step guidance through every task, so nobody is left guessing what happens next.</p>
+          </div>
+          <div style="background:rgba(247,245,240,0.06); border:1px solid rgba(247,245,240,0.12); border-radius:6px; padding:clamp(18px,2.1vw,26px); display:flex; flex-direction:column; gap:10px" style-hover="border-color:rgba(255,198,41,0.5); background:rgba(247,245,240,0.09)">
+            <span style="font-size:clamp(26px,2.4vw,34px); font-weight:900; letter-spacing:-0.04em; line-height:1; color:#FFC629">03</span>
+            <h3 style="margin:0; font-size:clamp(19px,1.85vw,24px); font-weight:800; letter-spacing:-0.025em; line-height:1.1">Jobs</h3>
+            <p style="margin:0; font-size:15px; line-height:1.5; color:rgba(247,245,240,0.82); text-wrap:pretty">Vetted employers, clear expectations, and roles matched to how each person actually works best.</p>
+          </div>
+          <div style="background:rgba(247,245,240,0.06); border:1px solid rgba(247,245,240,0.12); border-radius:6px; padding:clamp(18px,2.1vw,26px); display:flex; flex-direction:column; gap:10px" style-hover="border-color:rgba(255,198,41,0.5); background:rgba(247,245,240,0.09)">
+            <span style="font-size:clamp(26px,2.4vw,34px); font-weight:900; letter-spacing:-0.04em; line-height:1; color:#FFC629">04</span>
+            <h3 style="margin:0; font-size:clamp(19px,1.85vw,24px); font-weight:800; letter-spacing:-0.025em; line-height:1.1">Dashboard</h3>
+            <p style="margin:0; font-size:15px; line-height:1.5; color:rgba(247,245,240,0.82); text-wrap:pretty">Progress, certificates and readiness in one view — for the trainee and for the employer.</p>
+          </div>
+        </div>
+      </div>
+
+      <sc-if value="{{ desktop }}" hint-placeholder-val="{{ true }}">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr)); gap:clamp(10px,1.4vw,18px)">
+        <img src="assets/tafrah-set.jpg" alt="Behind the scenes of the Tafrah shoot" data-src="assets/tafrah-set.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+        <img src="assets/tafrah-monitor.jpg" alt="Camera monitor during the Tafrah shoot" data-src="assets/tafrah-monitor.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+        <img src="assets/notebook.jpg" alt="A member running the shot list" data-src="assets/notebook.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+        <img src="assets/laptop-team.jpg" alt="Team reviewing the platform together" data-src="assets/laptop-team.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+        <img src="assets/media-tripod.jpg" alt="Filming the project video" data-src="assets/media-tripod.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+      </div>
+      </sc-if>
+      <sc-if value="{{ mobile }}">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+        <img src="assets/tafrah-set.jpg" alt="Behind the scenes of the Tafrah shoot" data-src="assets/tafrah-set.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+        <img src="assets/tafrah-monitor.jpg" alt="Camera monitor during the Tafrah shoot" data-src="assets/tafrah-monitor.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+      </div>
+      </sc-if>
+      <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.7; letter-spacing:0.04em; color:rgba(247,245,240,0.52)">Tafrah was the venture Enactus SAMS Maadi carried to the Enactus Egypt national competition this year.</p>
+    </div>
+  </section>
+
+  <section id="teams" style="padding:clamp(56px,9vw,132px) clamp(16px,4vw,48px); background:#FFC629; color:#0E1013">
+    <div style="max-width:1280px; margin:0 auto; display:flex; flex-direction:column; gap:clamp(30px,4vw,56px)">
+      <div style="display:flex; flex-wrap:wrap; gap:24px; align-items:end; justify-content:space-between">
+        <div style="display:flex; flex-direction:column; gap:18px">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.22em; text-transform:uppercase; color:rgba(14,16,19,0.66)">03 — Inside the club</span>
+          <h2 style="margin:0; font-size:clamp(32px,4.6vw,62px); line-height:1.02; font-weight:900; letter-spacing:-0.035em">Six teams. One project.</h2>
+        </div>
+        <p style="margin:0; max-width:40ch; font-size:16px; line-height:1.6; color:#26292E">Every team owns a real part of the outcome. You pick where you start — not where you stay.</p>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:clamp(14px,1.8vw,22px)">
+        <article style="border:1px solid rgba(14,16,19,0.2); border-radius:6px; overflow:hidden; background:#0E1013; color:#F7F5F0; display:flex; flex-direction:column" style-hover="border-color:#0E1013; transform:translateY(-4px)">
+          <div style="height:clamp(130px,15vw,168px); display:flex; align-items:center; justify-content:center; background:#181C22; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.07) 0 1px, transparent 1px 14px); border-bottom:1px solid rgba(247,245,240,0.12)">
+            <svg width="58" height="58" viewBox="0 0 24 24" fill="none" stroke="#FFC629" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="2.5" width="6" height="11" rx="3"></rect>
+              <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"></path>
+              <path d="M12 18v3.2"></path>
+              <path d="M8.6 21.2h6.8"></path>
+            </svg>
+          </div>
+          <div style="padding:clamp(18px,2vw,26px); display:flex; flex-direction:column; gap:10px">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">01 / Presentation</span>
+            <h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">The voice in the room</h3>
+            <p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">Turns a year of work into seventeen minutes on stage: script, structure, delivery, and surviving the judges' questions.</p>
+          </div>
+        </article>
+        <article style="border:1px solid rgba(14,16,19,0.2); border-radius:6px; overflow:hidden; background:#0E1013; color:#F7F5F0; display:flex; flex-direction:column" style-hover="border-color:#0E1013; transform:translateY(-4px)">
+          <div style="height:clamp(130px,15vw,168px); display:flex; align-items:center; justify-content:center; background:#181C22; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.07) 0 1px, transparent 1px 14px); border-bottom:1px solid rgba(247,245,240,0.12)">
+            <svg width="58" height="58" viewBox="0 0 24 24" fill="none" stroke="#FFC629" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3.5 6h10"></path>
+              <path d="M3.5 12h8"></path>
+              <path d="M3.5 18h5"></path>
+              <path d="M15.2 15.6l2.3 2.4 4-4.6"></path>
+            </svg>
+          </div>
+          <div style="padding:clamp(18px,2vw,26px); display:flex; flex-direction:column; gap:10px">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">02 / Project Management</span>
+            <h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">From idea to impact</h3>
+            <p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">Owns scope, timelines and field execution — and proves the social and financial results with real numbers.</p>
+          </div>
+        </article>
+        <article style="border:1px solid rgba(14,16,19,0.2); border-radius:6px; overflow:hidden; background:#0E1013; color:#F7F5F0; display:flex; flex-direction:column" style-hover="border-color:#0E1013; transform:translateY(-4px)">
+          <div style="height:clamp(130px,15vw,168px); display:flex; align-items:center; justify-content:center; background:#181C22; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.07) 0 1px, transparent 1px 14px); border-bottom:1px solid rgba(247,245,240,0.12)">
+            <svg width="58" height="58" viewBox="0 0 24 24" fill="none" stroke="#FFC629" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="9" cy="8" r="3.3"></circle>
+              <path d="M3.2 19.6c0-3.2 2.6-5.3 5.8-5.3s5.8 2.1 5.8 5.3"></path>
+              <circle cx="17.8" cy="9.6" r="2.4"></circle>
+              <path d="M16.4 14.6c2.8-.3 4.6 1.8 4.6 5"></path>
+            </svg>
+          </div>
+          <div style="padding:clamp(18px,2vw,26px); display:flex; flex-direction:column; gap:10px">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">03 / Human Resources</span>
+            <h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">The people engine</h3>
+            <p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">Recruitment, onboarding, training calendar and culture. The reason the club still feels like a club in month nine.</p>
+          </div>
+        </article>
+        <article style="border:1px solid rgba(14,16,19,0.2); border-radius:6px; overflow:hidden; background:#0E1013; color:#F7F5F0; display:flex; flex-direction:column" style-hover="border-color:#0E1013; transform:translateY(-4px)">
+          <div style="height:clamp(130px,15vw,168px); display:flex; align-items:center; justify-content:center; background:#181C22; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.07) 0 1px, transparent 1px 14px); border-bottom:1px solid rgba(247,245,240,0.12)">
+            <svg width="58" height="58" viewBox="0 0 24 24" fill="none" stroke="#FFC629" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10.2 14.4a4.3 4.3 0 0 1 0-6l2.4-2.4a4.3 4.3 0 0 1 6 6L17.2 13.2"></path>
+              <path d="M13.8 9.6a4.3 4.3 0 0 1 0 6l-2.4 2.4a4.3 4.3 0 0 1-6-6L6.8 10.8"></path>
+            </svg>
+          </div>
+          <div style="padding:clamp(18px,2vw,26px); display:flex; flex-direction:column; gap:10px">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">04 / External Affairs</span>
+            <h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">Doors, opened</h3>
+            <p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">Sponsors, NGOs, companies and the academy itself — the partnerships that make a student project possible.</p>
+          </div>
+        </article>
+        <article style="border:1px solid rgba(14,16,19,0.2); border-radius:6px; overflow:hidden; background:#0E1013; color:#F7F5F0; display:flex; flex-direction:column" style-hover="border-color:#0E1013; transform:translateY(-4px)">
+          <div style="height:clamp(130px,15vw,168px); display:flex; align-items:center; justify-content:center; background:#181C22; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.07) 0 1px, transparent 1px 14px); border-bottom:1px solid rgba(247,245,240,0.12)">
+            <svg width="58" height="58" viewBox="0 0 24 24" fill="none" stroke="#FFC629" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="17.8" cy="5.6" r="2.7"></circle>
+              <circle cx="6.2" cy="12" r="2.7"></circle>
+              <circle cx="17.8" cy="18.4" r="2.7"></circle>
+              <path d="M15.4 6.9 8.6 10.6"></path>
+              <path d="M8.6 13.4l6.8 3.7"></path>
+            </svg>
+          </div>
+          <div style="padding:clamp(18px,2vw,26px); display:flex; flex-direction:column; gap:10px">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">05 / Social Media</span>
+            <h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">Where the story spreads</h3>
+            <p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">Calendar, copy, community and campaign launches. If the campus knows about it, this team made sure of it.</p>
+          </div>
+        </article>
+        <article style="border:1px solid rgba(14,16,19,0.2); border-radius:6px; overflow:hidden; background:#0E1013; color:#F7F5F0; display:flex; flex-direction:column" style-hover="border-color:#0E1013; transform:translateY(-4px)">
+          <div style="height:clamp(130px,15vw,168px); display:flex; align-items:center; justify-content:center; background:#181C22; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.07) 0 1px, transparent 1px 14px); border-bottom:1px solid rgba(247,245,240,0.12)">
+            <svg width="58" height="58" viewBox="0 0 24 24" fill="none" stroke="#FFC629" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2.5" y="7.4" width="19" height="13.1" rx="2"></rect>
+              <path d="M8.6 7.4l1.6-3.1h3.6l1.6 3.1"></path>
+              <circle cx="12" cy="14" r="3.5"></circle>
+            </svg>
+          </div>
+          <div style="padding:clamp(18px,2vw,26px); display:flex; flex-direction:column; gap:10px">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">06 / Media Production</span>
+            <h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">Everything you see</h3>
+            <p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">Photo, video, editing and design — the visual record of every session, activation and project film.</p>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="life" style="padding:clamp(56px,9vw,132px) clamp(16px,4vw,48px); background:#F7F5F0; color:#0E1013">
+    <div style="max-width:1280px; margin:0 auto; display:flex; flex-direction:column; gap:clamp(26px,3.5vw,44px)">
+      <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:end; justify-content:space-between">
+        <div style="display:flex; flex-direction:column; gap:16px">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.22em; text-transform:uppercase; color:#6D5E2C">04 — Life at Enactus</span>
+          <h2 style="margin:0; font-size:clamp(32px,4.6vw,62px); line-height:1.02; font-weight:900; letter-spacing:-0.035em">Long days, yellow everywhere.</h2>
+        </div>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.1em; color:#6B6F76">Tap any photo to enlarge</span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:clamp(10px,1.3vw,16px)">
+        <img src="assets/banner.jpg" alt="The WE CHANGE THE WORLD banner on campus" data-src="assets/banner.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/flag.jpg" alt="Members marching with the chapter flag" data-src="assets/flag.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/portrait-a.jpg" alt="Member portrait" data-src="assets/portrait-a.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/thinking.jpg" alt="Member working through the plan" data-src="assets/thinking.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/portrait-b.jpg" alt="Member portrait" data-src="assets/portrait-b.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/seated-laptop.jpg" alt="Member working on a laptop between takes" data-src="assets/seated-laptop.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/bazaar-table.jpg" alt="Students browsing the handmade merch stand" data-src="assets/bazaar-table.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/caricature-draw.jpg" alt="A caricature being drawn at the booth" data-src="assets/caricature-draw.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/caricature-pose.jpg" alt="A student sitting for his caricature" data-src="assets/caricature-pose.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/booth-smile.jpg" alt="A member laughing behind the booth table" data-src="assets/booth-smile.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img src="assets/group-hero.jpg" alt="The whole chapter on campus day" data-src="assets/group-hero.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:240px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" style-hover="opacity:0.88" />
+      </div>
+    </div>
+  </section>
+
+  <section id="join" style="padding:clamp(56px,9vw,140px) clamp(16px,4vw,48px); background:#FFC629; color:#0E1013">
+    <div style="max-width:1280px; margin:0 auto; display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:clamp(30px,4vw,64px); align-items:center">
+      <div style="display:flex; flex-direction:column; gap:22px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.22em; text-transform:uppercase; color:rgba(14,16,19,0.66)">05 — {{ joinKicker }}</span>
+        <h2 style="margin:0; font-size:clamp(36px,5.6vw,82px); line-height:0.94; font-weight:900; letter-spacing:-0.04em; text-transform:uppercase">Join the next season.</h2>
+        <p style="margin:0; font-size:clamp(16px,1.5vw,20px); line-height:1.55; max-width:48ch; color:#26292E">Pick the team you want to start in, tell us why, and come to the interview. No experience required — only the willingness to do the work.</p>
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:nowrap">
+          <a href="#top" style="padding:16px 28px; border-radius:999px; background:#0E1013; color:#FFC629; font-size:14px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase" style-hover="background:#24282F; color:#FFC629">{{ joinCta }}</a>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:13px; letter-spacing:0.06em; color:rgba(14,16,19,0.7)">{{ joinNote }}</span>
+        </div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:14px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; text-transform:uppercase; color:rgba(14,16,19,0.6)">Choose your team</span>
+        <div style="display:flex; flex-wrap:wrap; gap:10px">
+          <button type="button" data-team="Presentation" onClick="{{ pick }}" style="padding:13px 20px; border-radius:999px; border:1.5px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; min-height:44px" style-hover="background:rgba(14,16,19,0.1)">Presentation</button>
+          <button type="button" data-team="Project Management" onClick="{{ pick }}" style="padding:13px 20px; border-radius:999px; border:1.5px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; min-height:44px" style-hover="background:rgba(14,16,19,0.1)">Project Management</button>
+          <button type="button" data-team="HR" onClick="{{ pick }}" style="padding:13px 20px; border-radius:999px; border:1.5px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; min-height:44px" style-hover="background:rgba(14,16,19,0.1)">HR</button>
+          <button type="button" data-team="External Affairs" onClick="{{ pick }}" style="padding:13px 20px; border-radius:999px; border:1.5px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; min-height:44px" style-hover="background:rgba(14,16,19,0.1)">External Affairs</button>
+          <button type="button" data-team="Social Media" onClick="{{ pick }}" style="padding:13px 20px; border-radius:999px; border:1.5px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; min-height:44px" style-hover="background:rgba(14,16,19,0.1)">Social Media</button>
+          <button type="button" data-team="Media Production" onClick="{{ pick }}" style="padding:13px 20px; border-radius:999px; border:1.5px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; min-height:44px" style-hover="background:rgba(14,16,19,0.1)">Media Production</button>
+        </div>
+        <p style="margin:6px 0 0; font-size:16px; line-height:1.5; font-weight:600; min-height:24px">{{ pickedLine }}</p>
+      </div>
+    </div>
+  </section>
+
+  <footer style="padding:clamp(40px,5vw,72px) clamp(16px,4vw,48px); background:#0E1013; border-top:1px solid rgba(247,245,240,0.12)">
+    <div style="max-width:1280px; margin:0 auto; display:flex; flex-wrap:wrap; gap:32px; align-items:flex-start; justify-content:space-between">
+      <div style="display:flex; flex-direction:column; gap:14px">
+        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="width:clamp(200px,26vw,300px); height:auto; display:block" />
+        <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.8; letter-spacing:0.06em; color:rgba(247,245,240,0.55)">Sadat Academy for Management Sciences — Maadi<br />Cairo, Egypt</p>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:10px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; text-transform:uppercase; color:rgba(247,245,240,0.5)">Follow</span>
+        <a href="#top" style="font-size:16px; font-weight:600">Instagram</a>
+        <a href="#top" style="font-size:16px; font-weight:600">Facebook</a>
+        <a href="#top" style="font-size:16px; font-weight:600">LinkedIn</a>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:10px">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; text-transform:uppercase; color:rgba(247,245,240,0.5)">Sections</span>
+        <a href="#about" style="font-size:16px; font-weight:600">About</a>
+        <a href="#tafrah" style="font-size:16px; font-weight:600">Tafrah</a>
+        <a href="#teams" style="font-size:16px; font-weight:600">Teams</a>
+        <a href="#join" style="font-size:16px; font-weight:600">Join us</a>
+      </div>
+      <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.9; letter-spacing:0.06em; color:rgba(247,245,240,0.4); max-width:26ch">Enactus SAMS Maadi is a student chapter of the global Enactus network.</p>
+    </div>
+  </footer>
+
+  <sc-if value="{{ lightbox }}">
+    <div onClick="{{ close }}" style="position:fixed; inset:0; z-index:200; background:rgba(8,9,11,0.94); display:flex; align-items:center; justify-content:center; padding:clamp(16px,4vw,56px); cursor:zoom-out; backdrop-filter:blur(6px)">
+      <img src="{{ lightbox }}" alt="Enlarged photo" style="max-width:100%; max-height:100%; object-fit:contain; border-radius:4px" />
+      <button type="button" onClick="{{ close }}" style="position:absolute; top:clamp(14px,3vw,28px); right:clamp(14px,3vw,28px); width:48px; height:48px; border-radius:999px; border:1px solid rgba(247,245,240,0.3); background:rgba(14,16,19,0.7); color:#F7F5F0; font-size:22px; font-family:Archivo,sans-serif; cursor:pointer">×</button>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;recruitmentOpen&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Recruitment&quot;},&quot;joinNote&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Applications close at the end of the month&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Recruitment&quot;}}">
+class Component extends DCLogic {
+  state = {
+    lightbox: null,
+    picked: null,
+    menu: false,
+    mobile: typeof window !== 'undefined' && window.matchMedia('(max-width: 860px)').matches
+  };
+
+  componentDidMount() {
+    this._key = (e) => { if (e.key === 'Escape') this.setState({ lightbox: null, menu: false }); };
+    window.addEventListener('keydown', this._key);
+    this._mq = window.matchMedia('(max-width: 860px)');
+    this._onMq = () => this.setState({ mobile: this._mq.matches, menu: false });
+    this._mq.addEventListener('change', this._onMq);
+    if (this._mq.matches !== this.state.mobile) this.setState({ mobile: this._mq.matches });
+  }
+  componentWillUnmount() {
+    window.removeEventListener('keydown', this._key);
+    if (this._mq) this._mq.removeEventListener('change', this._onMq);
+  }
+
+
+  renderVals() {
+    const openRecruit = this.props.recruitmentOpen ?? true;
+    const picked = this.state.picked;
+    return {
+      mobile: this.state.mobile,
+      desktop: !this.state.mobile,
+      menu: this.state.mobile && this.state.menu,
+      toggleMenu: () => this.setState((s) => ({ menu: !s.menu })),
+      closeMenu: () => this.setState({ menu: false }),
+      lightbox: this.state.lightbox,
+      open: (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }),
+      close: () => this.setState({ lightbox: null }),
+      pick: (e) => this.setState({ picked: e.currentTarget.getAttribute('data-team') }),
+      pickedLine: picked ? picked + ' — good choice. Mention it in your application.' : '',
+      joinKicker: openRecruit ? 'Recruitment is open' : 'Recruitment',
+      joinCta: openRecruit ? 'Apply now' : 'Join the waitlist',
+      joinNote: openRecruit
+        ? (this.props.joinNote ?? 'Applications close at the end of the month')
+        : 'We open applications at the start of each semester'
+    };
+  }
+}
+</script>
+</body>
+</html>

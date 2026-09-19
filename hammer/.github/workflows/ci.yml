@@ -1,0 +1,32 @@
+# One workflow, and no step may be `continue-on-error`.
+#
+# A gate that reports a failure and goes green anyway is a gate that trains
+# everyone reading it to ignore the first line of output. The same four commands
+# run here as run locally, in the same order, so a red build is reproducible with
+# `npm run check` rather than by reading a log.
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it installs the lockfile exactly and
+      # fails when package.json and the lockfile disagree. A build that silently
+      # resolves a different tree from the one that was reviewed is a build that
+      # tests something nobody wrote.
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run lint

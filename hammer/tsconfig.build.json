@@ -1,0 +1,21 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "outDir": "dist",
+        "rootDir": "src",
+        "noEmit": false,
+
+        // A published source map re-leaks everything tree-shaking removed,
+        // because the map carries the module's full contents (docs/01-seams.md
+        // §4.2). This library is one an application bundles, so a map shipped
+        // here is a map that propagates into the application's own output — the
+        // bundle whose holder route table was the point of never emitting one.
+        //
+        // A declaration map goes for a duller reason: `files` publishes `dist`
+        // and not `src`, so every `.d.ts.map` in the package points at a file
+        // that is not in it.
+        "sourceMap": false,
+        "declarationMap": false
+    },
+    "include": ["src"]
+}
