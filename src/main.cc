@@ -5,7 +5,18 @@
 #include <drogon/drogon.h>
 
 int main() {
-    std::string uri = "mongodb://127.0.0.1:27017/?replicaSet=rs0";
+    const char* env_uri = std::getenv("MONGODB_URI");
+    std::string uri = (env_uri && std::strlen(env_uri) > 0) ? env_uri : "mongodb://127.0.0.1:27017/?replicaSet=rs0";
+
+    const char* env_port = std::getenv("PORT");
+    uint16_t port = (env_port && std::strlen(env_port) > 0) ? static_cast<uint16_t>(std::stoi(env_port)) : 8085;
+
+    const char* env_bind = std::getenv("BIND_ADDR");
+    std::string bind_addr = (env_bind && std::strlen(env_bind) > 0) ? env_bind : "0.0.0.0";
+
+    const char* env_docroot = std::getenv("DOC_ROOT");
+    std::string docRoot = (env_docroot && std::strlen(env_docroot) > 0) ? env_docroot : "public";
+
     try {
         anvil::db::MongoPool::init(uri, 16);
         
@@ -22,14 +33,15 @@ int main() {
             .analytics_queue = 32
         });
 
-        std::cout << "Starting Enactus SAMS Backend..." << std::endl;
+        std::cout << "Starting Enactus SAMS Backend on " << bind_addr << ":" << port << "..." << std::endl;
         
         extern void registerApiHandlers();
         registerApiHandlers();
         
 #include <filesystem>
 
-        auto serveCompressedFile = [](const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& callback, const std::string& path) {
+        auto serveCompressedFile = [docRoot](const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& callback, const std::string& relPath) {
+            std::string path = docRoot + "/" + relPath;
             std::string ae = req->getHeader("accept-encoding");
             std::string finalPath = path;
             std::string enc = "";
@@ -64,27 +76,27 @@ int main() {
                     );
                 } catch (...) {}
             }));
-            serveCompressedFile(req, std::move(callback), "public/index.html");
+            serveCompressedFile(req, std::move(callback), "index.html");
         });
         drogon::app().registerHandler("/admin", [serveCompressedFile](const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            serveCompressedFile(req, std::move(callback), "public/admin/index.html");
+            serveCompressedFile(req, std::move(callback), "admin/index.html");
         });
         drogon::app().registerHandler("/admin/", [serveCompressedFile](const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            serveCompressedFile(req, std::move(callback), "public/admin/index.html");
+            serveCompressedFile(req, std::move(callback), "admin/index.html");
         });
         drogon::app().registerHandler("/apply", [serveCompressedFile](const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            serveCompressedFile(req, std::move(callback), "public/form.html");
+            serveCompressedFile(req, std::move(callback), "form.html");
         });
         drogon::app().registerHandler("/apply/", [serveCompressedFile](const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            serveCompressedFile(req, std::move(callback), "public/form.html");
+            serveCompressedFile(req, std::move(callback), "form.html");
         });
 
         drogon::app()
             .setLogPath("")
             .setLogLevel(trantor::Logger::kInfo)
-            .addListener("0.0.0.0", 8080)
+            .addListener(bind_addr, port)
             .setThreadNum(16)
-            .setDocumentRoot("public")
+            .setDocumentRoot(docRoot)
             .enableGzip(true)
             .enableBrotli(true)
             .setGzipStatic(true)
