@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/x-icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 <script src="./support.js"></script>
 <script>
   // Track page visit dynamically via Anvil backend
@@ -193,9 +195,9 @@
         </div>
       </div>
       <div id="about-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:clamp(10px,1.4vw,18px)">
-        <img src="assets/bench.jpg" alt="Members together on campus" data-src="assets/bench.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:200px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" />
-        <img src="assets/certificate.jpg" alt="Members holding the Enactus recognition certificate" data-src="assets/certificate.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:4px; cursor:zoom-in" />
-        <img src="assets/glasses.jpg" alt="A student laughing during a campus activation" data-src="assets/glasses.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+        <img loading="lazy" src="assets/bench.jpg" alt="Members together on campus" data-src="assets/bench.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:200px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" />
+        <img loading="lazy" src="assets/certificate.jpg" alt="Members holding the Enactus recognition certificate" data-src="assets/certificate.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:4px; cursor:zoom-in" />
+        <img loading="lazy" src="assets/glasses.jpg" alt="A student laughing during a campus activation" data-src="assets/glasses.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:4px; cursor:zoom-in" />
       </div>
     </div>
   </section>
@@ -369,17 +371,17 @@
         <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.1em; color:#6B6F76">{{ lifeSubtitle }}</span>
       </div>
       <div id="gallery-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:clamp(10px,1.3vw,16px)">
-        <img src="assets/banner.jpg" alt="The WE CHANGE THE WORLD banner on campus" data-src="assets/banner.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/flag.jpg" alt="Members marching with the chapter flag" data-src="assets/flag.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/portrait-a.jpg" alt="Member portrait" data-src="assets/portrait-a.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/thinking.jpg" alt="Member working through the plan" data-src="assets/thinking.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/portrait-b.jpg" alt="Member portrait" data-src="assets/portrait-b.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/seated-laptop.jpg" alt="Member working on a laptop between takes" data-src="assets/seated-laptop.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/bazaar-table.jpg" alt="Students browsing the handmade merch stand" data-src="assets/bazaar-table.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/caricature-draw.jpg" alt="A caricature being drawn at the booth" data-src="assets/caricature-draw.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/caricature-pose.jpg" alt="A student sitting for his caricature" data-src="assets/caricature-pose.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/booth-smile.jpg" alt="A member laughing behind the booth table" data-src="assets/booth-smile.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
-        <img src="assets/group-hero.jpg" alt="The whole chapter on campus day" data-src="assets/group-hero.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:240px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/banner.jpg" alt="The WE CHANGE THE WORLD banner on campus" data-src="assets/banner.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/flag.jpg" alt="Members marching with the chapter flag" data-src="assets/flag.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/portrait-a.jpg" alt="Member portrait" data-src="assets/portrait-a.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/thinking.jpg" alt="Member working through the plan" data-src="assets/thinking.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/portrait-b.jpg" alt="Member portrait" data-src="assets/portrait-b.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/seated-laptop.jpg" alt="Member working on a laptop between takes" data-src="assets/seated-laptop.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/bazaar-table.jpg" alt="Students browsing the handmade merch stand" data-src="assets/bazaar-table.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/caricature-draw.jpg" alt="A caricature being drawn at the booth" data-src="assets/caricature-draw.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/caricature-pose.jpg" alt="A student sitting for his caricature" data-src="assets/caricature-pose.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/booth-smile.jpg" alt="A member laughing behind the booth table" data-src="assets/booth-smile.jpg" onClick="{{ open }}" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" style-hover="opacity:0.88" />
+        <img loading="lazy" src="assets/group-hero.jpg" alt="The whole chapter on campus day" data-src="assets/group-hero.jpg" onClick="{{ open }}" style="width:100%; height:100%; min-height:240px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in" style-hover="opacity:0.88" />
       </div>
     </div>
   </section>
