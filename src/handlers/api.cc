@@ -1031,9 +1031,60 @@ void getFormSubmissions(const HttpRequestPtr &req, std::function<void(const Http
     });
 }
 
+void deleteFormSubmission(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    auto json = req->getJsonObject();
+    std::string subId;
+    if (json && (*json).isMember("id")) {
+        subId = (*json)["id"].asString();
+    } else {
+        subId = req->getParameter("id");
+    }
+
+    if (subId.empty()) {
+        callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN));
+        return;
+    }
+
+    on_db(req, std::move(callback), [subId](mongocxx::client& client) {
+        using bsoncxx::builder::basic::kvp;
+        using bsoncxx::builder::basic::make_document;
+        auto collection = client["application"]["form_submissions"];
+        try {
+            bsoncxx::oid oid(subId);
+            collection.delete_one(make_document(kvp("_id", oid)));
+        } catch (...) {
+            collection.delete_one(make_document(kvp("id", subId)));
+        }
+        logSystemEvent(client, "Form Submission Deleted", "Submission " + subId + " deleted", "form");
+        Json::Value ret;
+        ret["status"] = "ok";
+        return HttpResponse::newHttpJsonResponse(ret);
+    });
+}
+
 void submitForm(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
     auto json = req->getJsonObject();
     if (!json) { callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN)); return; }
+
+    if ((*json).isMember("action") && (*json)["action"].asString() == "delete") {
+        std::string subId = (*json).isMember("id") ? (*json)["id"].asString() : "";
+        on_db(req, std::move(callback), [subId](mongocxx::client& client) {
+            using bsoncxx::builder::basic::kvp;
+            using bsoncxx::builder::basic::make_document;
+            auto collection = client["application"]["form_submissions"];
+            try {
+                bsoncxx::oid oid(subId);
+                collection.delete_one(make_document(kvp("_id", oid)));
+            } catch (...) {
+                collection.delete_one(make_document(kvp("id", subId)));
+            }
+            logSystemEvent(client, "Form Submission Deleted", "Submission " + subId + " deleted", "form");
+            Json::Value ret;
+            ret["status"] = "ok";
+            return HttpResponse::newHttpJsonResponse(ret);
+        });
+        return;
+    }
     
     auto now = std::chrono::system_clock::now();
     auto in_time_t = std::chrono::system_clock::to_time_t(now);
@@ -1076,6 +1127,7 @@ void registerApiHandlers() {
     anvil::accesscontrol::register_route(enactus::kRoutes, "/api/form_schema", drogon::Post, &enactus::setFormSchema);
     anvil::accesscontrol::register_route(enactus::kRoutes, "/api/form_submissions", drogon::Get, &enactus::getFormSubmissions);
     anvil::accesscontrol::register_route(enactus::kRoutes, "/api/form_submissions", drogon::Post, &enactus::submitForm);
+    anvil::accesscontrol::register_route(enactus::kRoutes, "/api/form_submissions", drogon::Delete, &enactus::deleteFormSubmission);
     drogon::app().registerHandler("/api/logs", &enactus::listLogs);
 }
 

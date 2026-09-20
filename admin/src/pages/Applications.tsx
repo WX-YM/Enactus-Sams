@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Download } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
 
 export default function Applications({ role }: { role: string }) {
@@ -111,6 +111,34 @@ export default function Applications({ role }: { role: string }) {
     return a.status === filter;
   });
 
+  const exportCSV = () => {
+    const targetApps = filter === 'all' ? visibleApps : filteredApps;
+    if (targetApps.length === 0) return;
+
+    const headers = ['Applicant Name', 'Email', 'Phone', 'Team Applied', 'Status', 'Referred To', 'Reason / Notes'];
+    const rows = targetApps.map(a => {
+      const row = [
+        `"${String(a.name || '').replace(/"/g, '""')}"`,
+        `"${String(a.email || '').replace(/"/g, '""')}"`,
+        `"${String(a.phone || '').replace(/"/g, '""')}"`,
+        `"${String(a.team || '').replace(/"/g, '""')}"`,
+        `"${String(a.status || 'pending').replace(/"/g, '""')}"`,
+        `"${String(a.referredTo || '').replace(/"/g, '""')}"`,
+        `"${String(a.reason || '').replace(/"/g, '""')}"`
+      ];
+      return row.join(',');
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `application_responses_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', paddingBottom: '40px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
@@ -122,28 +150,39 @@ export default function Applications({ role }: { role: string }) {
           </p>
         </div>
 
-        {/* Status Filters */}
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {['all', 'pending', 'accepted', 'rejected', 'referred'].map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              style={{
-                padding: '8px 16px',
-                border: '2px solid #0E1013',
-                background: filter === f ? '#FFC629' : '#FFF',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '12px',
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                boxShadow: filter === f ? '3px 3px 0px #0E1013' : 'none',
-                cursor: 'pointer'
-              }}
-            >
-              {f} ({visibleApps.filter(a => f === 'all' || a.status === f).length})
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            className="btn-outline"
+            onClick={exportCSV}
+            disabled={visibleApps.length === 0}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Download size={18} /> Export CSV
+          </button>
         </div>
+      </div>
+
+      {/* Status Filters */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        {['all', 'pending', 'accepted', 'rejected', 'referred'].map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            style={{
+              padding: '8px 16px',
+              border: '2px solid #0E1013',
+              background: filter === f ? '#FFC629' : '#FFF',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '12px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              boxShadow: filter === f ? '3px 3px 0px #0E1013' : 'none',
+              cursor: 'pointer'
+            }}
+          >
+            {f} ({visibleApps.filter(a => f === 'all' || a.status === f).length})
+          </button>
+        ))}
       </div>
 
       <div className="card" style={{ padding: 0, overflowX: 'auto' }}>

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { FileText, Download, Eye, X, Calendar, Search } from 'lucide-react';
+import { FileText, Download, Eye, X, Calendar, Search, Trash2 } from 'lucide-react';
+import { useConfirm } from '../context/ConfirmContext';
 
 export default function FormResponses() {
+  const { confirm } = useConfirm();
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSub, setSelectedSub] = useState<any | null>(null);
@@ -62,6 +64,36 @@ export default function FormResponses() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: 'Delete Form Response?',
+      message: 'Are you sure you want to permanently delete this form response? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!ok) return;
+
+    try {
+      const res = await fetch('/api/form_submissions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (!res.ok) {
+        await fetch('/api/form_submissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete', id })
+        });
+      }
+    } catch (err) {
+      console.error('Failed to delete form submission:', err);
+    }
+    setSelectedSub(null);
+    fetchSubmissions();
   };
 
   const filtered = submissions.filter(s => {
@@ -162,14 +194,24 @@ export default function FormResponses() {
                     <td style={{ maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.85 }}>
                       {summary || 'Empty response'}
                     </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        className="btn-outline"
-                        style={{ padding: '6px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                        onClick={() => setSelectedSub(s)}
-                      >
-                        <Eye size={14} /> View Details
-                      </button>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          className="btn-outline"
+                          style={{ padding: '6px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          onClick={() => setSelectedSub(s)}
+                        >
+                          <Eye size={14} /> View Details
+                        </button>
+                        <button
+                          className="btn-danger"
+                          style={{ padding: '6px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center' }}
+                          onClick={() => handleDelete(s.id)}
+                          title="Delete Response"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -245,15 +287,21 @@ export default function FormResponses() {
               ))}
             </div>
 
-            <div style={{ marginTop: '28px', display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                className="btn-primary"
-                onClick={() => setSelectedSub(null)}
-                style={{ padding: '10px 24px', fontSize: '13px' }}
-              >
-                Close
-              </button>
-            </div>
+            <button 
+              className="btn-danger" 
+              style={{ width: '100%', marginTop: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px' }} 
+              onClick={() => handleDelete(selectedSub.id)}
+            >
+              <Trash2 size={16} /> Delete Response
+            </button>
+
+            <button 
+              className="btn-outline" 
+              style={{ width: '100%', marginTop: '12px' }} 
+              onClick={() => setSelectedSub(null)}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

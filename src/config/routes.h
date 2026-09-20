@@ -7,7 +7,7 @@
 namespace enactus {
 namespace ac = anvil::accesscontrol;
 
-inline constexpr std::array<ac::RoutePolicy, 19> kRoutes{{
+inline constexpr std::array<ac::RoutePolicy, 20> kRoutes{{
     {anvil::PermSet{}, "/api/auth/login", ac::RouteAccess::Public, ac::RouteMethod::Post},
     {anvil::PermSet{}, "/api/auth/me", ac::RouteAccess::Public, ac::RouteMethod::Get},
     {anvil::PermSet{}, "/api/applications", ac::RouteAccess::Public, ac::RouteMethod::Post},
@@ -27,6 +27,7 @@ inline constexpr std::array<ac::RoutePolicy, 19> kRoutes{{
     {anvil::PermSet{}, "/api/form_schema", ac::RouteAccess::Public, ac::RouteMethod::Post},
     {anvil::PermSet{}, "/api/form_submissions", ac::RouteAccess::Public, ac::RouteMethod::Get},
     {anvil::PermSet{}, "/api/form_submissions", ac::RouteAccess::Public, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/api/form_submissions", ac::RouteAccess::Public, ac::RouteMethod::Delete},
 }};
 
 static_assert([] {

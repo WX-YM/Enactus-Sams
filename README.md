@@ -60,9 +60,12 @@ The project is architected with a high-throughput, low-latency backend and a mod
   - Actions: Accept, Reject, Delete (Super Admin only), and **Refer**.
   - **Referral Workflow**: Allows referring candidates to another team; the target team manager receives the referral in their scoped dashboard with dedicated Accept/Reject referral actions.
   - **Automatic Team Roster Sync**: Accepting an applicant automatically adds them to that team's active member list in the database and updates the team card.
-- **Form Maker**:
+  - **CSV Export**: Dedicated "Export CSV" button that generates a downloadable report of applicants with columns for Name, Email, Phone, Team Applied, Status (dynamically reflecting the applicant's current status), Referred To, and Reason / Notes.
+- **Form Maker & Form Responses**:
   - Create and publish custom forms with shareable public links.
-  - Dedicated "Application Responses" section to separate general form submissions from club recruitment.
+  - **Form Responses Panel**: Review, search, and inspect form submissions.
+  - **Delete Responses**: Delete individual submissions directly from table rows or within the details modal, protected by the brutalist confirmation dialog.
+  - **CSV Export**: Export all form responses to CSV with dynamic columns based on submitted fields.
 - **Team Management**:
   - Team creation, title and description editing, and roster management.
   - **Automatic Recruitment & Access Sync**: Creating a team in Manage Teams automatically syncs it to the public recruitment choices (`recruitmentTeams`) and Access Control manager/vice-manager assignment dropdowns, while keeping the public homepage "Inside the Club" section (`insideTeams`) completely independent.
@@ -193,6 +196,9 @@ The application will listen on the configured port:
 | `POST` | `/api/apply` | Submit a member recruitment application | No |
 | `GET` | `/api/applications_list` | List submitted applications (scoped by user role) | Yes |
 | `POST` | `/api/applications_update` | Update application status (accept/reject/refer/delete) | Yes |
+| `GET` | `/api/form_submissions` | List responses collected from custom published forms | No / Admin |
+| `POST` | `/api/form_submissions` | Submit form response or delete submission (`action: "delete"`) | No / Admin |
+| `DELETE` | `/api/form_submissions` | Permanently delete a form submission by ID | Admin |
 | `POST` | `/api/upload` | Upload media assets (auto-downscales > 1600px, JPEG quality 82) | Yes |
 
 ---
