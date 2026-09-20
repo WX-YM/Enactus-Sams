@@ -6,14 +6,13 @@ A high-performance, production-ready web application and administrative manageme
 
 ## 1. System Architecture
 
-The project is architected with a high-throughput, low-latency backend and a modern responsive frontend:
-
-- **Backend Engine (`enactus_backend`)**:
+The project is architected with a high-throughput, low-latency backend and a modern responsive frontend:- **Backend Engine (`enactus_backend`)**:
   - Built with **C++20** and the **Drogon HTTP Framework**.
   - Powered by the **Anvil** core foundation library (structured concurrency, connection pooling, and security filters).
   - Database: **MongoDB** (`mongocxx` driver) for structured document storage (applications, teams, content, system logs, users).
   - Cache: **Redis** for fast session verification and rate limiting.
   - Pre-compression: Native runtime support for **Brotli (`.br`)** and **Gzip (`.gz`)** static asset delivery.
+  - Server-Side Media Processing: Embedded **stb** image pipeline (`stb_image`, `stb_image_resize2`, `stb_image_write`) automatically downscales uploads > 1600px and re-encodes to optimized JPEG (quality 82).
 - **Admin Control Panel (`/admin`)**:
   - Built with **React 18**, **TypeScript**, and **Vite**.
   - Styled with a high-contrast brutalist design language (`#FFC629`, `#0E1013`, `#F7F5F0`, hard shadows, monospace accents).
@@ -21,6 +20,7 @@ The project is architected with a high-throughput, low-latency backend and a mod
 - **Public Marketing Website (`/`)**:
   - Lightweight, responsive client architecture with zero runtime framework bloat.
   - Dynamic integration with backend APIs for real-time team listings, recruitment status, and media galleries.
+  - Optimized responsive media delivery with native `loading="lazy"` on gallery assets.
 
 ---
 
@@ -28,9 +28,10 @@ The project is architected with a high-throughput, low-latency backend and a mod
 
 ### Public Website
 - **Brutalist Aesthetic**: Distinct typography, vibrant yellow accents, hard drop-shadows, and responsive layout for all device viewports.
+- **Favicon & Identity**: Full multi-resolution `favicon.ico` (32x32, 16x16) and `apple-touch-icon.png` (180x180) across public pages, application forms, and admin dashboard.
 - **Dynamic "Inside the Club" Showcase**: Live team cards dynamically populated from the database, featuring distinctive SVG iconography for each team (Presentation, Project Management, Human Resources, External Affairs, Social Media, Media Production).
 - **Recruitment Application**: Integrated application form with real-time field validation, dynamic team selection, and instant submission feedback.
-- **Campus Life Gallery**: Responsive image grid with full-screen interactive lightbox viewer.
+- **Campus Life Gallery**: Responsive image grid with full-screen interactive lightbox viewer and lazy-loaded assets.
 - **Project Tafrah Section**: Dedicated project showcase with high-resolution imagery and narrative impact metrics.
 - **Real-Time Traffic Tracking**: Asynchronous visit counter logging visits to MongoDB on every page load.
 - **Social & Footer**: Links to official channels (TikTok, Facebook, Instagram).
@@ -51,7 +52,7 @@ The project is architected with a high-throughput, low-latency backend and a mod
 - **Logged-in User Role Badge**:
   - High-visibility brutalist yellow box in the sidebar displaying the active user's role, assigned team, and email directly above the sign-out action.
 - **Content CMS**:
-  - In-place editing of all website sections: Hero Section, Recruitment Status & Deadlines, About Section, Inside the Club (with live team addition and deletion), Media Gallery, Project Tafrah, and Footer/Socials.
+  - In-place editing of all website sections: Hero Section, Recruitment Status & Deadlines, About Section, Inside the Club (with live inline editing of team titles and descriptions, team creation, and deletion), Media Gallery, Project Tafrah, and Footer/Socials.
 - **Applications & Recruitment Workflow**:
   - Centralized application review table with status badges and detail view modals.
   - Actions: Accept, Reject, Delete (Super Admin only), and **Refer**.
@@ -61,8 +62,8 @@ The project is architected with a high-throughput, low-latency backend and a mod
   - Create and publish custom forms with shareable public links.
   - Dedicated "Application Responses" section to separate general form submissions from club recruitment.
 - **Team Management**:
-  - Team creation, description editing, and roster management.
-  - Scoped permissions: Team managers can only manage members within their assigned team.
+  - Team creation, title and description editing, and roster management.
+  - Scoped permissions: Team managers can only manage members within their assigned team.m.
 
 ---
 
@@ -154,7 +155,18 @@ find public/ -type f \( -name "*.html" -o -name "*.js" -o -name "*.css" -o -name
 ```bash
 ./build/asan/enactus_backend
 ```
-The application will listen on port **8080**:
+
+#### Environment Variables
+The server reads configuration from environment variables (with sensible local defaults):
+
+| Variable | Description | Default |
+|---|---|---|
+| `PORT` | HTTP port to listen on | `8080` (or `8085` in production) |
+| `BIND_ADDR` | Network interface IP address to bind | `0.0.0.0` (or `127.0.0.1` behind reverse proxy) |
+| `DOC_ROOT` | Document root directory for static files | `public` |
+| `MONGODB_URI` | MongoDB connection URI with optional auth credentials | `mongodb://127.0.0.1:27017/application` |
+
+The application will listen on the configured port:
 - Public Website: `http://localhost:8080/`
 - Admin Dashboard: `http://localhost:8080/admin/`
 
@@ -172,13 +184,13 @@ The application will listen on port **8080**:
 | `POST` | `/api/users` | Create or update user permissions, role, and team | Yes |
 | `DELETE` | `/api/users` | Revoke access / delete user account | Yes (Super Admin) |
 | `GET` | `/api/teams` | List active teams, descriptions, and member counts | No |
-| `POST` | `/api/teams` | Add, update, or delete a team | Yes |
+| `POST` | `/api/teams` | Team management actions (`create`, `update`, `delete`, `update_roster`) | Yes |
 | `GET` | `/api/content` | Fetch live website content configuration | No |
 | `POST` | `/api/content` | Update website content across all sections | Yes |
 | `POST` | `/api/apply` | Submit a member recruitment application | No |
 | `GET` | `/api/applications_list` | List submitted applications (scoped by user role) | Yes |
 | `POST` | `/api/applications_update` | Update application status (accept/reject/refer/delete) | Yes |
-| `POST` | `/api/upload` | Upload media assets for CMS galleries | Yes |
+| `POST` | `/api/upload` | Upload media assets (auto-downscales > 1600px, JPEG quality 82) | Yes |
 
 ---
 
