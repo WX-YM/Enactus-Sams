@@ -567,6 +567,75 @@ void createTeam(const HttpRequestPtr &req, std::function<void(const HttpResponse
         return;
     }
 
+    if ((*json).isMember("action") && (*json)["action"].asString() == "update") {
+        std::string teamId = (*json).isMember("id") ? (*json)["id"].asString() : "";
+        std::string oldName = (*json).isMember("oldName") ? (*json)["oldName"].asString() : "";
+        std::string name = (*json).isMember("name") ? (*json)["name"].asString() : "";
+        std::string desc = (*json).isMember("desc") ? (*json)["desc"].asString() : "";
+
+        on_db(req, std::move(callback), [teamId, oldName, name, desc](mongocxx::client& client) {
+            auto collection = client["application"]["teams"];
+            using bsoncxx::builder::basic::kvp;
+            using bsoncxx::builder::basic::make_document;
+
+            std::string actualOldName = oldName;
+            bool updated = false;
+
+            if (!teamId.empty() && teamId.length() == 24) {
+                try {
+                    bsoncxx::oid oid(teamId);
+                    auto tDoc = collection.find_one(make_document(kvp("_id", oid)));
+                    if (tDoc && tDoc->view()["name"]) {
+                        actualOldName = std::string(tDoc->view()["name"].get_string().value);
+                    }
+                    collection.update_one(
+                        make_document(kvp("_id", oid)),
+                        make_document(kvp("$set", make_document(
+                            kvp("name", name.empty() ? actualOldName : name),
+                            kvp("desc", desc)
+                        )))
+                    );
+                    updated = true;
+                } catch (...) {}
+            }
+
+            if (!updated && !actualOldName.empty()) {
+                collection.update_one(
+                    make_document(kvp("name", bsoncxx::types::b_regex{"^" + actualOldName + "$", "i"})),
+                    make_document(kvp("$set", make_document(
+                        kvp("name", name.empty() ? actualOldName : name),
+                        kvp("desc", desc)
+                    )))
+                );
+            }
+
+            if (!actualOldName.empty() && !name.empty() && actualOldName != name) {
+                try {
+                    auto usersColl = client["application"]["users"];
+                    usersColl.update_many(
+                        make_document(kvp("team", actualOldName)),
+                        make_document(kvp("$set", make_document(kvp("team", name))))
+                    );
+                    auto appsColl = client["application"]["applications"];
+                    appsColl.update_many(
+                        make_document(kvp("team", actualOldName)),
+                        make_document(kvp("$set", make_document(kvp("team", name))))
+                    );
+                    appsColl.update_many(
+                        make_document(kvp("referredTo", actualOldName)),
+                        make_document(kvp("$set", make_document(kvp("referredTo", name))))
+                    );
+                } catch (...) {}
+            }
+
+            logSystemEvent(client, "Team Updated", "Team " + (actualOldName.empty() ? name : actualOldName) + " details updated", "team");
+            Json::Value ret;
+            ret["status"] = "ok";
+            return HttpResponse::newHttpJsonResponse(ret);
+        });
+        return;
+    }
+
     std::string name = (*json)["name"].asString();
     std::string desc = (*json)["desc"].asString();
 

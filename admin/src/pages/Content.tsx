@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Save, Upload, Trash2, CheckCircle2, Image as ImageIcon, Type, Sparkles, Layers, MessageSquare, Globe, Users as UsersIcon } from 'lucide-react';
+import { Save, Upload, Trash2, CheckCircle2, Image as ImageIcon, Type, Sparkles, Layers, MessageSquare, Globe, Users as UsersIcon, Edit2, Check, X } from 'lucide-react';
 
 export default function Content() {
   const [activeTab, setActiveTab] = useState<'hero' | 'about' | 'tafrah' | 'inside' | 'gallery' | 'join' | 'footer'>('hero');
@@ -7,6 +7,10 @@ export default function Content() {
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamDesc, setNewTeamDesc] = useState('');
   const [addingTeam, setAddingTeam] = useState(false);
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [editTeamName, setEditTeamName] = useState('');
+  const [editTeamDesc, setEditTeamDesc] = useState('');
+  const [updatingTeam, setUpdatingTeam] = useState(false);
   const [content, setContent] = useState<any>({
     recruitmentOpen: true,
     // Hero
@@ -156,6 +160,48 @@ export default function Content() {
         fetchTeams();
       })
       .catch(err => console.error(err));
+  };
+
+  const handleStartEditTeam = (t: any) => {
+    setEditingTeamId(t.id || t._id?.$oid);
+    setEditTeamName(t.name);
+    setEditTeamDesc(t.desc || '');
+  };
+
+  const handleCancelEditTeam = () => {
+    setEditingTeamId(null);
+    setEditTeamName('');
+    setEditTeamDesc('');
+  };
+
+  const handleSaveTeam = (t: any) => {
+    if (!editTeamName.trim()) return;
+    setUpdatingTeam(true);
+    fetch('/api/teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update',
+        id: t.id || t._id?.$oid,
+        oldName: t.name,
+        name: editTeamName.trim(),
+        desc: editTeamDesc.trim()
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        setUpdatingTeam(false);
+        if (data.status === 'ok') {
+          setEditingTeamId(null);
+          fetchTeams();
+        } else {
+          alert(data.message || 'Failed to update team');
+        }
+      })
+      .catch(err => {
+        setUpdatingTeam(false);
+        console.error(err);
+      });
   };
 
   const handleSave = () => {
@@ -1000,36 +1046,142 @@ export default function Content() {
             </h3>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              {teams.map((t, idx) => (
-                <div key={t.id || idx} style={{ background: '#0E1013', color: '#F7F5F0', border: '2.5px solid #0E1013', padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span className="font-mono" style={{ fontSize: '11px', color: '#FFC629', fontWeight: 700 }}>
-                      0{idx + 1} / {t.name}
-                    </span>
-                    <button
-                      onClick={() => handleDeleteTeam(t.name, t._id?.$oid || t.id)}
-                      title="Remove team"
-                      style={{
-                        background: '#DC2626',
-                        color: '#FFF',
-                        border: '1.5px solid #0E1013',
-                        padding: '4px 8px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        fontFamily: 'IBM Plex Mono'
-                      }}
-                    >
-                      <Trash2 size={12} /> Remove
-                    </button>
+              {teams.map((t, idx) => {
+                const teamId = t.id || t._id?.$oid;
+                const isEditing = editingTeamId === teamId;
+
+                return (
+                  <div key={teamId || idx} style={{ background: '#0E1013', color: '#F7F5F0', border: '2.5px solid #0E1013', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="font-mono" style={{ fontSize: '11px', color: '#FFC629', fontWeight: 700 }}>
+                        0{idx + 1} / {t.name}
+                      </span>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {!isEditing ? (
+                          <>
+                            <button
+                              onClick={() => handleStartEditTeam(t)}
+                              title="Edit team title and description"
+                              style={{
+                                background: '#FFC629',
+                                color: '#0E1013',
+                                border: '1.5px solid #FFC629',
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                fontFamily: 'IBM Plex Mono'
+                              }}
+                            >
+                              <Edit2 size={12} /> Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTeam(t.name, teamId)}
+                              title="Remove team"
+                              style={{
+                                background: '#DC2626',
+                                color: '#FFF',
+                                border: '1.5px solid #0E1013',
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                fontFamily: 'IBM Plex Mono'
+                              }}
+                            >
+                              <Trash2 size={12} /> Remove
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleSaveTeam(t)}
+                              disabled={updatingTeam || !editTeamName.trim()}
+                              title="Save team details"
+                              style={{
+                                background: '#10B981',
+                                color: '#FFF',
+                                border: '1.5px solid #10B981',
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                fontFamily: 'IBM Plex Mono'
+                              }}
+                            >
+                              <Check size={12} /> {updatingTeam ? 'Saving...' : 'Save'}
+                            </button>
+                            <button
+                              onClick={handleCancelEditTeam}
+                              disabled={updatingTeam}
+                              title="Cancel editing"
+                              style={{
+                                background: '#374151',
+                                color: '#FFF',
+                                border: '1.5px solid #374151',
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                fontFamily: 'IBM Plex Mono'
+                              }}
+                            >
+                              <X size={12} /> Cancel
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {isEditing ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+                        <div>
+                          <label className="font-mono" style={{ fontSize: '11px', color: '#FFC629', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
+                            Team Title / Name
+                          </label>
+                          <input
+                            className="input-field"
+                            style={{ background: '#181C22', color: '#F7F5F0', border: '1.5px solid #FFC629' }}
+                            value={editTeamName}
+                            onChange={e => setEditTeamName(e.target.value)}
+                            placeholder="e.g. Research & Development"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-mono" style={{ fontSize: '11px', color: '#FFC629', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
+                            Team Description
+                          </label>
+                          <textarea
+                            className="input-field"
+                            rows={3}
+                            style={{ background: '#181C22', color: '#F7F5F0', border: '1.5px solid #FFC629' }}
+                            value={editTeamDesc}
+                            onChange={e => setEditTeamDesc(e.target.value)}
+                            placeholder="What does this team do?"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 800 }}>{t.name}</h4>
+                        <p style={{ margin: 0, fontSize: '13px', opacity: 0.8, lineHeight: 1.5 }}>{t.desc || 'No description provided.'}</p>
+                      </>
+                    )}
                   </div>
-                  <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 800 }}>{t.name}</h4>
-                  <p style={{ margin: 0, fontSize: '13px', opacity: 0.8, lineHeight: 1.5 }}>{t.desc || 'No description provided.'}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Add New Team Form */}
