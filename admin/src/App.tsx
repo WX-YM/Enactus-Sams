@@ -10,6 +10,7 @@ import FormMaker from './pages/FormMaker';
 import FormResponses from './pages/FormResponses';
 import Users from './pages/Users';
 import Login from './pages/Login';
+import { ConfirmProvider } from './context/ConfirmContext';
 
 function App() {
   const [role, setRole] = useState(localStorage.getItem('admin_role') || 'superadmin'); 
@@ -64,7 +65,8 @@ function App() {
 
   return (
     <Router>
-      <div style={{ display: 'flex', minHeight: '100vh', width: '100vw', background: 'var(--bg-main)' }}>
+      <ConfirmProvider>
+        <div style={{ display: 'flex', minHeight: '100vh', width: '100vw', background: 'var(--bg-main)' }}>
         
         {/* Mobile Nav Toggle */}
         <button 
@@ -209,6 +211,7 @@ function App() {
           </div>
         </main>
       </div>
+      </ConfirmProvider>
     </Router>
   );
 }

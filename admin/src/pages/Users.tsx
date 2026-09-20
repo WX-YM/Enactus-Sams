@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Trash2, Shield, X, Users as UsersIcon, Edit2 } from 'lucide-react';
+import { useConfirm } from '../context/ConfirmContext';
 
 const ALL_PERMISSIONS = [
   { key: 'dashboard', label: 'Dashboard & Analytics' },
@@ -21,6 +22,7 @@ const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
 };
 
 export default function Users() {
+  const { confirm } = useConfirm();
   const [users, setUsers] = useState<any[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
   const [newEmail, setNewEmail] = useState('');
@@ -162,8 +164,15 @@ export default function Users() {
     setEditPerms(prev => prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]);
   };
 
-  const handleDelete = (email: string) => {
-    if (!confirm(`Remove ${email}?`)) return;
+  const handleDelete = async (email: string) => {
+    const ok = await confirm({
+      title: 'Revoke User Access?',
+      message: `Are you sure you want to remove ${email}? They will immediately lose all access permissions to the administrative panel.`,
+      confirmText: 'Remove Access',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!ok) return;
     fetch('/api/users', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email })

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Trash2 } from 'lucide-react';
+import { useConfirm } from '../context/ConfirmContext';
 
 export default function Applications({ role }: { role: string }) {
+  const { confirm } = useConfirm();
   const [apps, setApps] = useState<any[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
   const [selectedApp, setSelectedApp] = useState<any>(null);
@@ -75,8 +77,15 @@ export default function Applications({ role }: { role: string }) {
     saveApps(newApps, id, status, reason, status === 'referred' ? referTeam : undefined, targetTeam);
   };
 
-  const handleDelete = (id: string) => {
-    if (!confirm('Are you sure you want to permanently delete this application?')) return;
+  const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: 'Delete Application?',
+      message: 'Are you sure you want to permanently delete this application response? This cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!ok) return;
     fetch('/api/applications_update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

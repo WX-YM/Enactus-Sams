@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, ArrowUp, ArrowDown, Save, CheckCircle2, Eye, FileText, Share2, Copy, ExternalLink, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useConfirm } from '../context/ConfirmContext';
 
 interface FormField {
   id: string;
@@ -21,6 +22,7 @@ const DEFAULT_FIELDS: FormField[] = [
 ];
 
 export default function FormMaker() {
+  const { confirm, alert: showAlert } = useConfirm();
   const [formTitle, setFormTitle] = useState('Recruitment Application Form');
   const [formDescription, setFormDescription] = useState('Pick the team you want to start in, tell us why, and come to the interview.');
   const [fields, setFields] = useState<FormField[]>(DEFAULT_FIELDS);
@@ -60,7 +62,16 @@ export default function FormMaker() {
     setPublished(false);
   };
 
-  const deleteField = (id: string) => {
+  const deleteField = async (id: string) => {
+    const field = fields.find(f => f.id === id);
+    const ok = await confirm({
+      title: 'Delete Field?',
+      message: `Are you sure you want to remove the field "${field?.label || 'New Field'}"?`,
+      confirmText: 'Delete Field',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!ok) return;
     setFields(fields.filter(f => f.id !== id));
     setPublished(false);
   };
@@ -97,7 +108,7 @@ export default function FormMaker() {
     .catch(err => {
       setSaving(false);
       console.error(err);
-      alert('Failed to publish form.');
+      showAlert({ title: 'Publish Failed', message: 'Failed to publish form schema to the server.', type: 'danger' });
     });
   };
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Save, Upload, Trash2, CheckCircle2, Image as ImageIcon, Type, Sparkles, Layers, MessageSquare, Globe, Users as UsersIcon, Edit2, Check, X } from 'lucide-react';
+import { useConfirm } from '../context/ConfirmContext';
 
 const DEFAULT_INSIDE_TEAMS = [
   { id: '1', name: 'Presentation', desc: 'the team that showcases the work the ones in the spotlight' },
@@ -20,6 +21,7 @@ const DEFAULT_RECRUITMENT_TEAMS = [
 ];
 
 export default function Content() {
+  const { confirm, alert: showAlert } = useConfirm();
   const [activeTab, setActiveTab] = useState<'hero' | 'about' | 'tafrah' | 'inside' | 'gallery' | 'join' | 'footer'>('hero');
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamDesc, setNewTeamDesc] = useState('');
@@ -186,8 +188,15 @@ export default function Content() {
     setEditTeamDesc('');
   };
 
-  const handleDeleteInsideTeam = (teamId: string, teamName: string) => {
-    if (!confirm(`Are you sure you want to remove "${teamName}" from the Inside the Club section?`)) return;
+  const handleDeleteInsideTeam = async (teamId: string, teamName: string) => {
+    const ok = await confirm({
+      title: 'Remove Team?',
+      message: `Are you sure you want to remove the team "${teamName}"? This will remove it from the public site homepage.`,
+      confirmText: 'Remove Team',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!ok) return;
     const updated = (content.insideTeams || []).filter((t: any) => t.id !== teamId);
     setContent((prev: any) => ({ ...prev, insideTeams: updated }));
   };
@@ -224,7 +233,16 @@ export default function Content() {
     setEditChoiceText('');
   };
 
-  const handleRemoveChoice = (idx: number) => {
+  const handleRemoveChoice = async (idx: number, name?: string) => {
+    const choiceName = name || (content.recruitmentTeams || [])[idx] || 'this choice';
+    const ok = await confirm({
+      title: 'Remove Choice?',
+      message: `Are you sure you want to remove "${choiceName}" from the recruitment application team choices?`,
+      confirmText: 'Remove Choice',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!ok) return;
     const updated = (content.recruitmentTeams || []).filter((_: any, i: number) => i !== idx);
     setContent((prev: any) => ({ ...prev, recruitmentTeams: updated }));
   };
@@ -242,7 +260,7 @@ export default function Content() {
     }).catch(err => {
       setSaving(false);
       console.error(err);
-      alert('Failed to save content.');
+      showAlert({ title: 'Save Failed', message: 'Failed to save content to the server.', type: 'danger' });
     });
   };
 
@@ -359,31 +377,52 @@ export default function Content() {
           setContent((prev: any) => ({ ...prev, tafrahSiteImage: data.url }));
         }
       } else {
-        alert('Upload failed.');
+        showAlert({ title: 'Upload Failed', message: 'The image upload could not be completed.', type: 'danger' });
       }
     })
     .catch(err => {
       setUploadingTarget(null);
       console.error(err);
-      alert('Upload failed.');
+      showAlert({ title: 'Upload Failed', message: 'The image upload could not be completed.', type: 'danger' });
     });
   };
 
-  const removeMedia = (url: string) => {
+  const removeMedia = async (url: string) => {
+    const ok = await confirm({
+      title: 'Remove Photo?',
+      message: 'Are you sure you want to remove this photo from the media gallery?',
+      confirmText: 'Remove Photo',
+      type: 'danger'
+    });
+    if (!ok) return;
     setContent((prev: any) => ({
       ...prev,
       mediaGallery: (prev.mediaGallery || []).filter((m: any) => m.url !== url)
     }));
   };
 
-  const removeTafrahImage = (url: string) => {
+  const removeTafrahImage = async (url: string) => {
+    const ok = await confirm({
+      title: 'Remove Photo?',
+      message: 'Are you sure you want to remove this photo from the Tafrah project section?',
+      confirmText: 'Remove Photo',
+      type: 'danger'
+    });
+    if (!ok) return;
     setContent((prev: any) => ({
       ...prev,
       tafrahImages: (prev.tafrahImages || []).filter((m: any) => m.url !== url)
     }));
   };
 
-  const removeAboutImage = (url: string) => {
+  const removeAboutImage = async (url: string) => {
+    const ok = await confirm({
+      title: 'Remove Photo?',
+      message: 'Are you sure you want to remove this photo from the About section?',
+      confirmText: 'Remove Photo',
+      type: 'danger'
+    });
+    if (!ok) return;
     setContent((prev: any) => ({
       ...prev,
       aboutImages: (prev.aboutImages || []).filter((m: any) => m.url !== url)
@@ -1558,7 +1597,7 @@ export default function Content() {
                               <Edit2 size={11} /> Edit
                             </button>
                             <button
-                              onClick={() => handleRemoveChoice(idx)}
+                              onClick={() => handleRemoveChoice(idx, teamName)}
                               title="Remove choice"
                               style={{
                                 background: '#DC2626',

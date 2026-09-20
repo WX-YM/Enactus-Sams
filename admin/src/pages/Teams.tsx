@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Trash2, Users as UsersIcon, Plus, UserPlus, Lock } from 'lucide-react';
+import { useConfirm } from '../context/ConfirmContext';
 
 export default function Teams() {
+  const { confirm } = useConfirm();
   const [teams, setTeams] = useState<any[]>([]);
   const [newTeam, setNewTeam] = useState({ name: '', desc: '' });
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
@@ -59,9 +61,16 @@ export default function Teams() {
     .catch(err => console.error("Failed to add team:", err));
   };
 
-  const removeTeam = (id: string, teamName: string) => {
+  const removeTeam = async (id: string, teamName: string) => {
     if (!canEditTeam(teamName) || isTeamScoped) return;
-    if (!confirm(`Are you sure you want to delete "${teamName}"?`)) return;
+    const ok = await confirm({
+      title: 'Delete Team?',
+      message: `Are you sure you want to delete "${teamName}"? This will remove the team, its roster, and its recruitment choices.`,
+      confirmText: 'Delete Team',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!ok) return;
     fetch('/api/teams', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -88,9 +97,17 @@ export default function Teams() {
     setNewMember({ name: '', role: 'Member' });
   };
 
-  const removeMember = (teamId: string, memberId: number) => {
+  const removeMember = async (teamId: string, memberId: number, memberName?: string) => {
     const targetTeam = teams.find(t => t.id === teamId);
     if (!targetTeam || !canEditTeam(targetTeam.name)) return;
+    const ok = await confirm({
+      title: 'Remove Member?',
+      message: `Remove ${memberName ? `"${memberName}"` : 'this member'} from ${targetTeam.name}'s active roster?`,
+      confirmText: 'Remove Member',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!ok) return;
 
     const memberList = (targetTeam.memberList || []).filter((m: any) => m.id !== memberId);
     const newCount = Math.max(0, (targetTeam.members || 0) - 1);
@@ -240,7 +257,7 @@ export default function Teams() {
                         </span>
                       )}
                       {editable && (
-                        <button style={{ background: 'transparent', border: 'none', color: '#E53935', cursor: 'pointer', padding: '4px' }} onClick={() => removeMember(t.id, m.id)}>
+                        <button style={{ background: 'transparent', border: 'none', color: '#E53935', cursor: 'pointer', padding: '4px' }} onClick={() => removeMember(t.id, m.id, m.name)}>
                           <Trash2 size={16} />
                         </button>
                       )}

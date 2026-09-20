@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { Upload, Trash2, Copy, Check, Image as ImageIcon } from 'lucide-react';
+import { useConfirm } from '../context/ConfirmContext';
 
 export default function Gallery() {
+  const { confirm, alert: showAlert } = useConfirm();
   const [content, setContent] = useState<any>({ mediaGallery: [], tafrahImages: [] });
   const [uploading, setUploading] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
@@ -56,23 +58,30 @@ export default function Gallery() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updatedContent)
           });
-          alert('Image uploaded and added to ' + (uploadCategory === 'life' ? 'Life at Enactus' : 'Tafrah Project') + '!');
+          showAlert({ title: 'Image Uploaded', message: 'Image uploaded and added to ' + (uploadCategory === 'life' ? 'Life at Enactus' : 'Tafrah Project') + '!', type: 'primary' });
         } else {
-          alert('Upload failed.');
+          showAlert({ title: 'Upload Failed', message: 'The image upload could not be completed.', type: 'danger' });
         }
       })
       .catch(err => {
         setUploading(false);
         console.error(err);
-        alert('Failed to upload image.');
+        showAlert({ title: 'Upload Failed', message: 'Failed to upload image.', type: 'danger' });
       });
     };
     reader.readAsDataURL(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const deleteImage = (url: string, category: 'life' | 'tafrah') => {
-    if (!confirm('Remove this image from the website?')) return;
+  const deleteImage = async (url: string, category: 'life' | 'tafrah') => {
+    const ok = await confirm({
+      title: 'Remove Image?',
+      message: `Are you sure you want to remove this image from the ${category === 'life' ? 'Life at Enactus' : 'Tafrah Project'} gallery?`,
+      confirmText: 'Remove Image',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!ok) return;
     let updated = { ...content };
     if (category === 'life') {
       updated.mediaGallery = (updated.mediaGallery || []).filter((m: any) => m.url !== url);
