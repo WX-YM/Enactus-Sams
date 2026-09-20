@@ -60,15 +60,21 @@ The project is architected with a high-throughput, low-latency backend and a mod
   - Actions: Accept, Reject, Delete (Super Admin only), and **Refer**.
   - **Referral Workflow**: Allows referring candidates to another team; the target team manager receives the referral in their scoped dashboard with dedicated Accept/Reject referral actions.
   - **Automatic Team Roster Sync**: Accepting an applicant automatically adds them to that team's active member list in the database and updates the team card.
-  - **CSV Export**: Dedicated "Export CSV" button that generates a downloadable report of applicants with columns for Name, Email, Phone, Team Applied, Status (dynamically reflecting the applicant's current status), Referred To, and Reason / Notes.
+  - **Date Sorting**: Sort applications from Newest to Oldest or Oldest to Newest with a single click.
+  - **Team Filtering**: Filter by "All Teams", select any individual team, or toggle multiple teams via interactive chips.
+  - **Search & Inspection**: Instant search across applicant names, emails, phones, and submission reasons.
+  - **CSV Export**: Dedicated "Export CSV" button that generates a downloadable report of applicants respecting active filters and sort order, with columns for Name, Email, Phone, Team Applied, Status (dynamically reflecting the applicant's current status), Referred To, Date Submitted, and Reason / Notes.
 - **Form Maker & Form Responses**:
   - Create and publish custom forms with shareable public links.
   - **Form Responses Panel**: Review, search, and inspect form submissions.
+  - **Date Sorting**: Sort responses from Newest to Oldest or Oldest to Newest.
+  - **Form Filtering**: Filter responses by "All Forms", select any individual form, or toggle multiple forms via interactive chips.
   - **Delete Responses**: Delete individual submissions directly from table rows or within the details modal, protected by the brutalist confirmation dialog.
-  - **CSV Export**: Export all form responses to CSV with dynamic columns based on submitted fields.
+  - **CSV Export**: Export all form responses to CSV respecting active filters and sort order, with dynamic columns based on submitted fields.
 - **Team Management**:
-  - Team creation, title and description editing, and roster management.
-  - **Automatic Recruitment & Access Sync**: Creating a team in Manage Teams automatically syncs it to the public recruitment choices (`recruitmentTeams`) and Access Control manager/vice-manager assignment dropdowns, while keeping the public homepage "Inside the Club" section (`insideTeams`) completely independent.
+  - **Team Creation & Editing**: Create new teams and edit the title or description of any team via the Edit Details modal.
+  - **Roster Management**: Add, remove, and adjust roles of active members within each team.
+  - **Automatic Recruitment & Access Sync**: Creating or renaming a team in Manage Teams automatically syncs it to the public recruitment choices (`recruitmentTeams`), user team assignments, and Access Control manager/vice-manager assignment dropdowns, while keeping the public homepage "Inside the Club" section (`insideTeams`) completely independent.
   - Scoped permissions: Team managers can only manage members within their assigned team.
 
 ---

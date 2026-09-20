@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileText, Download, Eye, X, Calendar, Search, Trash2 } from 'lucide-react';
+import { FileText, Download, Eye, X, Calendar, Search, Trash2, ArrowUpDown } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
 
 export default function FormResponses() {
@@ -8,6 +8,8 @@ export default function FormResponses() {
   const [loading, setLoading] = useState(true);
   const [selectedSub, setSelectedSub] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [selectedForms, setSelectedForms] = useState<string[]>([]);
 
   const fetchSubmissions = () => {
     setLoading(true);
@@ -32,19 +34,65 @@ export default function FormResponses() {
     fetchSubmissions();
   }, []);
 
+  const allFormTitles = Array.from(new Set(submissions.map(s => s.formTitle || 'General Form'))).filter(Boolean).sort();
+
+  const getSubTime = (s: any) => {
+    if (s.submittedAt) {
+      const t = new Date(s.submittedAt).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (s._id?.$oid && typeof s._id.$oid === 'string' && s._id.$oid.length === 24) {
+      return parseInt(s._id.$oid.substring(0, 8), 16) * 1000;
+    }
+    if (s.id && typeof s.id === 'string' && s.id.length === 24) {
+      const t = parseInt(s.id.substring(0, 8), 16) * 1000;
+      if (!isNaN(t)) return t;
+    }
+    return 0;
+  };
+
+  const toggleForm = (title: string) => {
+    setSelectedForms(prev => {
+      if (prev.includes(title)) {
+        return prev.filter(t => t !== title);
+      } else {
+        return [...prev, title];
+      }
+    });
+  };
+
+  const filtered = submissions.filter(s => {
+    const formTitle = s.formTitle || 'General Form';
+    if (selectedForms.length > 0 && !selectedForms.includes(formTitle)) {
+      return false;
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const str = JSON.stringify(s).toLowerCase();
+      if (!str.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const sortedSubmissions = [...filtered].sort((a, b) => {
+    const timeA = getSubTime(a);
+    const timeB = getSubTime(b);
+    return sortOrder === 'newest' ? timeB - timeA : timeA - timeB;
+  });
+
   const exportCSV = () => {
-    if (submissions.length === 0) return;
+    if (sortedSubmissions.length === 0) return;
     
-    // Gather all unique keys across all submissions
+    // Gather all unique keys across sorted submissions
     const allKeys = new Set<string>();
-    submissions.forEach(s => {
+    sortedSubmissions.forEach(s => {
       if (s.data && typeof s.data === 'object') {
         Object.keys(s.data).forEach(k => allKeys.add(k));
       }
     });
 
     const headers = ['Submitted At', 'Form Title', ...Array.from(allKeys)];
-    const rows = submissions.map(s => {
+    const rows = sortedSubmissions.map(s => {
       const row = [
         s.submittedAt || '',
         s.formTitle || 'General Form',
@@ -96,13 +144,6 @@ export default function FormResponses() {
     fetchSubmissions();
   };
 
-  const filtered = submissions.filter(s => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    const str = JSON.stringify(s).toLowerCase();
-    return str.includes(q);
-  });
-
   return (
     <div className="fade-in" style={{ paddingBottom: '40px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
@@ -118,7 +159,7 @@ export default function FormResponses() {
           <button
             className="btn-outline"
             onClick={exportCSV}
-            disabled={submissions.length === 0}
+            disabled={sortedSubmissions.length === 0}
             style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
           >
             <Download size={18} /> Export CSV
@@ -126,21 +167,133 @@ export default function FormResponses() {
         </div>
       </div>
 
-      {/* Filter / Search bar */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
-          <input
-            className="input-field"
-            style={{ paddingLeft: '38px' }}
-            placeholder="Search responses..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-          />
+      {/* Filter / Search & Sort bar */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '12px', flex: '1 1 320px', maxWidth: '480px' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+              <input
+                className="input-field"
+                style={{ paddingLeft: '38px' }}
+                placeholder="Search responses..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', opacity: 0.6 }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <button className="btn-outline" onClick={fetchSubmissions} style={{ padding: '12px 18px', fontSize: '13px' }}>
+              Refresh
+            </button>
+          </div>
+
+          <button
+            className="btn-outline"
+            onClick={() => setSortOrder(s => s === 'newest' ? 'oldest' : 'newest')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontSize: '12px', fontWeight: 700 }}
+            title="Toggle sort order"
+          >
+            <ArrowUpDown size={14} />
+            Sort: {sortOrder === 'newest' ? 'Newest to Oldest' : 'Oldest to Newest'}
+          </button>
         </div>
-        <button className="btn-outline" onClick={fetchSubmissions} style={{ padding: '12px 18px', fontSize: '13px' }}>
-          Refresh
-        </button>
+
+        {/* Form Filter Dropdown & Chips */}
+        {allFormTitles.length > 0 && (
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ flex: '1 1 200px', maxWidth: '280px' }}>
+              <select
+                className="input-field"
+                style={{ fontSize: '13px', fontWeight: 600 }}
+                value={selectedForms.length === 1 ? selectedForms[0] : (selectedForms.length === 0 ? 'all' : 'multi')}
+                onChange={e => {
+                  if (e.target.value === 'all') {
+                    setSelectedForms([]);
+                  } else {
+                    setSelectedForms([e.target.value]);
+                  }
+                }}
+              >
+                <option value="all">All Forms ({allFormTitles.length})</option>
+                {selectedForms.length > 1 && (
+                  <option value="multi" disabled>
+                    Multiple Forms ({selectedForms.length})
+                  </option>
+                )}
+                {allFormTitles.map(title => (
+                  <option key={title} value={title}>
+                    {title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                onClick={() => setSelectedForms([])}
+                style={{
+                  padding: '5px 10px',
+                  border: '1.5px solid #0E1013',
+                  background: selectedForms.length === 0 ? '#0E1013' : '#FFF',
+                  color: selectedForms.length === 0 ? '#FFC629' : '#0E1013',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                ALL
+              </button>
+              {allFormTitles.map(title => {
+                const isSelected = selectedForms.includes(title);
+                return (
+                  <button
+                    key={title}
+                    onClick={() => toggleForm(title)}
+                    style={{
+                      padding: '5px 10px',
+                      border: '1.5px solid #0E1013',
+                      background: isSelected ? '#FFC629' : '#F7F5F0',
+                      color: '#0E1013',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '11px',
+                      fontWeight: isSelected ? 800 : 600,
+                      boxShadow: isSelected ? '2px 2px 0px #0E1013' : 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {title}
+                  </button>
+                );
+              })}
+              {selectedForms.length > 0 && (
+                <button
+                  onClick={() => setSelectedForms([])}
+                  style={{
+                    padding: '5px 8px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#E53935',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    textDecoration: 'underline'
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Submissions Table */}
@@ -161,17 +314,17 @@ export default function FormResponses() {
                   Loading responses...
                 </td>
               </tr>
-            ) : filtered.length === 0 ? (
+            ) : sortedSubmissions.length === 0 ? (
               <tr>
                 <td colSpan={4} style={{ textAlign: 'center', padding: '40px' }}>
                   <FileText size={36} style={{ opacity: 0.3, marginBottom: '8px' }} />
                   <p className="font-mono" style={{ opacity: 0.6, margin: 0 }}>
-                    {searchQuery ? 'No responses match your search.' : 'No form responses submitted yet.'}
+                    {searchQuery || selectedForms.length > 0 ? 'No responses match your search or filters.' : 'No form responses submitted yet.'}
                   </p>
                 </td>
               </tr>
             ) : (
-              filtered.map(s => {
+              sortedSubmissions.map(s => {
                 const fields = s.data || {};
                 const keys = Object.keys(fields);
                 const summary = keys.slice(0, 3).map(k => `${k}: ${fields[k]}`).join(' · ');

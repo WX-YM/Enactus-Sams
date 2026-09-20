@@ -298,14 +298,25 @@ void apply(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &
     std::string name = (*json)["name"].asString();
     std::string team = (*json)["team"].asString();
     std::string reason = (*json)["reason"].asString();
+    std::string email = (*json).isMember("email") ? (*json)["email"].asString() : "";
+    std::string phone = (*json).isMember("phone") ? (*json)["phone"].asString() : "";
 
-    on_db(req, std::move(callback), [name, team, reason](mongocxx::client& client) {
+    auto now = std::chrono::system_clock::now();
+    auto in_time_t = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << std::put_time(std::gmtime(&in_time_t), "%Y-%m-%dT%H:%M:%SZ");
+    std::string timestamp = ss.str();
+
+    on_db(req, std::move(callback), [name, team, reason, email, phone, timestamp](mongocxx::client& client) {
         auto collection = client["application"]["applications"];
         bsoncxx::builder::basic::document doc{};
         doc.append(bsoncxx::builder::basic::kvp("name", name));
+        doc.append(bsoncxx::builder::basic::kvp("email", email));
+        doc.append(bsoncxx::builder::basic::kvp("phone", phone));
         doc.append(bsoncxx::builder::basic::kvp("team", team));
         doc.append(bsoncxx::builder::basic::kvp("reason", reason));
         doc.append(bsoncxx::builder::basic::kvp("status", "pending"));
+        doc.append(bsoncxx::builder::basic::kvp("submittedAt", timestamp));
 
         collection.insert_one(doc.view());
         logSystemEvent(client, "New Application", "New applicant " + name + " applied for " + team, "application");

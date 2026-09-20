@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2, Users as UsersIcon, Plus, UserPlus, Lock } from 'lucide-react';
+import { Trash2, Users as UsersIcon, Plus, UserPlus, Lock, Edit2, X } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
 
 export default function Teams() {
@@ -8,6 +8,10 @@ export default function Teams() {
   const [newTeam, setNewTeam] = useState({ name: '', desc: '' });
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
   const [newMember, setNewMember] = useState({ name: '', role: 'Member' });
+  const [editingTeam, setEditingTeam] = useState<any | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const role = localStorage.getItem('admin_role') || '';
   const userTeam = localStorage.getItem('admin_team') || '';
@@ -37,6 +41,40 @@ export default function Teams() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'update_roster', id: teamId, name: teamName, members, memberList })
     }).catch(err => console.error("Failed to update roster:", err));
+  };
+
+  const handleUpdateTeam = async () => {
+    if (!editingTeam || !editName.trim()) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch('/api/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id: editingTeam.id,
+          oldName: editingTeam.name,
+          name: editName.trim(),
+          desc: editDesc.trim()
+        })
+      });
+      const data = await res.json();
+      if (data && data.status === 'ok') {
+        if (userTeam.trim().toLowerCase() === editingTeam.name.trim().toLowerCase()) {
+          localStorage.setItem('admin_team', editName.trim());
+        }
+        const tRes = await fetch('/api/teams');
+        const tData = await tRes.json();
+        if (tData && tData.teams) {
+          setTeams(tData.teams.map((t: any) => ({ ...t, id: t._id?.$oid || t.id })));
+        }
+        setEditingTeam(null);
+      }
+    } catch (err) {
+      console.error('Failed to update team:', err);
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const addTeam = () => {
@@ -225,12 +263,29 @@ export default function Teams() {
                 </div>
               </div>
 
-              <div 
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '2px solid #0E1013', padding: '6px 12px', fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', cursor: 'pointer', alignSelf: 'flex-start', background: expandedTeam === t.id ? '#0E1013' : 'transparent', color: expandedTeam === t.id ? '#FFF' : '#0E1013' }}
-                onClick={() => setExpandedTeam(expandedTeam === t.id ? null : t.id)}
-              >
-                <UsersIcon size={16} />
-                {t.members || (t.memberList || []).length} active members
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div 
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '2px solid #0E1013', padding: '6px 12px', fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', cursor: 'pointer', alignSelf: 'flex-start', background: expandedTeam === t.id ? '#0E1013' : 'transparent', color: expandedTeam === t.id ? '#FFF' : '#0E1013' }}
+                  onClick={() => setExpandedTeam(expandedTeam === t.id ? null : t.id)}
+                >
+                  <UsersIcon size={16} />
+                  {t.members || (t.memberList || []).length} active members
+                </div>
+
+                {(!isTeamScoped || editable) && (
+                  <button
+                    className="btn-outline"
+                    style={{ padding: '6px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => {
+                      setEditingTeam(t);
+                      setEditName(t.name);
+                      setEditDesc(t.desc || '');
+                    }}
+                    title="Edit Team Title and Description"
+                  >
+                    <Edit2 size={13} /> Edit Details
+                  </button>
+                )}
               </div>
 
               {expandedTeam === t.id && (
@@ -298,6 +353,98 @@ export default function Teams() {
           );
         })}
       </div>
+
+      {/* Edit Team Details Modal */}
+      {editingTeam && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(14,16,19,0.7)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '20px'
+        }}>
+          <div className="card" style={{
+            maxWidth: '520px',
+            width: '100%',
+            background: '#FFF',
+            border: '3px solid #0E1013',
+            boxShadow: '10px 10px 0px #0E1013',
+            padding: '32px',
+            position: 'relative'
+          }}>
+            <button
+              onClick={() => setEditingTeam(null)}
+              style={{
+                position: 'absolute',
+                top: '20px',
+                right: '20px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              <X size={22} />
+            </button>
+
+            <span className="font-mono" style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#6D5E2C', display: 'block', marginBottom: '6px' }}>
+              Team Configuration
+            </span>
+            <h2 style={{ fontSize: '26px', fontWeight: 900, textTransform: 'uppercase', margin: '0 0 20px 0' }}>
+              Edit Team Details
+            </h2>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="font-mono" style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                  Team Name / Title:
+                </label>
+                <input
+                  className="input-field"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  placeholder="e.g. Presentation, Social Media, etc."
+                />
+              </div>
+
+              <div>
+                <label className="font-mono" style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                  Description:
+                </label>
+                <textarea
+                  className="input-field"
+                  rows={4}
+                  value={editDesc}
+                  onChange={e => setEditDesc(e.target.value)}
+                  placeholder="Describe the team's mission, goals, or responsibilities..."
+                />
+              </div>
+            </div>
+
+            <div style={{ marginTop: '28px', display: 'flex', gap: '12px' }}>
+              <button
+                className="btn-primary"
+                style={{ flex: 1, justifyContent: 'center' }}
+                onClick={handleUpdateTeam}
+                disabled={savingEdit || !editName.trim()}
+              >
+                {savingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button
+                className="btn-outline"
+                style={{ flex: 1, justifyContent: 'center' }}
+                onClick={() => setEditingTeam(null)}
+                disabled={savingEdit}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

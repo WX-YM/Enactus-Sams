@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2, Download } from 'lucide-react';
+import { Trash2, Download, ArrowUpDown, Calendar, Search, X } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
 
 export default function Applications({ role }: { role: string }) {
@@ -10,6 +10,9 @@ export default function Applications({ role }: { role: string }) {
   const [reason, setReason] = useState('');
   const [referTeam, setReferTeam] = useState('');
   const [filter, setFilter] = useState('all');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const userTeam = localStorage.getItem('admin_team') || '';
   const adminEmail = localStorage.getItem('admin_email') || '';
@@ -98,6 +101,48 @@ export default function Applications({ role }: { role: string }) {
     .catch(err => console.error('Failed to delete application:', err));
   };
 
+  const allTeamNames = Array.from(new Set([
+    ...teams.map(t => t.name),
+    ...apps.map(a => a.team),
+    ...apps.map(a => a.referredTo)
+  ].filter(Boolean))).sort();
+
+  const getAppTime = (a: any) => {
+    if (a.submittedAt) {
+      const t = new Date(a.submittedAt).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (a._id?.$oid && typeof a._id.$oid === 'string' && a._id.$oid.length === 24) {
+      return parseInt(a._id.$oid.substring(0, 8), 16) * 1000;
+    }
+    if (a.id && typeof a.id === 'string' && a.id.length === 24) {
+      const t = parseInt(a.id.substring(0, 8), 16) * 1000;
+      if (!isNaN(t)) return t;
+    }
+    return 0;
+  };
+
+  const formatAppDate = (a: any) => {
+    if (a.submittedAt) {
+      return a.submittedAt.replace('T', ' ').replace('Z', '').slice(0, 16);
+    }
+    const t = getAppTime(a);
+    if (t > 0) {
+      return new Date(t).toISOString().replace('T', ' ').replace('Z', '').slice(0, 16);
+    }
+    return 'Recent';
+  };
+
+  const toggleTeam = (teamName: string) => {
+    setSelectedTeams(prev => {
+      if (prev.includes(teamName)) {
+        return prev.filter(t => t !== teamName);
+      } else {
+        return [...prev, teamName];
+      }
+    });
+  };
+
   // Scoped view for managers
   const visibleApps = apps.filter(a => {
     if (!isTeamScoped) return true;
@@ -107,16 +152,34 @@ export default function Applications({ role }: { role: string }) {
   });
 
   const filteredApps = visibleApps.filter(a => {
-    if (filter === 'all') return true;
-    return a.status === filter;
+    if (filter !== 'all' && a.status !== filter) return false;
+
+    if (selectedTeams.length > 0) {
+      const direct = a.team && selectedTeams.some(t => t.toLowerCase() === a.team.toLowerCase());
+      const referred = a.referredTo && selectedTeams.some(t => t.toLowerCase() === a.referredTo.toLowerCase());
+      if (!direct && !referred) return false;
+    }
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const str = `${a.name || ''} ${a.email || ''} ${a.phone || ''} ${a.team || ''} ${a.reason || ''}`.toLowerCase();
+      if (!str.includes(q)) return false;
+    }
+
+    return true;
+  });
+
+  const sortedApps = [...filteredApps].sort((a, b) => {
+    const timeA = getAppTime(a);
+    const timeB = getAppTime(b);
+    return sortOrder === 'newest' ? timeB - timeA : timeA - timeB;
   });
 
   const exportCSV = () => {
-    const targetApps = filter === 'all' ? visibleApps : filteredApps;
-    if (targetApps.length === 0) return;
+    if (sortedApps.length === 0) return;
 
-    const headers = ['Applicant Name', 'Email', 'Phone', 'Team Applied', 'Status', 'Referred To', 'Reason / Notes'];
-    const rows = targetApps.map(a => {
+    const headers = ['Applicant Name', 'Email', 'Phone', 'Team Applied', 'Status', 'Referred To', 'Date Submitted', 'Reason / Notes'];
+    const rows = sortedApps.map(a => {
       const row = [
         `"${String(a.name || '').replace(/"/g, '""')}"`,
         `"${String(a.email || '').replace(/"/g, '""')}"`,
@@ -124,6 +187,7 @@ export default function Applications({ role }: { role: string }) {
         `"${String(a.team || '').replace(/"/g, '""')}"`,
         `"${String(a.status || 'pending').replace(/"/g, '""')}"`,
         `"${String(a.referredTo || '').replace(/"/g, '""')}"`,
+        `"${formatAppDate(a)}"`,
         `"${String(a.reason || '').replace(/"/g, '""')}"`
       ];
       return row.join(',');
@@ -162,27 +226,156 @@ export default function Applications({ role }: { role: string }) {
         </div>
       </div>
 
-      {/* Status Filters */}
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        {['all', 'pending', 'accepted', 'rejected', 'referred'].map(f => (
+      {/* Filters & Sorting Bar */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {/* Status Filters & Sort Toggle */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {['all', 'pending', 'accepted', 'rejected', 'referred'].map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                style={{
+                  padding: '8px 16px',
+                  border: '2px solid #0E1013',
+                  background: filter === f ? '#FFC629' : '#FFF',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  boxShadow: filter === f ? '3px 3px 0px #0E1013' : 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {f} ({visibleApps.filter(a => f === 'all' || a.status === f).length})
+              </button>
+            ))}
+          </div>
+
           <button
-            key={f}
-            onClick={() => setFilter(f)}
-            style={{
-              padding: '8px 16px',
-              border: '2px solid #0E1013',
-              background: filter === f ? '#FFC629' : '#FFF',
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '12px',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              boxShadow: filter === f ? '3px 3px 0px #0E1013' : 'none',
-              cursor: 'pointer'
-            }}
+            className="btn-outline"
+            onClick={() => setSortOrder(s => s === 'newest' ? 'oldest' : 'newest')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontSize: '12px', fontWeight: 700 }}
+            title="Click to toggle sorting order"
           >
-            {f} ({visibleApps.filter(a => f === 'all' || a.status === f).length})
+            <ArrowUpDown size={14} />
+            Sort: {sortOrder === 'newest' ? 'Newest to Oldest' : 'Oldest to Newest'}
           </button>
-        ))}
+        </div>
+
+        {/* Team Filter & Search */}
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Search Box */}
+          <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: '360px' }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+            <input
+              className="input-field"
+              style={{ paddingLeft: '36px', fontSize: '13px' }}
+              placeholder="Search applicants..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', opacity: 0.6 }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Team Dropdown Filter */}
+          {!isTeamScoped && allTeamNames.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 200px', maxWidth: '280px' }}>
+              <select
+                className="input-field"
+                style={{ fontSize: '13px', fontWeight: 600 }}
+                value={selectedTeams.length === 1 ? selectedTeams[0] : (selectedTeams.length === 0 ? 'all' : 'multi')}
+                onChange={e => {
+                  if (e.target.value === 'all') {
+                    setSelectedTeams([]);
+                  } else {
+                    setSelectedTeams([e.target.value]);
+                  }
+                }}
+              >
+                <option value="all">All Teams ({allTeamNames.length})</option>
+                {selectedTeams.length > 1 && (
+                  <option value="multi" disabled>
+                    Multiple Teams ({selectedTeams.length})
+                  </option>
+                )}
+                {allTeamNames.map(t => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Quick Team Chips */}
+          {!isTeamScoped && allTeamNames.length > 0 && (
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                onClick={() => setSelectedTeams([])}
+                style={{
+                  padding: '5px 10px',
+                  border: '1.5px solid #0E1013',
+                  background: selectedTeams.length === 0 ? '#0E1013' : '#FFF',
+                  color: selectedTeams.length === 0 ? '#FFC629' : '#0E1013',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                ALL
+              </button>
+              {allTeamNames.map(t => {
+                const isSelected = selectedTeams.includes(t);
+                return (
+                  <button
+                    key={t}
+                    onClick={() => toggleTeam(t)}
+                    style={{
+                      padding: '5px 10px',
+                      border: '1.5px solid #0E1013',
+                      background: isSelected ? '#FFC629' : '#F7F5F0',
+                      color: '#0E1013',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '11px',
+                      fontWeight: isSelected ? 800 : 600,
+                      boxShadow: isSelected ? '2px 2px 0px #0E1013' : 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {t}
+                  </button>
+                );
+              })}
+              {selectedTeams.length > 0 && (
+                <button
+                  onClick={() => setSelectedTeams([])}
+                  style={{
+                    padding: '5px 8px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#E53935',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    textDecoration: 'underline'
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
@@ -197,13 +390,20 @@ export default function Applications({ role }: { role: string }) {
             </tr>
           </thead>
           <tbody>
-            {filteredApps.map(a => {
+            {sortedApps.map(a => {
               const isReferredToMe = isTeamScoped && a.referredTo && a.referredTo.trim().toLowerCase() === userTeam.trim().toLowerCase();
               return (
                 <tr key={a.id}>
                   <td>
                     <strong style={{ fontSize: '16px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'block' }}>{a.name}</strong>
-                    {a.email && <span className="font-mono" style={{ fontSize: '11px', opacity: 0.6 }}>{a.email}</span>}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '4px' }}>
+                      {a.email && <span className="font-mono" style={{ fontSize: '11px', opacity: 0.6 }}>{a.email}</span>}
+                      {a.phone && <span className="font-mono" style={{ fontSize: '11px', opacity: 0.6 }}>{a.phone}</span>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', opacity: 0.5, marginTop: '2px' }}>
+                        <Calendar size={11} />
+                        <span className="font-mono" style={{ fontSize: '10px' }}>{formatAppDate(a)}</span>
+                      </div>
+                    </div>
                   </td>
                   <td>
                     {a.team}
@@ -249,8 +449,8 @@ export default function Applications({ role }: { role: string }) {
                 </tr>
               );
             })}
-            {filteredApps.length === 0 && (
-              <tr><td colSpan={5} style={{ textAlign: 'center', opacity: 0.7, padding: '32px' }}>No applications found.</td></tr>
+            {sortedApps.length === 0 && (
+              <tr><td colSpan={5} style={{ textAlign: 'center', opacity: 0.7, padding: '32px' }}>No applications found matching your criteria.</td></tr>
             )}
           </tbody>
         </table>
