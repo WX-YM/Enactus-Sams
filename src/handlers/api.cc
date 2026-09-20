@@ -498,6 +498,16 @@ void createTeam(const HttpRequestPtr &req, std::function<void(const HttpResponse
                 collection.delete_one(make_document(kvp("name", bsoncxx::types::b_regex{"^" + teamName + "$", "i"})));
             }
 
+            if (!deletedName.empty()) {
+                try {
+                    auto contentColl = client["application"]["content"];
+                    contentColl.update_one(
+                        make_document(),
+                        make_document(kvp("$pull", make_document(kvp("recruitmentTeams", deletedName))))
+                    );
+                } catch (...) {}
+            }
+
             logSystemEvent(client, "Team Deleted", "Team " + (deletedName.empty() ? teamId : deletedName) + " removed from the club", "team");
             Json::Value ret;
             ret["status"] = "ok";
@@ -625,6 +635,11 @@ void createTeam(const HttpRequestPtr &req, std::function<void(const HttpResponse
                         make_document(kvp("referredTo", actualOldName)),
                         make_document(kvp("$set", make_document(kvp("referredTo", name))))
                     );
+                    auto contentColl = client["application"]["content"];
+                    contentColl.update_one(
+                        make_document(kvp("recruitmentTeams", actualOldName)),
+                        make_document(kvp("$set", make_document(kvp("recruitmentTeams.$", name))))
+                    );
                 } catch (...) {}
             }
 
@@ -647,6 +662,19 @@ void createTeam(const HttpRequestPtr &req, std::function<void(const HttpResponse
         doc.append(bsoncxx::builder::basic::kvp("members", 0));
 
         collection.insert_one(doc.view());
+
+        // Automatically add to recruitmentTeams in content so it appears in the public Join Us team choices
+        try {
+            using bsoncxx::builder::basic::kvp;
+            using bsoncxx::builder::basic::make_document;
+            auto contentColl = client["application"]["content"];
+            contentColl.update_one(
+                make_document(),
+                make_document(kvp("$addToSet", make_document(kvp("recruitmentTeams", name)))),
+                mongocxx::options::update{}.upsert(true)
+            );
+        } catch (...) {}
+
         logSystemEvent(client, "Team Created", "New team " + name + " added to the club", "team");
 
         Json::Value ret;

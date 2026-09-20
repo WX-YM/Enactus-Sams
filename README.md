@@ -52,7 +52,9 @@ The project is architected with a high-throughput, low-latency backend and a mod
 - **Logged-in User Role Badge**:
   - High-visibility brutalist yellow box in the sidebar displaying the active user's role, assigned team, and email directly above the sign-out action.
 - **Content CMS**:
-  - In-place editing of all website sections: Hero Section, Recruitment Status & Deadlines, About Section, Inside the Club (with live inline editing of team titles and descriptions, team creation, and deletion), Media Gallery, Project Tafrah, and Footer/Socials.
+  - In-place editing of all website sections: Hero Section, Recruitment Status & Deadlines, About Section, Inside the Club, Media Gallery, Project Tafrah, and Footer/Socials.
+  - **Tab 04 Inside the Club**: Dedicated showcase for public homepage team cards (`content.insideTeams`), allowing inline editing of titles, descriptions, adding new cards, or deleting cards. Kept strictly decoupled from operational recruitment teams.
+  - **Tab 06 Join Us / Recruitment**: Complete control over application form team choices (`content.recruitmentTeams`) with inline editing, adding, and removing choices displayed on the public site application form.
 - **Applications & Recruitment Workflow**:
   - Centralized application review table with status badges and detail view modals.
   - Actions: Accept, Reject, Delete (Super Admin only), and **Refer**.
@@ -63,7 +65,8 @@ The project is architected with a high-throughput, low-latency backend and a mod
   - Dedicated "Application Responses" section to separate general form submissions from club recruitment.
 - **Team Management**:
   - Team creation, title and description editing, and roster management.
-  - Scoped permissions: Team managers can only manage members within their assigned team.m.
+  - **Automatic Recruitment & Access Sync**: Creating a team in Manage Teams automatically syncs it to the public recruitment choices (`recruitmentTeams`) and Access Control manager/vice-manager assignment dropdowns, while keeping the public homepage "Inside the Club" section (`insideTeams`) completely independent.
+  - Scoped permissions: Team managers can only manage members within their assigned team.
 
 ---
 

@@ -46,17 +46,32 @@ export default function Users() {
   };
 
   const fetchTeams = () => {
-    fetch('/api/teams')
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.teams) {
-          setTeams(data.teams);
-          if (data.teams.length > 0 && !selectedTeam) {
-            setSelectedTeam(data.teams[0].name);
-          }
+    Promise.all([
+      fetch('/api/teams').then(r => r.json()).catch(() => ({ teams: [] })),
+      fetch('/api/content').then(r => r.json()).catch(() => ({ content: {} }))
+    ]).then(([teamsData, contentData]) => {
+      const dbTeams = (teamsData && teamsData.teams) ? teamsData.teams : [];
+      const recruitmentTeams = (contentData && contentData.content && contentData.content.recruitmentTeams)
+        ? contentData.content.recruitmentTeams.map((name: string) => ({ name, id: name }))
+        : [];
+
+      const map = new Map<string, any>();
+      dbTeams.forEach((t: any) => {
+        if (t && t.name) map.set(t.name.trim().toLowerCase(), { ...t, name: t.name.trim() });
+      });
+      recruitmentTeams.forEach((t: any) => {
+        if (t && t.name) {
+          const key = t.name.trim().toLowerCase();
+          if (!map.has(key)) map.set(key, t);
         }
-      })
-      .catch(err => console.error(err));
+      });
+
+      const merged = Array.from(map.values());
+      setTeams(merged);
+      if (merged.length > 0 && !selectedTeam) {
+        setSelectedTeam(merged[0].name);
+      }
+    }).catch(err => console.error(err));
   };
 
   useEffect(() => { 

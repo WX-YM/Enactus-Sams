@@ -1,16 +1,37 @@
 import { useState, useEffect, useRef } from 'react';
 import { Save, Upload, Trash2, CheckCircle2, Image as ImageIcon, Type, Sparkles, Layers, MessageSquare, Globe, Users as UsersIcon, Edit2, Check, X } from 'lucide-react';
 
+const DEFAULT_INSIDE_TEAMS = [
+  { id: '1', name: 'Presentation', desc: 'the team that showcases the work the ones in the spotlight' },
+  { id: '2', name: 'Project Management', desc: 'The team that brings the ideas to life' },
+  { id: '3', name: 'Human Resources', desc: 'The people engine. Recruitment, onboarding, training calendar and culture. The reason the club still feels like a club in month nine.' },
+  { id: '4', name: 'External Affairs', desc: 'Doors, opened. Sponsors, NGOs, companies and the academy itself — the partnerships that make a student project possible.' },
+  { id: '5', name: 'Social Media', desc: 'Where the story spreads. Calendar, copy, community and campaign launches. If the campus knows about it, this team made sure of it.' },
+  { id: '6', name: 'Media Production', desc: 'Everything you see. Photo, video, editing and design — the visual record of every session, activation and project film.' }
+];
+
+const DEFAULT_RECRUITMENT_TEAMS = [
+  'Presentation',
+  'Project Management',
+  'Human Resources',
+  'External Affairs',
+  'Social Media',
+  'Media Production'
+];
+
 export default function Content() {
   const [activeTab, setActiveTab] = useState<'hero' | 'about' | 'tafrah' | 'inside' | 'gallery' | 'join' | 'footer'>('hero');
-  const [teams, setTeams] = useState<any[]>([]);
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamDesc, setNewTeamDesc] = useState('');
-  const [addingTeam, setAddingTeam] = useState(false);
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
   const [editTeamName, setEditTeamName] = useState('');
   const [editTeamDesc, setEditTeamDesc] = useState('');
-  const [updatingTeam, setUpdatingTeam] = useState(false);
+
+  // Recruitment team choices state (Tab 06)
+  const [editingChoiceIdx, setEditingChoiceIdx] = useState<number | null>(null);
+  const [editChoiceText, setEditChoiceText] = useState('');
+  const [newChoiceText, setNewChoiceText] = useState('');
+
   const [content, setContent] = useState<any>({
     recruitmentOpen: true,
     // Hero
@@ -56,10 +77,11 @@ export default function Content() {
     tafrahH4Desc: 'Progress, certificates and readiness in one view — for the trainee and for the employer.',
     tafrahFooter: 'Tafrah was the venture Enactus SAMS Maadi carried to the Enactus Egypt national competition this year.',
     tafrahImages: [],
-    // Inside the club
+    // Inside the club (independent showcase)
     insideKicker: '03 — Inside the club',
     insideTitle: 'Six teams. One project.',
     insideDesc: 'Every team owns a real part of the outcome. You pick where you start — not where you stay.',
+    insideTeams: DEFAULT_INSIDE_TEAMS,
     // Gallery
     lifeKicker: '04 — Life at Enactus',
     lifeTitle: 'Long days, yellow everywhere.',
@@ -76,6 +98,7 @@ export default function Content() {
     joinNoteClosed: 'We open applications at the start of each semester',
     closedBannerTitle: 'Applications Closed.',
     closedBannerDesc: 'Recruitment for this semester has ended. Follow our socials to know when the next season begins!',
+    recruitmentTeams: DEFAULT_RECRUITMENT_TEAMS,
     // Footer
     footerAbout: 'Sadat Academy for Management Sciences — Maadi\nCairo, Egypt',
     footerSocialInsta: 'https://instagram.com',
@@ -93,19 +116,7 @@ export default function Content() {
   const aboutInputRef = useRef<HTMLInputElement | null>(null);
   const tafrahSiteInputRef = useRef<HTMLInputElement | null>(null);
 
-  const fetchTeams = () => {
-    fetch('/api/teams')
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.teams) {
-          setTeams(data.teams.map((t: any) => ({ ...t, id: t._id?.$oid || t.id })));
-        }
-      })
-      .catch(console.error);
-  };
-
   useEffect(() => {
-    fetchTeams();
     fetch('/api/content')
       .then(res => res.json())
       .then(data => {
@@ -121,87 +132,101 @@ export default function Content() {
           if (!c.tafrahSiteImage) {
             c.tafrahSiteImage = 'assets/tafrah-site.jpg';
           }
+          if (!c.insideTeams || c.insideTeams.length === 0) {
+            c.insideTeams = DEFAULT_INSIDE_TEAMS;
+          }
+          if (!c.recruitmentTeams || c.recruitmentTeams.length === 0) {
+            c.recruitmentTeams = DEFAULT_RECRUITMENT_TEAMS;
+          }
           setContent((prev: any) => ({ ...prev, ...c }));
         }
       })
       .catch(console.error);
   }, []);
 
-  const handleAddTeam = () => {
+  // Inside the Club (Tab 04) Handlers — Independent of Manage Teams
+  const handleAddInsideTeam = () => {
     if (!newTeamName.trim()) return;
-    setAddingTeam(true);
-    fetch('/api/teams', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newTeamName.trim(), desc: newTeamDesc.trim() })
-    })
-    .then(r => r.json())
-    .then(() => {
-      setAddingTeam(false);
-      setNewTeamName('');
-      setNewTeamDesc('');
-      fetchTeams();
-    })
-    .catch(err => {
-      setAddingTeam(false);
-      console.error(err);
-    });
+    const newT = {
+      id: String(Date.now()),
+      name: newTeamName.trim(),
+      desc: newTeamDesc.trim()
+    };
+    setContent((prev: any) => ({
+      ...prev,
+      insideTeams: [...(prev.insideTeams || []), newT]
+    }));
+    setNewTeamName('');
+    setNewTeamDesc('');
   };
 
-  const handleDeleteTeam = (teamName: string, id?: string) => {
-    if (!confirm(`Are you sure you want to remove the team "${teamName}"? This will remove it from the public site and manage teams.`)) return;
-    fetch('/api/teams', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', name: teamName, id })
-    })
-      .then(res => res.json())
-      .then(() => {
-        fetchTeams();
-      })
-      .catch(err => console.error(err));
-  };
-
-  const handleStartEditTeam = (t: any) => {
-    setEditingTeamId(t.id || t._id?.$oid);
+  const handleStartEditInsideTeam = (t: any) => {
+    setEditingTeamId(t.id);
     setEditTeamName(t.name);
     setEditTeamDesc(t.desc || '');
   };
 
-  const handleCancelEditTeam = () => {
+  const handleCancelEditInsideTeam = () => {
     setEditingTeamId(null);
     setEditTeamName('');
     setEditTeamDesc('');
   };
 
-  const handleSaveTeam = (t: any) => {
+  const handleSaveInsideTeam = (teamId: string) => {
     if (!editTeamName.trim()) return;
-    setUpdatingTeam(true);
-    fetch('/api/teams', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'update',
-        id: t.id || t._id?.$oid,
-        oldName: t.name,
-        name: editTeamName.trim(),
-        desc: editTeamDesc.trim()
-      })
-    })
-      .then(res => res.json())
-      .then(data => {
-        setUpdatingTeam(false);
-        if (data.status === 'ok') {
-          setEditingTeamId(null);
-          fetchTeams();
-        } else {
-          alert(data.message || 'Failed to update team');
-        }
-      })
-      .catch(err => {
-        setUpdatingTeam(false);
-        console.error(err);
-      });
+    const updated = (content.insideTeams || []).map((t: any) => {
+      if (t.id === teamId) {
+        return { ...t, name: editTeamName.trim(), desc: editTeamDesc.trim() };
+      }
+      return t;
+    });
+    setContent((prev: any) => ({ ...prev, insideTeams: updated }));
+    setEditingTeamId(null);
+    setEditTeamName('');
+    setEditTeamDesc('');
+  };
+
+  const handleDeleteInsideTeam = (teamId: string, teamName: string) => {
+    if (!confirm(`Are you sure you want to remove "${teamName}" from the Inside the Club section?`)) return;
+    const updated = (content.insideTeams || []).filter((t: any) => t.id !== teamId);
+    setContent((prev: any) => ({ ...prev, insideTeams: updated }));
+  };
+
+  // Recruitment Choices (Tab 06) Handlers
+  const handleAddChoice = () => {
+    if (!newChoiceText.trim()) return;
+    const trimmed = newChoiceText.trim();
+    const current = content.recruitmentTeams || [];
+    if (current.includes(trimmed)) return;
+    setContent((prev: any) => ({
+      ...prev,
+      recruitmentTeams: [...(prev.recruitmentTeams || []), trimmed]
+    }));
+    setNewChoiceText('');
+  };
+
+  const handleStartEditChoice = (idx: number, name: string) => {
+    setEditingChoiceIdx(idx);
+    setEditChoiceText(name);
+  };
+
+  const handleCancelEditChoice = () => {
+    setEditingChoiceIdx(null);
+    setEditChoiceText('');
+  };
+
+  const handleSaveChoice = (idx: number) => {
+    if (!editChoiceText.trim()) return;
+    const updated = [...(content.recruitmentTeams || [])];
+    updated[idx] = editChoiceText.trim();
+    setContent((prev: any) => ({ ...prev, recruitmentTeams: updated }));
+    setEditingChoiceIdx(null);
+    setEditChoiceText('');
+  };
+
+  const handleRemoveChoice = (idx: number) => {
+    const updated = (content.recruitmentTeams || []).filter((_: any, i: number) => i !== idx);
+    setContent((prev: any) => ({ ...prev, recruitmentTeams: updated }));
   };
 
   const handleSave = () => {
@@ -1042,16 +1067,16 @@ export default function Content() {
           {/* Team Cards on Public Site */}
           <div style={{ borderTop: '2px solid #0E1013', paddingTop: '20px' }}>
             <h3 className="font-mono" style={{ fontSize: '13px', textTransform: 'uppercase', marginBottom: '16px' }}>
-              Active Teams Displayed on Public Site ({teams.length})
+              Active Teams Displayed in This Section ({ (content.insideTeams || []).length })
             </h3>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              {teams.map((t, idx) => {
-                const teamId = t.id || t._id?.$oid;
+              {(content.insideTeams || []).map((t: any, idx: number) => {
+                const teamId = t.id || String(idx);
                 const isEditing = editingTeamId === teamId;
 
                 return (
-                  <div key={teamId || idx} style={{ background: '#0E1013', color: '#F7F5F0', border: '2.5px solid #0E1013', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div key={teamId} style={{ background: '#0E1013', color: '#F7F5F0', border: '2.5px solid #0E1013', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span className="font-mono" style={{ fontSize: '11px', color: '#FFC629', fontWeight: 700 }}>
                         0{idx + 1} / {t.name}
@@ -1060,7 +1085,7 @@ export default function Content() {
                         {!isEditing ? (
                           <>
                             <button
-                              onClick={() => handleStartEditTeam(t)}
+                              onClick={() => handleStartEditInsideTeam(t)}
                               title="Edit team title and description"
                               style={{
                                 background: '#FFC629',
@@ -1079,7 +1104,7 @@ export default function Content() {
                               <Edit2 size={12} /> Edit
                             </button>
                             <button
-                              onClick={() => handleDeleteTeam(t.name, teamId)}
+                              onClick={() => handleDeleteInsideTeam(teamId, t.name)}
                               title="Remove team"
                               style={{
                                 background: '#DC2626',
@@ -1101,8 +1126,8 @@ export default function Content() {
                         ) : (
                           <>
                             <button
-                              onClick={() => handleSaveTeam(t)}
-                              disabled={updatingTeam || !editTeamName.trim()}
+                              onClick={() => handleSaveInsideTeam(teamId)}
+                              disabled={!editTeamName.trim()}
                               title="Save team details"
                               style={{
                                 background: '#10B981',
@@ -1118,11 +1143,10 @@ export default function Content() {
                                 fontFamily: 'IBM Plex Mono'
                               }}
                             >
-                              <Check size={12} /> {updatingTeam ? 'Saving...' : 'Save'}
+                              <Check size={12} /> Save
                             </button>
                             <button
-                              onClick={handleCancelEditTeam}
-                              disabled={updatingTeam}
+                              onClick={handleCancelEditInsideTeam}
                               title="Cancel editing"
                               style={{
                                 background: '#374151',
@@ -1212,10 +1236,10 @@ export default function Content() {
               <button
                 className="btn-primary"
                 style={{ padding: '10px 20px', fontSize: '13px' }}
-                onClick={handleAddTeam}
-                disabled={addingTeam || !newTeamName.trim()}
+                onClick={handleAddInsideTeam}
+                disabled={!newTeamName.trim()}
               >
-                {addingTeam ? 'Adding...' : '+ Add Team to Site'}
+                + Add Team to Section
               </button>
             </div>
           </div>
@@ -1483,6 +1507,161 @@ export default function Content() {
                   placeholder="Recruitment for this semester has ended..."
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Recruitment Team Choices (Public Application Form) */}
+          <div style={{ borderTop: '2px solid #0E1013', paddingTop: '20px' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <span className="font-mono" style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#6D5E2C', display: 'block', marginBottom: '4px' }}>
+                Application Form Options
+              </span>
+              <h3 className="font-mono" style={{ fontSize: '13px', textTransform: 'uppercase', margin: '0 0 6px 0' }}>
+                Recruitment Team Choices ({ (content.recruitmentTeams || []).length })
+              </h3>
+              <p style={{ margin: 0, fontSize: '13px', opacity: 0.75 }}>
+                These are the team options candidates can select from under the "Choose your team" section in the public application form.
+              </p>
+            </div>
+
+            {/* List of current choices */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+              {(content.recruitmentTeams || []).map((teamName: string, idx: number) => {
+                const isEditing = editingChoiceIdx === idx;
+
+                return (
+                  <div key={idx} style={{ background: '#0E1013', color: '#F7F5F0', border: '2px solid #0E1013', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="font-mono" style={{ fontSize: '11px', color: '#FFC629', fontWeight: 700 }}>
+                        Choice 0{idx + 1}
+                      </span>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {!isEditing ? (
+                          <>
+                            <button
+                              onClick={() => handleStartEditChoice(idx, teamName)}
+                              title="Edit choice name"
+                              style={{
+                                background: '#FFC629',
+                                color: '#0E1013',
+                                border: '1.5px solid #FFC629',
+                                padding: '3px 7px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                fontFamily: 'IBM Plex Mono'
+                              }}
+                            >
+                              <Edit2 size={11} /> Edit
+                            </button>
+                            <button
+                              onClick={() => handleRemoveChoice(idx)}
+                              title="Remove choice"
+                              style={{
+                                background: '#DC2626',
+                                color: '#FFF',
+                                border: '1.5px solid #0E1013',
+                                padding: '3px 7px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                fontFamily: 'IBM Plex Mono'
+                              }}
+                            >
+                              <Trash2 size={11} /> Remove
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleSaveChoice(idx)}
+                              disabled={!editChoiceText.trim()}
+                              title="Save choice"
+                              style={{
+                                background: '#10B981',
+                                color: '#FFF',
+                                border: '1.5px solid #10B981',
+                                padding: '3px 7px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                fontFamily: 'IBM Plex Mono'
+                              }}
+                            >
+                              <Check size={11} /> Save
+                            </button>
+                            <button
+                              onClick={handleCancelEditChoice}
+                              title="Cancel"
+                              style={{
+                                background: '#374151',
+                                color: '#FFF',
+                                border: '1.5px solid #374151',
+                                padding: '3px 7px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                fontFamily: 'IBM Plex Mono'
+                              }}
+                            >
+                              <X size={11} /> Cancel
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {isEditing ? (
+                      <input
+                        className="input-field"
+                        style={{ background: '#181C22', color: '#F7F5F0', border: '1.5px solid #FFC629', padding: '8px 12px', fontSize: '13px' }}
+                        value={editChoiceText}
+                        onChange={e => setEditChoiceText(e.target.value)}
+                        placeholder="Team Name"
+                        autoFocus
+                      />
+                    ) : (
+                      <span style={{ fontSize: '15px', fontWeight: 700 }}>{teamName}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add New Choice Form */}
+            <div style={{ background: '#F7F5F0', border: '2px solid #0E1013', padding: '16px 20px', display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1', minWidth: '220px' }}>
+                <label className="font-mono" style={{ fontSize: '11px', display: 'block', marginBottom: '4px', fontWeight: 700 }}>
+                  Add New Team Choice
+                </label>
+                <input
+                  className="input-field"
+                  placeholder="e.g. Research & Development"
+                  value={newChoiceText}
+                  onChange={e => setNewChoiceText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAddChoice(); }}
+                />
+              </div>
+              <button
+                className="btn-primary"
+                style={{ padding: '10px 20px', fontSize: '13px', height: '42px' }}
+                onClick={handleAddChoice}
+                disabled={!newChoiceText.trim()}
+              >
+                + Add Choice to Form
+              </button>
             </div>
           </div>
         </div>

@@ -577,6 +577,12 @@ class Component extends DCLogic {
               }
             }
           }
+          if (data.content.insideTeams && data.content.insideTeams.length > 0) {
+            renderInsideTeams(data.content.insideTeams);
+          }
+          if (data.content.recruitmentTeams && data.content.recruitmentTeams.length > 0) {
+            renderTeamSelector(data.content.recruitmentTeams);
+          }
         }
       })
       .catch(console.error);
@@ -612,47 +618,62 @@ class Component extends DCLogic {
       return '<svg width="58" height="58" viewBox="0 0 24 24" fill="none" stroke="#FFC629" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
     }
 
+    let hasLoadedInsideTeams = false;
+    let hasLoadedRecruitmentTeams = false;
+
+    const renderInsideTeams = (teamsList) => {
+      const grid = document.getElementById('inside-teams-grid');
+      if (!grid || !teamsList || teamsList.length === 0) return;
+      grid.innerHTML = teamsList.map((t, idx) => {
+        const num = String(idx + 1).padStart(2, '0');
+        return '<article style="border:1px solid rgba(14,16,19,0.2); border-radius:6px; overflow:hidden; background:#0E1013; color:#F7F5F0; display:flex; flex-direction:column">' +
+          '<div style="height:clamp(130px,15vw,168px); display:flex; align-items:center; justify-content:center; background:#181C22; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.07) 0 1px, transparent 1px 14px); border-bottom:1px solid rgba(247,245,240,0.12)">' +
+            getTeamSvg(t.name, idx) +
+          '</div>' +
+          '<div style="padding:clamp(18px,2vw,26px); display:flex; flex-direction:column; gap:10px">' +
+            '<span style="font-family:\'IBM Plex Mono\',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">' + num + ' / ' + t.name + '</span>' +
+            '<h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">' + t.name + '</h3>' +
+            '<p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">' + (t.desc || '') + '</p>' +
+          '</div>' +
+        '</article>';
+      }).join('');
+      hasLoadedInsideTeams = true;
+    };
+
+    const renderTeamSelector = (teamsList) => {
+      const sel = document.getElementById('team-selector');
+      if (!sel || !teamsList || teamsList.length === 0) return;
+      sel.innerHTML = teamsList.map(item => {
+        const name = typeof item === 'string' ? item : (item && item.name ? item.name : '');
+        return '<button type="button" class="team-btn" data-team="' + name + '" style="padding:10px 20px; border-radius:999px; border:1px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s">' + name + '</button>';
+      }).join('');
+      sel.querySelectorAll('.team-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const team = e.currentTarget.getAttribute('data-team');
+          this.setState({ picked: team });
+          sel.querySelectorAll('.team-btn').forEach(b => {
+            if (b.getAttribute('data-team') === team) {
+              b.style.background = '#0E1013';
+              b.style.color = '#FFC629';
+            } else {
+              b.style.background = 'transparent';
+              b.style.color = '#0E1013';
+            }
+          });
+        });
+      });
+      hasLoadedRecruitmentTeams = true;
+    };
+
     fetch('/api/teams')
       .then(res => res.json())
       .then(data => {
         if (data && data.teams && data.teams.length > 0) {
-          const grid = document.getElementById('inside-teams-grid');
-          if (grid) {
-            grid.innerHTML = data.teams.map((t, idx) => {
-              const num = String(idx + 1).padStart(2, '0');
-              return '<article style="border:1px solid rgba(14,16,19,0.2); border-radius:6px; overflow:hidden; background:#0E1013; color:#F7F5F0; display:flex; flex-direction:column">' +
-                '<div style="height:clamp(130px,15vw,168px); display:flex; align-items:center; justify-content:center; background:#181C22; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.07) 0 1px, transparent 1px 14px); border-bottom:1px solid rgba(247,245,240,0.12)">' +
-                  getTeamSvg(t.name, idx) +
-                '</div>' +
-                '<div style="padding:clamp(18px,2vw,26px); display:flex; flex-direction:column; gap:10px">' +
-                  '<span style="font-family:\'IBM Plex Mono\',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">' + num + ' / ' + t.name + '</span>' +
-                  '<h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">' + t.name + '</h3>' +
-                  '<p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">' + (t.desc || '') + '</p>' +
-                '</div>' +
-              '</article>';
-            }).join('');
+          if (!hasLoadedInsideTeams) {
+            renderInsideTeams(data.teams);
           }
-
-          const sel = document.getElementById('team-selector');
-          if (sel) {
-            sel.innerHTML = data.teams.map(t => {
-              return '<button type="button" class="team-btn" data-team="' + t.name + '" style="padding:10px 20px; border-radius:999px; border:1px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s">' + t.name + '</button>';
-            }).join('');
-            sel.querySelectorAll('.team-btn').forEach(btn => {
-              btn.addEventListener('click', (e) => {
-                const team = e.currentTarget.getAttribute('data-team');
-                this.setState({ picked: team });
-                sel.querySelectorAll('.team-btn').forEach(b => {
-                  if (b.getAttribute('data-team') === team) {
-                    b.style.background = '#0E1013';
-                    b.style.color = '#FFC629';
-                  } else {
-                    b.style.background = 'transparent';
-                    b.style.color = '#0E1013';
-                  }
-                });
-              });
-            });
+          if (!hasLoadedRecruitmentTeams) {
+            renderTeamSelector(data.teams);
           }
         }
       })

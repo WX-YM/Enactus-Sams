@@ -22,3 +22,4 @@ vcpkg_installed/
 *.log
 .system_generated/
 scratch/
+sysadmindocs/
