@@ -492,6 +492,72 @@
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;recruitmentOpen&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Recruitment&quot;},&quot;joinNote&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Applications close at the end of the month&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Recruitment&quot;}}">
+function showBrutalistAlert({ kicker = 'ATTENTION REQUIRED', title = 'NOTICE', message = '', buttonText = 'UNDERSTOOD', type = 'warning' } = {}) {
+  const existing = document.getElementById('brutalist-alert-modal');
+  if (existing) existing.remove();
+
+  const backdrop = document.createElement('div');
+  backdrop.id = 'brutalist-alert-modal';
+  backdrop.style.cssText = 'position:fixed; inset:0; background:rgba(14, 16, 19, 0.75); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; z-index:99999; padding:20px;';
+
+  const badgeBg = type === 'danger' ? '#E53935' : '#FFC629';
+  const badgeColor = type === 'danger' ? '#FFFFFF' : '#0E1013';
+
+  backdrop.innerHTML = `
+    <div style="max-width:480px; width:100%; background:#FFFFFF; border:3px solid #0E1013; box-shadow:10px 10px 0px #0E1013; padding:32px; position:relative; display:flex; flex-direction:column; gap:16px; box-sizing:border-box;">
+      <button id="brutalist-alert-close" type="button" style="position:absolute; top:16px; right:16px; background:transparent; border:none; cursor:pointer; padding:4px; display:flex; align-items:center; justify-content:center;" title="Close">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0E1013" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.2em; text-transform:uppercase; font-weight:800; background:${badgeBg}; color:${badgeColor}; padding:3px 8px; border:1.5px solid #0E1013; box-shadow:2px 2px 0px #0E1013; display:inline-flex; align-items:center; gap:6px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter">
+            ${type === 'danger' 
+              ? '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>' 
+              : '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>'}
+          </svg>
+          ${kicker}
+        </span>
+      </div>
+
+      <h2 style="margin:0; font-family:Archivo,sans-serif; font-size:24px; font-weight:900; text-transform:uppercase; letter-spacing:-0.02em; line-height:1.15; color:#0E1013;">
+        ${title}
+      </h2>
+
+      <p style="margin:0; font-family:Archivo,sans-serif; font-size:15px; line-height:1.55; color:rgba(14, 16, 19, 0.82); font-weight:500;">
+        ${message}
+      </p>
+
+      <div style="display:flex; gap:12px; margin-top:8px;">
+        <button id="brutalist-alert-ok" type="button" style="flex:1; padding:12px 20px; font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; background:#FFC629; color:#0E1013; border:2px solid #0E1013; box-shadow:4px 4px 0px #0E1013; cursor:pointer; text-align:center; transition:transform 0.1s ease;">
+          ${buttonText}
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(backdrop);
+
+  const close = () => {
+    backdrop.remove();
+    document.removeEventListener('keydown', handleKey);
+  };
+
+  const handleKey = (e) => {
+    if (e.key === 'Escape') close();
+  };
+
+  backdrop.querySelector('#brutalist-alert-close').addEventListener('click', close);
+  backdrop.querySelector('#brutalist-alert-ok').addEventListener('click', close);
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) close();
+  });
+  document.addEventListener('keydown', handleKey);
+}
+
 class Component extends DCLogic {
   state = {
     lightbox: null,
@@ -721,14 +787,29 @@ class Component extends DCLogic {
       submitted: this.state.submitted,
       submitApplication: (e) => {
         e.preventDefault();
-        const fname = document.getElementById('apply-firstname').value;
-        const lname = document.getElementById('apply-lastname').value;
-        const email = document.getElementById('apply-email').value;
-        const phone = document.getElementById('apply-phone').value;
-        const reason = document.getElementById('apply-reason').value;
+        const fname = (document.getElementById('apply-firstname')?.value || '').trim();
+        const lname = (document.getElementById('apply-lastname')?.value || '').trim();
+        const email = (document.getElementById('apply-email')?.value || '').trim();
+        const phone = (document.getElementById('apply-phone')?.value || '').trim();
+        const reason = (document.getElementById('apply-reason')?.value || '').trim();
         
-        if (!fname || !lname || !this.state.picked || !email || !phone) {
-          alert('Please fill out all fields and choose a team!');
+        if (!fname || !lname || !email || !phone) {
+          showBrutalistAlert({
+            kicker: 'ATTENTION REQUIRED',
+            title: 'INCOMPLETE APPLICATION',
+            message: 'Please fill out all required fields (First Name, Last Name, Email, and Phone Number) before submitting your application.',
+            buttonText: 'UNDERSTOOD'
+          });
+          return;
+        }
+
+        if (!this.state.picked) {
+          showBrutalistAlert({
+            kicker: 'TEAM SELECTION REQUIRED',
+            title: 'CHOOSE A TEAM',
+            message: 'Please select a team from the choices below before submitting your application.',
+            buttonText: 'CHOOSE TEAM'
+          });
           return;
         }
         
@@ -745,7 +826,13 @@ class Component extends DCLogic {
           this.setState({ submitted: true });
         }).catch(err => {
           console.error(err);
-          alert("Failed to apply. Check console.");
+          showBrutalistAlert({
+            type: 'danger',
+            kicker: 'SYSTEM ERROR',
+            title: 'SUBMISSION FAILED',
+            message: 'Failed to submit your application. Please check your connection and try again.',
+            buttonText: 'CLOSE'
+          });
         });
       },
       pickedLine: picked ? picked + ' — good choice. Mention it in your application.' : '',
