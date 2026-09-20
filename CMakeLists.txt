@@ -13,7 +13,9 @@ add_subdirectory(anvil)
 add_executable(enactus_backend
     src/main.cc
     src/handlers/api.cc
+    src/stb_impl.cc
 )
+target_include_directories(enactus_backend PRIVATE src)
 target_link_libraries(enactus_backend PRIVATE anvil::app)
 
 add_executable(emit_descriptor src/emit_descriptor.cc)

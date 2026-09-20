@@ -9,6 +9,11 @@
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/json.hpp>
 
+// stb image — declaration only; definitions live in stb_impl.cc
+#include "third_party/stb_image.h"
+#include "third_party/stb_image_write.h"
+#include "third_party/stb_image_resize2.h"
+
 #include "anvil/accesscontrol/route_registration.h"
 #include "anvil/core/thread_pools.h"
 #include "anvil/db/mongo_pool.h"
@@ -716,43 +721,139 @@ static std::string base64_decode_str(const std::string &in) {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Image resize helper
+// Resizes src_data (raw bytes, any image format stb_image supports) so that
+// neither dimension exceeds max_side pixels, then re-encodes as JPEG at the
+// given quality (1-100). Returns the encoded JPEG bytes, or an empty vector
+// on failure (caller should fall through to saving the original).
+// ---------------------------------------------------------------------------
+static std::vector<unsigned char> resize_image_to_jpeg(
+        const unsigned char *src_data, int src_len,
+        int max_side = 1600, int jpeg_quality = 82) {
+
+    int w = 0, h = 0, ch = 0;
+    // Force 3 channels (RGB) — JPEG doesn't support alpha anyway
+    stbi_uc *pixels = stbi_load_from_memory(src_data, src_len, &w, &h, &ch, 3);
+    if (!pixels) return {};
+
+    int new_w = w, new_h = h;
+    if (w > max_side || h > max_side) {
+        if (w >= h) { new_w = max_side; new_h = (h * max_side) / w; }
+        else         { new_h = max_side; new_w = (w * max_side) / h; }
+        if (new_w < 1) new_w = 1;
+        if (new_h < 1) new_h = 1;
+    }
+
+    std::vector<unsigned char> out_pixels;
+    if (new_w != w || new_h != h) {
+        out_pixels.resize(static_cast<std::size_t>(new_w) * new_h * 3);
+        stbir_resize_uint8_linear(pixels, w, h, 0,
+                                  out_pixels.data(), new_w, new_h, 0,
+                                  STBIR_RGB);
+        stbi_image_free(pixels);
+        pixels = nullptr;
+    }
+
+    // Encode as JPEG in-memory
+    std::vector<unsigned char> jpeg_bytes;
+    auto write_cb = [](void *ctx, void *data, int size) {
+        auto *buf = static_cast<std::vector<unsigned char> *>(ctx);
+        const auto *p = static_cast<unsigned char *>(data);
+        buf->insert(buf->end(), p, p + size);
+    };
+
+    const unsigned char *src = (new_w != w || new_h != h)
+                                ? out_pixels.data()
+                                : pixels;
+    int ok = stbi_write_jpg_to_func(write_cb, &jpeg_bytes,
+                                    new_w, new_h, 3, src, jpeg_quality);
+    if (pixels) stbi_image_free(pixels);
+
+    return ok ? jpeg_bytes : std::vector<unsigned char>{};
+}
+
+// ---------------------------------------------------------------------------
+// Upload route — POST /api/upload
+// Accepts multipart/form-data or application/json {data:"data:...base64...", filename:"x"}
+// Images wider or taller than 1600 px are downscaled and re-encoded as JPEG.
+// Non-image files (SVG, PDF, etc.) are saved as-is.
+// ---------------------------------------------------------------------------
 void uploadFile(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
-    std::string savedUrl = "";
+    // Lowercase extension helper
+    auto lower_ext = [](std::string s) {
+        for (auto &c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+    // Returns true for formats stb_image can decode and that benefit from resize
+    auto is_raster_image = [&](const std::string &ext) {
+        return ext == ".jpg" || ext == ".jpeg" || ext == ".png"
+            || ext == ".bmp" || ext == ".tga" || ext == ".webp";
+    };
+
+    std::string savedUrl;
+
+    auto process_and_save = [&](const unsigned char *data, int len,
+                                 const std::string &original_ext) -> bool {
+        std::string ext = lower_ext(original_ext);
+        std::string ts  = std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+
+        if (is_raster_image(ext)) {
+            auto jpeg = resize_image_to_jpeg(data, len);
+            if (!jpeg.empty()) {
+                std::string fname = "img_" + ts + ".jpg";
+                std::ofstream f("./public/assets/uploads/" + fname, std::ios::binary);
+                if (f) {
+                    f.write(reinterpret_cast<const char *>(jpeg.data()),
+                            static_cast<std::streamsize>(jpeg.size()));
+                    f.close();
+                    savedUrl = "/assets/uploads/" + fname;
+                    return true;
+                }
+            }
+            // Fall through: save original if resize failed
+        }
+        // Non-image or resize failure: write raw bytes
+        std::string fname = "img_" + ts + ext;
+        std::ofstream f("./public/assets/uploads/" + fname, std::ios::binary);
+        if (f) {
+            f.write(reinterpret_cast<const char *>(data),
+                    static_cast<std::streamsize>(len));
+            f.close();
+            savedUrl = "/assets/uploads/" + fname;
+            return true;
+        }
+        return false;
+    };
+
     if (req->getContentType() == CT_MULTIPART_FORM_DATA) {
         drogon::MultiPartParser parser;
         if (parser.parse(req) == 0 && !parser.getFiles().empty()) {
             auto &file = parser.getFiles()[0];
-            std::string ext = "";
+            std::string ext;
             auto pos = file.getFileName().find_last_of('.');
             if (pos != std::string::npos) ext = file.getFileName().substr(pos);
-            std::string fname = "img_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ext;
-            std::ofstream out("./public/assets/uploads/" + fname, std::ios::binary);
-            if (out) {
-                out.write(file.fileData(), file.fileLength());
-                out.close();
-                savedUrl = "/assets/uploads/" + fname;
-            }
+            process_and_save(
+                reinterpret_cast<const unsigned char *>(file.fileData()),
+                static_cast<int>(file.fileLength()), ext);
         }
     } else if (auto json = req->getJsonObject()) {
-        std::string data = (*json)["data"].asString();
-        std::string name = (*json)["filename"].asString();
-        auto comma = data.find(',');
-        if (comma != std::string::npos) data = data.substr(comma + 1);
-        std::string decoded = base64_decode_str(data);
+        std::string data_str = (*json)["data"].asString();
+        std::string name     = (*json)["filename"].asString();
+        auto comma = data_str.find(',');
+        if (comma != std::string::npos) data_str = data_str.substr(comma + 1);
+        std::string decoded = base64_decode_str(data_str);
         std::string ext = ".png";
         auto pos = name.find_last_of('.');
         if (pos != std::string::npos) ext = name.substr(pos);
-        std::string fname = "img_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ext;
-        std::ofstream out("./public/assets/uploads/" + fname, std::ios::binary);
-        if (out) {
-            out.write(decoded.data(), decoded.size());
-            out.close();
-            savedUrl = "/assets/uploads/" + fname;
-        }
+        process_and_save(
+            reinterpret_cast<const unsigned char *>(decoded.data()),
+            static_cast<int>(decoded.size()), ext);
     }
+
     Json::Value ret;
     ret["status"] = savedUrl.empty() ? "error" : "ok";
-    ret["url"] = savedUrl;
+    ret["url"]    = savedUrl;
     callback(HttpResponse::newHttpJsonResponse(ret));
 }
 
