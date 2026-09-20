@@ -419,6 +419,23 @@ void updateApplicationStatus(const HttpRequestPtr &req, std::function<void(const
                                 )
                             );
                         }
+                    } else if (!applicantName.empty()) {
+                        bsoncxx::builder::basic::array membersArr{};
+                        auto newMember = make_document(
+                            kvp("id", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()),
+                            kvp("name", applicantName),
+                            kvp("role", "Member")
+                        );
+                        membersArr.append(newMember);
+
+                        bsoncxx::builder::basic::document newTeamDoc{};
+                        newTeamDoc.append(kvp("name", targetTeam));
+                        newTeamDoc.append(kvp("desc", ""));
+                        newTeamDoc.append(kvp("members", 1));
+                        newTeamDoc.append(kvp("memberList", membersArr));
+
+                        teamsColl.insert_one(newTeamDoc.view());
+                        logSystemEvent(client, "Team Created", "Team " + targetTeam + " created upon accepting first member " + applicantName, "team");
                     }
                 }
             }
