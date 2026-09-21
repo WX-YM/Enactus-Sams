@@ -70,7 +70,7 @@ describe("an element", () => {
 describe("text somebody typed", () => {
     // Without the isolation an RTL name reorders the Latin sentence around it,
     // and that is not cosmetic: it changes which words the sentence appears to
-    // contain (`ENGINEERING_RULES.md` §8).
+    // contain (`CLAUDE.md` §8).
     it("is placed with a direction resolved from the value", () => {
         const holder = elementIn(document, "span");
         setUserText(holder, kArabicName);
@@ -138,15 +138,10 @@ describe("taking a node out of the tree", () => {
     // happy-dom 15 resolves a `<form>`'s parent through its form-owner and
     // throws `removeChild` at itself. A form renderer using the short spelling
     // would leave its root behind here and nowhere else.
-    it("removes a form, which is where the short spelling fails", () => {
-        // Two trees, because the failed call leaves the first one in a state it
-        // does not recover from — which is itself part of why the short spelling
-        // is not used anywhere in this layer.
-        const broken = document.createElement("div");
-        broken.append(document.createElement("form"));
-        expect(() => broken.children[0]?.remove()).toThrow();
-        expect(broken.children.length).toBe(1);
-
+    it("removes a form, which is where the short spelling failed in happy-dom 15", () => {
+        // happy-dom 15 resolved a <form> parent through its form-owner and threw
+        // removeChild at itself. happy-dom >= 20 fixed form.remove(); detach()
+        // remains the tree-explicit and safest standard across all environments.
         const host = document.createElement("div");
         const form = document.createElement("form");
         host.append(form);
@@ -205,7 +200,7 @@ describe("closing", () => {
 
 // The id minter every labelled control in this layer depends on.
 //
-// An unlabelled control is a defect rather than a polish item (`ENGINEERING_RULES.md` §9),
+// An unlabelled control is a defect rather than a polish item (`CLAUDE.md` §9),
 // and a label is tied to its control by an id — so a collision is not a cosmetic
 // problem: two elements with one id means `aria-describedby` points at the wrong
 // text, and a screen reader announces one field's error on another field.
