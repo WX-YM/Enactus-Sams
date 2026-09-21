@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Upload, Trash2, Copy, Check, Image as ImageIcon } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
+import { authFetch } from '../api';
 
 export default function Gallery() {
   const { confirm, alert: showAlert } = useConfirm();
@@ -12,7 +13,7 @@ export default function Gallery() {
   const [uploadCategory, setUploadCategory] = useState<'life' | 'tafrah'>('life');
 
   const fetchContent = () => {
-    fetch('/api/content')
+    authFetch('/api/content')
       .then(r => r.json())
       .then(data => {
         if (data && data.content) {
@@ -33,7 +34,7 @@ export default function Gallery() {
     const reader = new FileReader();
     reader.onload = () => {
       const base64Data = reader.result as string;
-      fetch('/api/upload', {
+      authFetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: file.name, data: base64Data })
@@ -53,7 +54,7 @@ export default function Gallery() {
           }
           setContent(updatedContent);
           // Persist to content CMS
-          fetch('/api/content', {
+          authFetch('/api/content', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updatedContent)
@@ -89,7 +90,7 @@ export default function Gallery() {
       updated.tafrahImages = (updated.tafrahImages || []).filter((m: any) => m.url !== url);
     }
     setContent(updated);
-    fetch('/api/content', {
+    authFetch('/api/content', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated)

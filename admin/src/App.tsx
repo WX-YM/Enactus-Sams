@@ -37,6 +37,7 @@ function App() {
 
     if (!expiresAt || now > expiresAt || (lastActivity && now - lastActivity > MAX_INACTIVITY_MS)) {
       localStorage.removeItem('admin_auth');
+      localStorage.removeItem('admin_token');
       localStorage.removeItem('admin_role');
       localStorage.removeItem('admin_email');
       localStorage.removeItem('admin_team');
@@ -52,6 +53,7 @@ function App() {
 
   const handleLogout = (msg?: string) => {
     localStorage.removeItem('admin_auth');
+    localStorage.removeItem('admin_token');
     localStorage.removeItem('admin_role');
     localStorage.removeItem('admin_email');
     localStorage.removeItem('admin_team');

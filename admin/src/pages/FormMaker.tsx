@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Trash2, ArrowUp, ArrowDown, Save, CheckCircle2, Eye, FileText, Share2, Copy, ExternalLink, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useConfirm } from '../context/ConfirmContext';
+import { authFetch } from '../api';
 
 interface FormField {
   id: string;
@@ -33,7 +34,7 @@ export default function FormMaker() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    fetch('/api/form_schema')
+    authFetch('/api/form_schema')
       .then(r => r.json())
       .then(data => {
         if (data && data.schema && data.schema.fields) {
@@ -88,7 +89,7 @@ export default function FormMaker() {
 
   const handlePublish = () => {
     setSaving(true);
-    fetch('/api/form_schema', {
+    authFetch('/api/form_schema', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

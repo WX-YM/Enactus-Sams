@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Trash2, Download, ArrowUpDown, Calendar, Search, X } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
+import { authFetch } from '../api';
 
 export default function Applications({ role }: { role: string }) {
   const { confirm } = useConfirm();
@@ -20,7 +21,7 @@ export default function Applications({ role }: { role: string }) {
   const isTeamScoped = !isSuperAdmin && (role === 'manager' || role === 'vice manager') && !!userTeam;
 
   const fetchApps = () => {
-    fetch('/api/applications_list')
+    authFetch('/api/applications_list')
       .then(res => res.json())
       .then(data => {
         if (data && data.applications) {
@@ -33,7 +34,7 @@ export default function Applications({ role }: { role: string }) {
   useEffect(() => {
     fetchApps();
 
-    fetch('/api/teams')
+    authFetch('/api/teams')
       .then(res => res.json())
       .then(data => {
         if (data && data.teams) {
@@ -49,7 +50,7 @@ export default function Applications({ role }: { role: string }) {
     setReason('');
     setReferTeam('');
 
-    fetch('/api/applications_update', {
+    authFetch('/api/applications_update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -89,7 +90,7 @@ export default function Applications({ role }: { role: string }) {
       type: 'danger'
     });
     if (!ok) return;
-    fetch('/api/applications_update', {
+    authFetch('/api/applications_update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete', id })

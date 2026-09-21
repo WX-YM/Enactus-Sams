@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Save, Upload, Trash2, CheckCircle2, Image as ImageIcon, Type, Sparkles, Layers, MessageSquare, Globe, Users as UsersIcon, Edit2, Check, X } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
+import { authFetch } from '../api';
 
 const DEFAULT_INSIDE_TEAMS = [
   { id: '1', name: 'Presentation', desc: 'the team that showcases the work the ones in the spotlight' },
@@ -119,7 +120,7 @@ export default function Content() {
   const tafrahSiteInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    fetch('/api/content')
+    authFetch('/api/content')
       .then(res => res.json())
       .then(data => {
         if (data.content) {
@@ -249,7 +250,7 @@ export default function Content() {
 
   const handleSave = () => {
     setSaving(true);
-    fetch('/api/content', {
+    authFetch('/api/content', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(content)
@@ -322,7 +323,7 @@ export default function Content() {
       const formData = new FormData();
       formData.append('file', blob, filename);
 
-      const res = await fetch('/api/upload', {
+      const res = await authFetch('/api/upload', {
         method: 'POST',
         body: formData
       });
@@ -358,7 +359,7 @@ export default function Content() {
   };
 
   const uploadBase64Fallback = (filename: string, base64Data: string, target: 'media' | 'tafrah' | 'about' | 'tafrahSite') => {
-    fetch('/api/upload', {
+    authFetch('/api/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename, data: base64Data })

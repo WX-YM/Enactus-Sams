@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Trash2, Users as UsersIcon, Plus, UserPlus, Lock, Edit2, X } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
+import { authFetch } from '../api';
 
 export default function Teams() {
   const { confirm } = useConfirm();
@@ -25,7 +26,7 @@ export default function Teams() {
   };
 
   useEffect(() => {
-    fetch('/api/teams')
+    authFetch('/api/teams')
       .then(res => res.json())
       .then(data => {
         if (data && data.teams) {
@@ -36,7 +37,7 @@ export default function Teams() {
   }, []);
 
   const saveRoster = (teamId: string, teamName: string, members: number, memberList: any[]) => {
-    fetch('/api/teams', {
+    authFetch('/api/teams', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'update_roster', id: teamId, name: teamName, members, memberList })
@@ -47,7 +48,7 @@ export default function Teams() {
     if (!editingTeam || !editName.trim()) return;
     setSavingEdit(true);
     try {
-      const res = await fetch('/api/teams', {
+      const res = await authFetch('/api/teams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -63,7 +64,7 @@ export default function Teams() {
         if (userTeam.trim().toLowerCase() === editingTeam.name.trim().toLowerCase()) {
           localStorage.setItem('admin_team', editName.trim());
         }
-        const tRes = await fetch('/api/teams');
+        const tRes = await authFetch('/api/teams');
         const tData = await tRes.json();
         if (tData && tData.teams) {
           setTeams(tData.teams.map((t: any) => ({ ...t, id: t._id?.$oid || t.id })));
@@ -80,14 +81,14 @@ export default function Teams() {
   const addTeam = () => {
     if (!newTeam.name || isTeamScoped) return;
     
-    fetch('/api/teams', {
+    authFetch('/api/teams', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newTeam.name, desc: newTeam.desc })
     })
     .then(res => res.json())
     .then(() => {
-      fetch('/api/teams')
+      authFetch('/api/teams')
         .then(res => res.json())
         .then(data => {
           if (data && data.teams) {
@@ -109,7 +110,7 @@ export default function Teams() {
       type: 'danger'
     });
     if (!ok) return;
-    fetch('/api/teams', {
+    authFetch('/api/teams', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete', id, name: teamName })

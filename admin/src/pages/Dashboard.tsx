@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Activity, Users, Clock, CheckCircle, Shield, FileText, Layers, RefreshCw } from 'lucide-react';
+import { authFetch } from '../api';
 
 interface LogItem {
   id: string;
@@ -26,10 +27,10 @@ export default function Dashboard() {
   const fetchDashboardData = () => {
     setLoadingLogs(true);
     Promise.all([
-      fetch('/api/applications_list').then(r => r.json()),
-      fetch('/api/teams').then(r => r.json()),
-      fetch('/api/analytics').then(r => r.json()),
-      fetch('/api/logs').then(r => r.json()).catch(() => ({ logs: [] }))
+      authFetch('/api/applications_list').then(r => r.json()),
+      authFetch('/api/teams').then(r => r.json()),
+      authFetch('/api/analytics').then(r => r.json()),
+      authFetch('/api/logs').then(r => r.json()).catch(() => ({ logs: [] }))
     ]).then(([appsData, teamsData, analyticsData, logsData]) => {
       const apps = appsData.applications || [];
       const teams = teamsData.teams || [];

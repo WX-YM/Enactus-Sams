@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FileText, Download, Eye, X, Calendar, Search, Trash2, ArrowUpDown } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
+import { authFetch } from '../api';
 
 export default function FormResponses() {
   const { confirm } = useConfirm();
@@ -13,7 +14,7 @@ export default function FormResponses() {
 
   const fetchSubmissions = () => {
     setLoading(true);
-    fetch('/api/form_submissions')
+    authFetch('/api/form_submissions')
       .then(r => r.json())
       .then(data => {
         setLoading(false);
@@ -125,13 +126,13 @@ export default function FormResponses() {
     if (!ok) return;
 
     try {
-      const res = await fetch('/api/form_submissions', {
+      const res = await authFetch('/api/form_submissions', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id })
       });
       if (!res.ok) {
-        await fetch('/api/form_submissions', {
+        await authFetch('/api/form_submissions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'delete', id })

@@ -18,10 +18,43 @@
 #include "anvil/core/thread_pools.h"
 #include "anvil/db/mongo_pool.h"
 #include "routes.h"
+#include "anvil/auth/password.h"
+#include "security/jwt.h"
+#include "security/rate_limiter.h"
 
 using namespace drogon;
 
 namespace enactus {
+
+static enactus::security::SlidingWindowRateLimiter gLoginLimiter(10, std::chrono::seconds(60));
+static enactus::security::SlidingWindowRateLimiter gSubmitLimiter(15, std::chrono::seconds(60));
+static const anvil::auth::PasswordHasher gPasswordHasher(anvil::auth::kDefaultArgon2Params);
+
+std::optional<enactus::security::JwtClaims> extractAdminClaims(const HttpRequestPtr& req) {
+    std::string authHeader = req->getHeader("Authorization");
+    std::string token;
+    if (authHeader.starts_with("Bearer ") || authHeader.starts_with("bearer ")) {
+        token = authHeader.substr(7);
+    } else {
+        token = req->getHeader("X-Admin-Token");
+    }
+    if (token.empty()) return std::nullopt;
+    return enactus::security::verifyToken(token);
+}
+
+bool requireAdminAuth(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>& callback, std::optional<enactus::security::JwtClaims>& outClaims) {
+    outClaims = extractAdminClaims(req);
+    if (!outClaims.has_value()) {
+        Json::Value err;
+        err["status"] = "error";
+        err["message"] = "Unauthorized: invalid or expired session token";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k401Unauthorized);
+        callback(resp);
+        return false;
+    }
+    return true;
+}
 
 void on_db(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)> callback,
            std::function<HttpResponsePtr(mongocxx::client&)> work) {
@@ -53,6 +86,17 @@ static void logSystemEvent(mongocxx::client& client, const std::string& action, 
 }
 
 void login(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::string clientIp = req->getPeerAddr().toIp();
+    if (!gLoginLimiter.isAllowed(clientIp)) {
+        Json::Value ret;
+        ret["status"] = "error";
+        ret["message"] = "Too many login attempts. Please wait a minute and try again.";
+        auto resp = HttpResponse::newHttpJsonResponse(ret);
+        resp->setStatusCode(k429TooManyRequests);
+        callback(resp);
+        return;
+    }
+
     auto json = req->getJsonObject();
     if (!json) { callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN)); return; }
     
@@ -68,29 +112,61 @@ void login(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &
             std::string stored_pass = std::string(view["password"].get_string().value);
             std::string role = std::string(view["role"].get_string().value);
             
-            if (stored_pass == password) {
+            bool password_matches = false;
+            bool needs_upgrade = false;
+
+            if (stored_pass.starts_with("$argon2id$")) {
+                password_matches = (gPasswordHasher.verify(stored_pass, password) == anvil::auth::VerifyOutcome::Match);
+            } else {
+                if (stored_pass == password) {
+                    password_matches = true;
+                    needs_upgrade = true;
+                }
+            }
+
+            if (password_matches) {
+                if (needs_upgrade) {
+                    try {
+                        std::string new_hash = gPasswordHasher.hash(password);
+                        collection.update_one(
+                            bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("email", email)),
+                            bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("$set",
+                                bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("password", new_hash))
+                            ))
+                        );
+                    } catch (...) {}
+                }
+
                 logSystemEvent(client, "User Login", "User " + email + " (" + role + ") logged into admin panel", "auth");
                 Json::Value ret;
                 ret["status"] = "ok";
-                ret["token"] = "mock_jwt_token_for_" + email;
                 ret["expires_in"] = 43200; // 12 hours
                 auto now_sec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                ret["expires_at"] = static_cast<Json::Value::Int64>(now_sec + 43200);
+                int64_t exp_sec = now_sec + 43200;
+                ret["expires_at"] = static_cast<Json::Value::Int64>(exp_sec);
                 ret["role"] = role;
-                if (view["team"]) {
-                    ret["team"] = std::string(view["team"].get_string().value);
-                } else {
-                    ret["team"] = "";
-                }
+                ret["team"] = view["team"] ? std::string(view["team"].get_string().value) : "";
+                
+                enactus::security::JwtClaims claims;
+                claims.email = email;
+                claims.role = role;
+                claims.team = ret["team"].asString();
+                claims.iat = now_sec;
+                claims.exp = exp_sec;
+
                 if (view["permissions"]) {
                     Json::Value permsArr(Json::arrayValue);
                     for (auto& p : view["permissions"].get_array().value) {
-                        permsArr.append(std::string(p.get_string().value));
+                        std::string permStr = std::string(p.get_string().value);
+                        permsArr.append(permStr);
+                        claims.permissions.push_back(permStr);
                     }
                     ret["permissions"] = permsArr;
                 } else {
                     ret["permissions"] = Json::arrayValue;
                 }
+
+                ret["token"] = enactus::security::signToken(claims);
                 auto resp = HttpResponse::newHttpJsonResponse(ret);
                 return resp;
             }
@@ -106,6 +182,9 @@ void login(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &
 }
 
 void listUsers(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     on_db(req, std::move(callback), [](mongocxx::client& client) {
         auto collection = client["application"]["users"];
         auto cursor = collection.find({});
@@ -129,6 +208,9 @@ void listUsers(const HttpRequestPtr &req, std::function<void(const HttpResponseP
 }
 
 void createUser(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     auto json = req->getJsonObject();
     if (!json) { callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN)); return; }
     
@@ -185,7 +267,8 @@ void createUser(const HttpRequestPtr &req, std::function<void(const HttpResponse
             updateFields.append(kvp("team", team));
             updateFields.append(kvp("permissions", permsArr.extract()));
             if (!password.empty()) {
-                updateFields.append(kvp("password", password));
+                std::string hashed_pass = gPasswordHasher.hash(password);
+                updateFields.append(kvp("password", hashed_pass));
             }
 
             collection.update_one(
@@ -209,7 +292,8 @@ void createUser(const HttpRequestPtr &req, std::function<void(const HttpResponse
 
         bsoncxx::builder::basic::document doc{};
         doc.append(kvp("email", email));
-        doc.append(kvp("password", password));
+        std::string hashed_pass = gPasswordHasher.hash(password);
+        doc.append(kvp("password", hashed_pass));
         doc.append(kvp("role", role));
         if (!team.empty()) {
             doc.append(kvp("team", team));
@@ -233,6 +317,9 @@ void createUser(const HttpRequestPtr &req, std::function<void(const HttpResponse
 }
 
 void deleteUser(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     auto json = req->getJsonObject();
     if (!json) { callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN)); return; }
     
@@ -281,17 +368,33 @@ void deleteUser(const HttpRequestPtr &req, std::function<void(const HttpResponse
     });
 }
 
-// Replace old login placeholder
-
 void me(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     Json::Value ret;
     ret["status"] = "ok";
-    ret["role"] = "superadmin";
-    auto resp = HttpResponse::newHttpJsonResponse(ret);
-    callback(resp);
+    ret["email"] = claims->email;
+    ret["role"] = claims->role;
+    ret["team"] = claims->team;
+    Json::Value perms(Json::arrayValue);
+    for (const auto& p : claims->permissions) perms.append(p);
+    ret["permissions"] = perms;
+    callback(HttpResponse::newHttpJsonResponse(ret));
 }
 
 void apply(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::string clientIp = req->getPeerAddr().toIp();
+    if (!gSubmitLimiter.isAllowed(clientIp)) {
+        Json::Value ret;
+        ret["status"] = "error";
+        ret["message"] = "Too many application submissions. Please try again later.";
+        auto resp = HttpResponse::newHttpJsonResponse(ret);
+        resp->setStatusCode(k429TooManyRequests);
+        callback(resp);
+        return;
+    }
+
     auto json = req->getJsonObject();
     if (!json) {
         callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN));
@@ -331,6 +434,9 @@ void apply(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &
 }
 
 void listApplications(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     on_db(req, std::move(callback), [](mongocxx::client& client) {
         auto collection = client["application"]["applications"];
         auto cursor = collection.find({});
@@ -353,6 +459,9 @@ void listApplications(const HttpRequestPtr &req, std::function<void(const HttpRe
 }
 
 void updateApplicationStatus(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     auto json = req->getJsonObject();
     if (!json) { callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN)); return; }
 
@@ -372,45 +481,39 @@ void updateApplicationStatus(const HttpRequestPtr &req, std::function<void(const
 
         if (action == "delete") {
             collection.delete_one(make_document(kvp("_id", oid)));
-            logSystemEvent(client, "Application Deleted", "Application " + id_str + " was deleted", "application");
+            logSystemEvent(client, "Application Deleted", "Application " + id_str + " deleted", "application");
             Json::Value ret;
             ret["status"] = "ok";
             return HttpResponse::newHttpJsonResponse(ret);
         }
 
-        bsoncxx::builder::basic::document update_doc{};
-        if (!status.empty()) update_doc.append(kvp("status", status));
-        if (!reason.empty()) update_doc.append(kvp("reason", reason));
-        if (!referred_to.empty()) update_doc.append(kvp("referredTo", referred_to));
+        bsoncxx::builder::basic::document update_fields{};
+        if (!status.empty()) update_fields.append(kvp("status", status));
+        if (!reason.empty()) update_fields.append(kvp("reason", reason));
+        if (!referred_to.empty()) update_fields.append(kvp("referredTo", referred_to));
+        if (!team_override.empty()) update_fields.append(kvp("team", team_override));
 
-        std::string applicantName = "";
-        std::string targetTeam = team_override;
+        collection.update_one(
+            make_document(kvp("_id", oid)),
+            make_document(kvp("$set", update_fields.view()))
+        );
 
-        // When accepting an applicant, automatically add them to the team's card in Manage Teams
+        // Auto-add candidate to team roster if accepted
         if (status == "accepted") {
             auto appDoc = collection.find_one(make_document(kvp("_id", oid)));
             if (appDoc) {
                 auto appView = appDoc->view();
-                applicantName = appView["name"] ? std::string(appView["name"].get_string().value) : "";
-                if (targetTeam.empty()) {
-                    if (appView["referredTo"] && !std::string(appView["referredTo"].get_string().value).empty()) {
-                        targetTeam = std::string(appView["referredTo"].get_string().value);
-                    } else if (appView["team"]) {
-                        targetTeam = std::string(appView["team"].get_string().value);
-                    }
-                }
+                std::string applicantName = appView["name"] ? std::string(appView["name"].get_string().value) : "";
+                std::string realTeamName = !team_override.empty() ? team_override : (appView["team"] ? std::string(appView["team"].get_string().value) : "");
 
-                if (!targetTeam.empty()) {
-                    update_doc.append(kvp("team", targetTeam));
-
+                if (!realTeamName.empty() && !applicantName.empty()) {
                     auto teamsColl = client["application"]["teams"];
-                    auto teamDoc = teamsColl.find_one(make_document(kvp("name", bsoncxx::types::b_regex{"^" + targetTeam + "$", "i"})));
+                    auto teamDoc = teamsColl.find_one(make_document(kvp("name", realTeamName)));
                     if (teamDoc) {
                         auto teamView = teamDoc->view();
-                        std::string realTeamName = std::string(teamView["name"].get_string().value);
                         bool alreadyMember = false;
                         if (teamView["memberList"]) {
-                            for (auto&& m : teamView["memberList"].get_array().value) {
+                            for (auto& m : teamView["memberList"].get_array().value) {
                                 auto mDoc = m.get_document().value;
                                 if (mDoc["name"] && std::string(mDoc["name"].get_string().value) == applicantName) {
                                     alreadyMember = true;
@@ -419,7 +522,7 @@ void updateApplicationStatus(const HttpRequestPtr &req, std::function<void(const
                             }
                         }
 
-                        if (!alreadyMember && !applicantName.empty()) {
+                        if (!alreadyMember) {
                             auto newMember = make_document(
                                 kvp("id", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()),
                                 kvp("name", applicantName),
@@ -433,7 +536,7 @@ void updateApplicationStatus(const HttpRequestPtr &req, std::function<void(const
                                 )
                             );
                         }
-                    } else if (!applicantName.empty()) {
+                    } else {
                         bsoncxx::builder::basic::array membersArr{};
                         auto newMember = make_document(
                             kvp("id", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()),
@@ -442,31 +545,18 @@ void updateApplicationStatus(const HttpRequestPtr &req, std::function<void(const
                         );
                         membersArr.append(newMember);
 
-                        bsoncxx::builder::basic::document newTeamDoc{};
-                        newTeamDoc.append(kvp("name", targetTeam));
-                        newTeamDoc.append(kvp("desc", ""));
-                        newTeamDoc.append(kvp("members", 1));
-                        newTeamDoc.append(kvp("memberList", membersArr));
-
-                        teamsColl.insert_one(newTeamDoc.view());
-                        logSystemEvent(client, "Team Created", "Team " + targetTeam + " created upon accepting first member " + applicantName, "team");
+                        teamsColl.insert_one(make_document(
+                            kvp("name", realTeamName),
+                            kvp("desc", "Team created from accepted candidate"),
+                            kvp("members", 1),
+                            kvp("memberList", membersArr.extract())
+                        ));
                     }
                 }
             }
         }
 
-        collection.update_one(
-            make_document(kvp("_id", oid)),
-            make_document(kvp("$set", update_doc.extract()))
-        );
-
-        if (status == "accepted") {
-            logSystemEvent(client, "Application Accepted", (applicantName.empty() ? ("Application " + id_str) : applicantName) + " accepted into " + targetTeam, "application");
-        } else if (status == "rejected") {
-            logSystemEvent(client, "Application Rejected", "Application " + id_str + " rejected" + (reason.empty() ? "" : ": " + reason), "application");
-        } else if (status == "referred") {
-            logSystemEvent(client, "Application Referred", "Application " + id_str + " referred to " + referred_to, "application");
-        }
+        logSystemEvent(client, "Application Updated", "Application " + id_str + " status updated to " + status + (!reason.empty() ? " (Reason: " + reason + ")" : ""), "application");
 
         Json::Value ret;
         ret["status"] = "ok";
@@ -497,6 +587,9 @@ void listTeams(const HttpRequestPtr &req, std::function<void(const HttpResponseP
 }
 
 void createTeam(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     auto json = req->getJsonObject();
     if (!json) {
         callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN));
@@ -735,6 +828,9 @@ void getContent(const HttpRequestPtr &req, std::function<void(const HttpResponse
 }
 
 void setContent(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     auto json = req->getJsonObject();
     if (!json) {
         callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN));
@@ -791,6 +887,9 @@ void trackVisit(const HttpRequestPtr &req, std::function<void(const HttpResponse
 }
 
 void getAnalytics(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     on_db(req, std::move(callback), [](mongocxx::client& client) {
         auto collection = client["application"]["analytics"];
         using bsoncxx::builder::basic::kvp;
@@ -847,6 +946,9 @@ void getAnalytics(const HttpRequestPtr &req, std::function<void(const HttpRespon
 }
 
 void listLogs(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     on_db(req, std::move(callback), [](mongocxx::client& client) {
         auto logsColl = client["application"]["logs"];
         using bsoncxx::builder::basic::kvp;
@@ -857,20 +959,20 @@ void listLogs(const HttpRequestPtr &req, std::function<void(const HttpResponsePt
         opts.limit(50);
 
         auto cursor = logsColl.find({}, opts);
-        Json::Value arr(Json::arrayValue);
-
+        Json::Value logsArr = Json::arrayValue;
         for (auto&& doc : cursor) {
-            Json::Value item;
-            item["id"] = doc["_id"].get_oid().value.to_string();
-            item["timestamp"] = doc["timestamp"] ? static_cast<Json::Value::Int64>(doc["timestamp"].get_int64().value) : 0;
-            item["action"] = doc["action"] ? std::string(doc["action"].get_string().value) : "";
-            item["details"] = doc["details"] ? std::string(doc["details"].get_string().value) : "";
-            item["type"] = doc["type"] ? std::string(doc["type"].get_string().value) : "system";
-            arr.append(item);
+            std::string jsonStr = bsoncxx::to_json(doc);
+            Json::CharReaderBuilder builder;
+            std::string errs;
+            std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+            Json::Value jsonDoc;
+            if (reader->parse(jsonStr.c_str(), jsonStr.c_str() + jsonStr.length(), &jsonDoc, &errs)) {
+                logsArr.append(jsonDoc);
+            }
         }
 
         Json::Value ret;
-        ret["logs"] = arr;
+        ret["logs"] = logsArr;
         return HttpResponse::newHttpJsonResponse(ret);
     });
 }
@@ -952,6 +1054,9 @@ static std::vector<unsigned char> resize_image_to_jpeg(
 // Non-image files (SVG, PDF, etc.) are saved as-is.
 // ---------------------------------------------------------------------------
 void uploadFile(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     // Lowercase extension helper
     auto lower_ext = [](std::string s) {
         for (auto &c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -1050,6 +1155,9 @@ void getFormSchema(const HttpRequestPtr &req, std::function<void(const HttpRespo
 }
 
 void setFormSchema(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     auto json = req->getJsonObject();
     if (!json) { callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN)); return; }
     std::string jsonStr = json->toStyledString();
@@ -1065,6 +1173,9 @@ void setFormSchema(const HttpRequestPtr &req, std::function<void(const HttpRespo
 }
 
 void getFormSubmissions(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     on_db(req, std::move(callback), [](mongocxx::client& client) {
         using bsoncxx::builder::basic::kvp;
         using bsoncxx::builder::basic::make_document;
@@ -1090,6 +1201,9 @@ void getFormSubmissions(const HttpRequestPtr &req, std::function<void(const Http
 }
 
 void deleteFormSubmission(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
+    std::optional<enactus::security::JwtClaims> claims;
+    if (!requireAdminAuth(req, callback, claims)) return;
+
     auto json = req->getJsonObject();
     std::string subId;
     if (json && (*json).isMember("id")) {
@@ -1125,6 +1239,9 @@ void submitForm(const HttpRequestPtr &req, std::function<void(const HttpResponse
     if (!json) { callback(HttpResponse::newHttpResponse(k400BadRequest, CT_TEXT_PLAIN)); return; }
 
     if ((*json).isMember("action") && (*json)["action"].asString() == "delete") {
+        std::optional<enactus::security::JwtClaims> claims;
+        if (!requireAdminAuth(req, callback, claims)) return;
+
         std::string subId = (*json).isMember("id") ? (*json)["id"].asString() : "";
         on_db(req, std::move(callback), [subId](mongocxx::client& client) {
             using bsoncxx::builder::basic::kvp;
@@ -1141,6 +1258,17 @@ void submitForm(const HttpRequestPtr &req, std::function<void(const HttpResponse
             ret["status"] = "ok";
             return HttpResponse::newHttpJsonResponse(ret);
         });
+        return;
+    }
+
+    std::string clientIp = req->getPeerAddr().toIp();
+    if (!gSubmitLimiter.isAllowed(clientIp)) {
+        Json::Value ret;
+        ret["status"] = "error";
+        ret["message"] = "Too many submissions. Please try again later.";
+        auto resp = HttpResponse::newHttpJsonResponse(ret);
+        resp->setStatusCode(k429TooManyRequests);
+        callback(resp);
         return;
     }
     
@@ -1163,9 +1291,36 @@ void submitForm(const HttpRequestPtr &req, std::function<void(const HttpResponse
     });
 }
 
+void migratePasswordsToArgon2() {
+    try {
+        auto client = anvil::db::MongoPool::instance().acquire();
+        auto usersColl = (*client)["application"]["users"];
+        auto cursor = usersColl.find({});
+        for (auto&& doc : cursor) {
+            if (doc["email"] && doc["password"]) {
+                std::string email = std::string(doc["email"].get_string().value);
+                std::string pass = std::string(doc["password"].get_string().value);
+                if (!pass.starts_with("$argon2id$") && !pass.empty()) {
+                    std::string hashed = gPasswordHasher.hash(pass);
+                    usersColl.update_one(
+                        bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("email", email)),
+                        bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("$set",
+                            bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("password", hashed))
+                        ))
+                    );
+                    std::cout << "[Security] Migrated user " << email << " password to Argon2id." << std::endl;
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[Security] Password migration warning: " << e.what() << std::endl;
+    }
+}
+
 } // namespace enactus
 
 void registerApiHandlers() {
+    enactus::migratePasswordsToArgon2();
     anvil::accesscontrol::register_route(enactus::kRoutes, "/api/auth/login", drogon::Post, &enactus::login);
     anvil::accesscontrol::register_route(enactus::kRoutes, "/api/auth/me", drogon::Get, &enactus::me);
     anvil::accesscontrol::register_route(enactus::kRoutes, "/api/applications", drogon::Post, &enactus::apply);

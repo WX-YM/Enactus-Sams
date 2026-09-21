@@ -36,6 +36,9 @@ export default function Login({
         const expiresAt = now + expiresInSec * 1000;
 
         localStorage.setItem('admin_auth', 'true');
+        if (data.token) {
+          localStorage.setItem('admin_token', data.token);
+        }
         localStorage.setItem('admin_role', role);
         localStorage.setItem('admin_email', email);
         localStorage.setItem('admin_team', team);
@@ -44,7 +47,7 @@ export default function Login({
         localStorage.setItem('admin_last_activity', String(now));
         onLogin(role, email, perms, team);
       } else {
-        setError('Invalid email or password');
+        setError(data.message || 'Invalid email or password');
       }
     })
     .catch(() => { setLoading(false); setError('Failed to connect to backend'); });

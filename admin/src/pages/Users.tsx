@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Trash2, Shield, X, Users as UsersIcon, Edit2 } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
+import { authFetch } from '../api';
 
 const ALL_PERMISSIONS = [
   { key: 'dashboard', label: 'Dashboard & Analytics' },
@@ -41,7 +42,7 @@ export default function Users() {
   const [editPassword, setEditPassword] = useState('');
 
   const fetchUsers = () => {
-    fetch('/api/users')
+    authFetch('/api/users')
       .then(res => res.json())
       .then(data => setUsers(data.users || []))
       .catch(err => console.error(err));
@@ -49,8 +50,8 @@ export default function Users() {
 
   const fetchTeams = () => {
     Promise.all([
-      fetch('/api/teams').then(r => r.json()).catch(() => ({ teams: [] })),
-      fetch('/api/content').then(r => r.json()).catch(() => ({ content: {} }))
+      authFetch('/api/teams').then(r => r.json()).catch(() => ({ teams: [] })),
+      authFetch('/api/content').then(r => r.json()).catch(() => ({ content: {} }))
     ]).then(([teamsData, contentData]) => {
       const dbTeams = (teamsData && teamsData.teams) ? teamsData.teams : [];
       const recruitmentTeams = (contentData && contentData.content && contentData.content.recruitmentTeams)
@@ -106,7 +107,7 @@ export default function Users() {
       permissions: pendingPerms
     };
 
-    fetch('/api/users', {
+    authFetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -144,7 +145,7 @@ export default function Users() {
       payload.password = editPassword.trim();
     }
 
-    fetch('/api/users', {
+    authFetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -173,7 +174,7 @@ export default function Users() {
       type: 'danger'
     });
     if (!ok) return;
-    fetch('/api/users', {
+    authFetch('/api/users', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email })
     }).then(() => {

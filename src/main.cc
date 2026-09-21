@@ -37,6 +37,14 @@ int main() {
         
         extern void registerApiHandlers();
         registerApiHandlers();
+
+        drogon::app().registerPreSendingAdvice([](const drogon::HttpRequestPtr&, const drogon::HttpResponsePtr& resp) {
+            resp->addHeader("X-Frame-Options", "SAMEORIGIN");
+            resp->addHeader("X-Content-Type-Options", "nosniff");
+            resp->addHeader("X-XSS-Protection", "1; mode=block");
+            resp->addHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+            resp->addHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+        });
         
 #include <filesystem>
 
