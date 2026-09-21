@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import { LayoutDashboard, Users as UsersIcon, FileText, CheckSquare, Menu, X, Shield, LogOut, Image, PenTool, Inbox } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
@@ -12,6 +12,8 @@ import Users from './pages/Users';
 import Login from './pages/Login';
 import { ConfirmProvider } from './context/ConfirmContext';
 
+const MAX_INACTIVITY_MS = 2 * 60 * 60 * 1000; // 2 hours of inactivity
+
 function App() {
   const [role, setRole] = useState(localStorage.getItem('admin_role') || 'superadmin'); 
   const [email, setEmail] = useState(localStorage.getItem('admin_email') || '');
@@ -24,27 +26,94 @@ function App() {
     }
   });
   const [menuOpen, setMenuOpen] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(localStorage.getItem('admin_auth') === 'true');
+  const [sessionMessage, setSessionMessage] = useState('');
+  
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    const isAuth = localStorage.getItem('admin_auth') === 'true';
+    if (!isAuth) return false;
+    const expiresAt = Number(localStorage.getItem('admin_session_expires_at') || '0');
+    const lastActivity = Number(localStorage.getItem('admin_last_activity') || '0');
+    const now = Date.now();
+
+    if (!expiresAt || now > expiresAt || (lastActivity && now - lastActivity > MAX_INACTIVITY_MS)) {
+      localStorage.removeItem('admin_auth');
+      localStorage.removeItem('admin_role');
+      localStorage.removeItem('admin_email');
+      localStorage.removeItem('admin_team');
+      localStorage.removeItem('admin_permissions');
+      localStorage.removeItem('admin_session_expires_at');
+      localStorage.removeItem('admin_last_activity');
+      return false;
+    }
+    return true;
+  });
 
   const closeMenu = () => setMenuOpen(false);
 
-  const handleLogout = () => {
+  const handleLogout = (msg?: string) => {
     localStorage.removeItem('admin_auth');
     localStorage.removeItem('admin_role');
     localStorage.removeItem('admin_email');
     localStorage.removeItem('admin_team');
     localStorage.removeItem('admin_permissions');
+    localStorage.removeItem('admin_session_expires_at');
+    localStorage.removeItem('admin_last_activity');
+    if (msg) setSessionMessage(msg);
     setIsAuthenticated(false);
   };
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Track user activity (throttled to once every 30s)
+    let lastRecorded = Date.now();
+    const updateActivity = () => {
+      const now = Date.now();
+      if (now - lastRecorded > 30000) {
+        lastRecorded = now;
+        localStorage.setItem('admin_last_activity', String(now));
+      }
+    };
+
+    window.addEventListener('click', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('scroll', updateActivity, { passive: true });
+    window.addEventListener('touchstart', updateActivity, { passive: true });
+
+    // Periodic check every 30 seconds
+    const interval = setInterval(() => {
+      const isAuth = localStorage.getItem('admin_auth') === 'true';
+      if (!isAuth) return;
+      const expiresAt = Number(localStorage.getItem('admin_session_expires_at') || '0');
+      const lastActivity = Number(localStorage.getItem('admin_last_activity') || '0');
+      const now = Date.now();
+
+      if (!expiresAt || now > expiresAt) {
+        handleLogout('Your session has expired. Please sign in again.');
+      } else if (lastActivity && now - lastActivity > MAX_INACTIVITY_MS) {
+        handleLogout('Logged out due to inactivity. Please sign in again.');
+      }
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('click', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+      window.removeEventListener('scroll', updateActivity);
+      window.removeEventListener('touchstart', updateActivity);
+      clearInterval(interval);
+    };
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return (
       <Login 
+        initialError={sessionMessage}
         onLogin={(r: string, em?: string, perms?: string[], tm?: string) => { 
           setRole(r); 
           setEmail(em || ''); 
           setPermissions(perms || []);
           setTeam(tm || '');
+          setSessionMessage('');
           setIsAuthenticated(true); 
         }} 
       />
@@ -66,7 +135,7 @@ function App() {
   return (
     <Router>
       <ConfirmProvider>
-        <div style={{ display: 'flex', minHeight: '100vh', width: '100vw', background: 'var(--bg-main)' }}>
+        <div style={{ display: 'flex', minHeight: '100vh', width: '100%', maxWidth: '100vw', overflowX: 'hidden', background: 'var(--bg-main)' }}>
         
         {/* Mobile Nav Toggle */}
         <button 
@@ -188,7 +257,7 @@ function App() {
               </span>
             </div>
 
-            <button className="nav-link" style={{ width: '100%', color: '#E53935', background: 'transparent', border: 'none', cursor: 'pointer' }} onClick={handleLogout}>
+            <button className="nav-link" style={{ width: '100%', color: '#E53935', background: 'transparent', border: 'none', cursor: 'pointer' }} onClick={() => handleLogout()}>
               <LogOut size={18} /> Sign Out
             </button>
           </div>

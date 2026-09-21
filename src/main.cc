@@ -69,9 +69,20 @@ int main() {
                     auto collection = (*client)["application"]["analytics"];
                     using bsoncxx::builder::basic::kvp;
                     using bsoncxx::builder::basic::make_document;
+
+                    auto now = std::chrono::system_clock::now();
+                    std::time_t tt = std::chrono::system_clock::to_time_t(now);
+                    std::tm tm_buf;
+                    gmtime_r(&tt, &tm_buf);
+                    char date_str[32];
+                    std::strftime(date_str, sizeof(date_str), "%Y-%m-%d", &tm_buf);
+
                     collection.update_one(
                         make_document(kvp("_id", "visits")),
-                        make_document(kvp("$inc", make_document(kvp("count", (int64_t)1)))),
+                        make_document(kvp("$inc", make_document(
+                            kvp("count", (int64_t)1),
+                            kvp(std::string("daily.") + date_str, (int64_t)1)
+                        ))),
                         mongocxx::options::update{}.upsert(true)
                     );
                 } catch (...) {}

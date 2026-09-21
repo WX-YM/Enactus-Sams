@@ -201,7 +201,7 @@ export default function Users() {
 
       <div className="card" style={{ marginBottom: '32px' }}>
         <h2 className="heading-sm" style={{ marginBottom: '24px' }}>Add New User</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', alignItems: 'flex-end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '16px', alignItems: 'flex-end' }}>
           <div>
             <label className="font-mono" style={{ fontSize: '12px', display: 'block', marginBottom: '8px' }}>Email</label>
             <input className="input-field" type="email" placeholder="user@enactus.org" value={newEmail} onChange={e => setNewEmail(e.target.value)} style={{ width: '100%' }} />
@@ -232,9 +232,12 @@ export default function Users() {
         )}
       </div>
 
-      <div className="card">
-        <h2 className="heading-sm" style={{ marginBottom: '16px' }}>Active Users</h2>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+        <div style={{ padding: '24px 24px 8px 24px' }}>
+          <h2 className="heading-sm" style={{ marginBottom: '8px' }}>Active Users</h2>
+        </div>
+        <div style={{ width: '100%', overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
           <thead>
             <tr style={{ borderBottom: '3px solid #0E1013', textAlign: 'left' }}>
               <th className="font-mono" style={{ padding: '12px 16px', fontSize: '12px', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Email</th>
@@ -289,6 +292,7 @@ export default function Users() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* CREATE USER PERMISSION MODAL */}

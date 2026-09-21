@@ -1,10 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-export default function Login({ onLogin }: { onLogin: (role: string, email?: string, permissions?: string[], team?: string) => void }) {
+export default function Login({ 
+  onLogin, 
+  initialError 
+}: { 
+  onLogin: (role: string, email?: string, permissions?: string[], team?: string) => void;
+  initialError?: string;
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError || '');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (initialError) setError(initialError);
+  }, [initialError]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,11 +31,17 @@ export default function Login({ onLogin }: { onLogin: (role: string, email?: str
         const role = data.role || 'superadmin';
         const perms = data.permissions || [];
         const team = data.team || '';
+        const now = Date.now();
+        const expiresInSec = data.expires_in || (12 * 3600); // 12 hours
+        const expiresAt = now + expiresInSec * 1000;
+
         localStorage.setItem('admin_auth', 'true');
         localStorage.setItem('admin_role', role);
         localStorage.setItem('admin_email', email);
         localStorage.setItem('admin_team', team);
         localStorage.setItem('admin_permissions', JSON.stringify(perms));
+        localStorage.setItem('admin_session_expires_at', String(expiresAt));
+        localStorage.setItem('admin_last_activity', String(now));
         onLogin(role, email, perms, team);
       } else {
         setError('Invalid email or password');

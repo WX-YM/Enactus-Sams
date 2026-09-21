@@ -73,6 +73,9 @@ void login(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &
                 Json::Value ret;
                 ret["status"] = "ok";
                 ret["token"] = "mock_jwt_token_for_" + email;
+                ret["expires_in"] = 43200; // 12 hours
+                auto now_sec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                ret["expires_at"] = static_cast<Json::Value::Int64>(now_sec + 43200);
                 ret["role"] = role;
                 if (view["team"]) {
                     ret["team"] = std::string(view["team"].get_string().value);
@@ -764,10 +767,21 @@ void trackVisit(const HttpRequestPtr &req, std::function<void(const HttpResponse
         auto collection = client["application"]["analytics"];
         using bsoncxx::builder::basic::kvp;
         using bsoncxx::builder::basic::make_document;
-        // Upsert: increment visit count in a singleton doc
+
+        auto now = std::chrono::system_clock::now();
+        std::time_t tt = std::chrono::system_clock::to_time_t(now);
+        std::tm tm_buf;
+        gmtime_r(&tt, &tm_buf);
+        char date_str[32];
+        std::strftime(date_str, sizeof(date_str), "%Y-%m-%d", &tm_buf);
+
+        // Upsert: increment total visit count and daily visit count
         collection.update_one(
             make_document(kvp("_id", "visits")),
-            make_document(kvp("$inc", make_document(kvp("count", (int64_t)1)))),
+            make_document(kvp("$inc", make_document(
+                kvp("count", (int64_t)1),
+                kvp(std::string("daily.") + date_str, (int64_t)1)
+            ))),
             mongocxx::options::update{}.upsert(true)
         );
         Json::Value ret;
@@ -784,17 +798,50 @@ void getAnalytics(const HttpRequestPtr &req, std::function<void(const HttpRespon
         auto doc = collection.find_one(make_document(kvp("_id", "visits")));
         Json::Value ret;
         int64_t visits = 0;
-        if (doc && doc->view()["count"]) {
-            auto elem = doc->view()["count"];
-            if (elem.type() == bsoncxx::type::k_int64) {
-                visits = elem.get_int64().value;
-            } else if (elem.type() == bsoncxx::type::k_int32) {
-                visits = elem.get_int32().value;
-            } else if (elem.type() == bsoncxx::type::k_double) {
-                visits = static_cast<int64_t>(elem.get_double().value);
+        int64_t today_visits = 0;
+        Json::Value dailyObj(Json::objectValue);
+
+        auto now = std::chrono::system_clock::now();
+        std::time_t tt = std::chrono::system_clock::to_time_t(now);
+        std::tm tm_buf;
+        gmtime_r(&tt, &tm_buf);
+        char today_str[32];
+        std::strftime(today_str, sizeof(today_str), "%Y-%m-%d", &tm_buf);
+
+        if (doc) {
+            auto view = doc->view();
+            if (view["count"]) {
+                auto elem = view["count"];
+                if (elem.type() == bsoncxx::type::k_int64) {
+                    visits = elem.get_int64().value;
+                } else if (elem.type() == bsoncxx::type::k_int32) {
+                    visits = elem.get_int32().value;
+                } else if (elem.type() == bsoncxx::type::k_double) {
+                    visits = static_cast<int64_t>(elem.get_double().value);
+                }
+            }
+            if (view["daily"] && view["daily"].type() == bsoncxx::type::k_document) {
+                auto dailyDoc = view["daily"].get_document().value;
+                for (auto elem : dailyDoc) {
+                    std::string k(elem.key());
+                    int64_t v = 0;
+                    if (elem.type() == bsoncxx::type::k_int64) {
+                        v = elem.get_int64().value;
+                    } else if (elem.type() == bsoncxx::type::k_int32) {
+                        v = elem.get_int32().value;
+                    } else if (elem.type() == bsoncxx::type::k_double) {
+                        v = static_cast<int64_t>(elem.get_double().value);
+                    }
+                    dailyObj[k] = static_cast<Json::Value::Int64>(v);
+                    if (k == today_str) {
+                        today_visits = v;
+                    }
+                }
             }
         }
         ret["visits"] = static_cast<Json::Value::Int64>(visits);
+        ret["today_visits"] = static_cast<Json::Value::Int64>(today_visits);
+        ret["daily"] = dailyObj;
         return HttpResponse::newHttpJsonResponse(ret);
     });
 }

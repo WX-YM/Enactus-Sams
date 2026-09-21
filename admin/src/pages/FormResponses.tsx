@@ -340,7 +340,7 @@ export default function FormResponses() {
                       </div>
                     </td>
                     <td>
-                      <span className="badge badge-accepted" style={{ textTransform: 'none', fontWeight: 700 }}>
+                      <span className="badge badge-accepted" style={{ textTransform: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap' }}>
                         {s.formTitle || 'Recruitment Form'}
                       </span>
                     </td>
