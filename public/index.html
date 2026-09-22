@@ -171,12 +171,15 @@
     -webkit-backface-visibility: hidden;
     contain: layout style;
   }
-  /* Prevent transparent voids while off-screen images download or decode */
-  img {
+  /* Prevent transparent voids while off-screen section images download or decode */
+  #tafrah img {
     background-color: #1A1F26;
   }
   #life img, #about img {
     background-color: #E8E5DF;
+  }
+  nav img, footer img, img[src*="logo"], a img, .lightbox-modal img {
+    background-color: transparent !important;
   }
 </style>
 </helmet>
@@ -187,7 +190,7 @@
   <nav style="position:sticky; top:0; z-index:60; background:#0E1013; border-bottom:1px solid rgba(247,245,240,0.16)">
     <div style="max-width:1440px; margin:0 auto; height:clamp(78px,6vw,112px); display:flex; align-items:center; justify-content:space-between; gap:clamp(16px,3vw,48px); padding:0 clamp(16px,4vw,48px)">
       <a href="#top" style="display:flex; align-items:center; gap:14px; color:#F7F5F0; flex:0 0 auto">
-        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="height:clamp(42px,3.8vw,58px); width:auto; display:block" />
+        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="height:clamp(42px,3.8vw,58px); width:auto; display:block; background:transparent !important;" />
       </a>
       <div style="display:flex; align-items:center; gap:clamp(14px,2.2vw,34px); flex-wrap:wrap; justify-content:flex-end">
         <a href="#about" style="font-size:clamp(13px,1.05vw,15px); font-weight:700; letter-spacing:0.17em; text-transform:uppercase; color:#F7F5F0; padding:6px 0; border-bottom:2px solid transparent" style-hover="color:#FFC629; border-bottom-color:#FFC629">About</a>
@@ -206,7 +209,7 @@
   <nav style="position:sticky; top:0; z-index:60; background:#0E1013; border-bottom:1px solid rgba(247,245,240,0.16)">
     <div style="height:68px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px">
       <a href="#top" style="display:flex; align-items:center">
-        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="height:42px; width:auto; display:block" />
+        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="height:42px; width:auto; display:block; background:transparent !important;" />
       </a>
       <div style="display:flex; align-items:center; gap:9px">
         <a href="#join" style="display:flex; align-items:center; gap:7px; padding:0 16px; background:#FFC629; color:#0E1013; font-size:12px; font-weight:800; letter-spacing:0.12em; text-transform:uppercase; border-radius:2px; height:46px">Join <span style="font-size:15px; line-height:1">→</span></a>
@@ -223,7 +226,7 @@
   <sc-if value="{{ menu }}">
     <div style="position:fixed; inset:0; z-index:90; background:#0E1013; background-image:repeating-linear-gradient(135deg, rgba(255,198,41,0.06) 0 1px, transparent 1px 16px); display:flex; flex-direction:column; padding:11px 16px 24px; animation:fadeIn 200ms ease both">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px">
-        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="height:40px; width:auto; display:block" />
+        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="height:40px; width:auto; display:block; background:transparent !important;" />
         <button type="button" onClick="{{ closeMenu }}" aria-label="Close menu" style="width:46px; height:46px; border:1px solid rgba(247,245,240,0.32); border-radius:2px; background:transparent; color:#F7F5F0; font-size:26px; line-height:1; font-family:Archivo,sans-serif; cursor:pointer; flex:0 0 auto">×</button>
       </div>
       <div style="display:flex; flex-direction:column; margin:auto 0">
@@ -614,7 +617,7 @@
   <footer style="padding:clamp(40px,5vw,72px) clamp(16px,4vw,48px); background:#0E1013; border-top:1px solid rgba(247,245,240,0.12)">
     <div style="max-width:1280px; margin:0 auto; display:flex; flex-wrap:wrap; gap:32px; align-items:flex-start; justify-content:space-between">
       <div style="display:flex; flex-direction:column; gap:14px">
-        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="width:clamp(200px,26vw,300px); height:auto; display:block" />
+        <img src="assets/logo-trim.png" alt="Enactus SAMS Maadi" style="width:clamp(200px,26vw,300px); height:auto; display:block; background:transparent !important;" />
         <p style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.8; letter-spacing:0.06em; color:rgba(247,245,240,0.55); white-space:pre-line">{{ footerAbout }}</p>
       </div>
       <div style="display:flex; flex-direction:column; gap:10px">
