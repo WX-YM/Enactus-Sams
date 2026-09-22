@@ -609,10 +609,6 @@
               <button type="button" class="team-btn" data-team="Media Production" onClick="{{ pick }}" style="padding:10px 20px; border-radius:999px; border:1px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s">Media Production</button>
             </div>
           </div>
-
-          <div style="margin-top:20px">
-            <button type="button" id="apply-submit-btn-form" onClick="{{ submitApplication }}" style="width:100%; padding:18px 32px; border-radius:999px; background:#0E1013; color:#FFC629; font-family:Archivo,sans-serif; font-size:15px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; border:none; cursor:pointer; box-shadow:4px 4px 0px rgba(0,0,0,0.2); transition:all 0.2s">{{ joinCtaText }}</button>
-          </div>
         </sc-if>
 
       </div>
@@ -994,14 +990,12 @@ class Component extends DCLogic {
         }
         
         this.setState({ submitting: true });
-        const btns = [document.getElementById('apply-submit-btn-side'), document.getElementById('apply-submit-btn-form')];
-        btns.forEach(b => {
-          if (b) {
-            b.innerText = 'Submitting...';
-            b.style.opacity = '0.6';
-            b.style.cursor = 'not-allowed';
-          }
-        });
+        const sideBtn = document.getElementById('apply-submit-btn-side');
+        if (sideBtn) {
+          sideBtn.innerText = 'Submitting...';
+          sideBtn.style.opacity = '0.6';
+          sideBtn.style.cursor = 'not-allowed';
+        }
 
         fetch('/api/applications', {
           method: 'POST',
@@ -1014,18 +1008,16 @@ class Component extends DCLogic {
           }) 
         }).then(res => res.json()).then(data => {
           this.setState({ submitting: false, submitted: true });
-          btns.forEach(b => { if (b) b.style.display = 'none'; });
+          if (sideBtn) sideBtn.style.display = 'none';
         }).catch(err => {
           console.error(err);
           this.setState({ submitting: false });
           const defText = openRecruit ? (content.joinCtaOpen || 'Apply now') : (content.joinCtaClosed || 'Join the waitlist');
-          btns.forEach(b => {
-            if (b) {
-              b.innerText = defText;
-              b.style.opacity = '1';
-              b.style.cursor = 'pointer';
-            }
-          });
+          if (sideBtn) {
+            sideBtn.innerText = defText;
+            sideBtn.style.opacity = '1';
+            sideBtn.style.cursor = 'pointer';
+          }
           showBrutalistAlert({
             type: 'danger',
             kicker: 'SYSTEM ERROR',
