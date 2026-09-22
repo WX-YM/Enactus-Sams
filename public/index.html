@@ -55,6 +55,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
+<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192x192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 
 <!-- Preconnect to Fonts for High Core Web Vitals (CWV) / Fast LCP -->
@@ -142,7 +145,15 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
-  html { scroll-behavior: smooth; }
+  html, body {
+    height: auto !important;
+    min-height: 100% !important;
+    scroll-behavior: smooth;
+  }
+  #dc-root, #dc-root > .sc-host {
+    height: auto !important;
+    min-height: 100% !important;
+  }
   body { margin: 0; background: #0E1013; color: #F7F5F0; font-family: Archivo, Helvetica, sans-serif; -webkit-font-smoothing: antialiased; }
   * { box-sizing: border-box; }
   a { color: #FFC629; text-decoration: none; }
@@ -150,6 +161,22 @@
   ::selection { background: #FFC629; color: #0E1013; }
   @keyframes riseIn { from { opacity: 0; transform: translateY(0.16em); } to { opacity: 1; transform: none; } }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* GPU compositing & hardware acceleration for smooth mobile scrolling */
+  header, section, footer {
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    contain: layout style;
+  }
+  /* Prevent transparent voids while off-screen images download or decode */
+  img {
+    background-color: #1A1F26;
+  }
+  #life img, #about img {
+    background-color: #E8E5DF;
+  }
 </style>
 </helmet>
 
@@ -704,51 +731,67 @@ class Component extends DCLogic {
       .then(data => {
         if (data && data.content) {
           this.setState({ content: data.content });
+          const normalizeUrl = (u) => (u && (u.startsWith('/') || u.startsWith('http'))) ? u : ('/' + (u || ''));
           const grid = document.getElementById('gallery-grid');
-          if (grid) {
-            if (data.content.mediaGallery && data.content.mediaGallery.length > 0) {
+          if (grid && data.content.mediaGallery && data.content.mediaGallery.length > 0) {
+            const currentSrcs = Array.from(grid.querySelectorAll('img')).map(img => img.getAttribute('data-src')).join(',');
+            const newSrcs = data.content.mediaGallery.map(m => normalizeUrl(m.url)).join(',');
+            if (currentSrcs !== newSrcs) {
               grid.innerHTML = data.content.mediaGallery.map((m, idx) => {
                 const isSpan2 = (idx === 0 || idx === 1 || idx === 6 || idx === 10);
                 const style = isSpan2 
-                  ? 'width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in' 
-                  : 'width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in';
-                return '<img src="' + m.url + '" alt="Life at Enactus" data-src="' + m.url + '" style="' + style + '" />';
+                  ? 'width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in; background:#E8E5DF;' 
+                  : 'width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in; background:#E8E5DF;';
+                const u = normalizeUrl(m.url);
+                return '<img loading="lazy" decoding="async" src="' + u + '" alt="Life at Enactus" data-src="' + u + '" style="' + style + '" />';
               }).join('');
+              grid.querySelectorAll('img').forEach(img => {
+                img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
+              });
             }
-            grid.querySelectorAll('img').forEach(img => {
-              img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
-            });
           }
           if (data.content.tafrahImages && data.content.tafrahImages.length > 0) {
             const gd = document.getElementById('tafrah-grid-desktop');
             const gm = document.getElementById('tafrah-grid-mobile');
-            const htmlStr = data.content.tafrahImages.map(m => '<img src="' + m.url + '" alt="Tafrah project" data-src="' + m.url + '" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in" />').join('');
-            if (gd) {
-              gd.innerHTML = htmlStr;
-              gd.querySelectorAll('img').forEach(img => {
-                img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
-              });
-            }
-            if (gm) {
-              gm.innerHTML = htmlStr;
-              gm.querySelectorAll('img').forEach(img => {
-                img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
-              });
+            const currentTafrah = gd ? Array.from(gd.querySelectorAll('img')).map(img => img.getAttribute('data-src')).join(',') : '';
+            const newTafrah = data.content.tafrahImages.map(m => normalizeUrl(m.url)).join(',');
+            if (currentTafrah !== newTafrah) {
+              const htmlStr = data.content.tafrahImages.map(m => {
+                const u = normalizeUrl(m.url);
+                return '<img loading="lazy" decoding="async" src="' + u + '" alt="Tafrah project" data-src="' + u + '" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in; background:#1E232B;" />';
+              }).join('');
+              if (gd) {
+                gd.innerHTML = htmlStr;
+                gd.querySelectorAll('img').forEach(img => {
+                  img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
+                });
+              }
+              if (gm) {
+                gm.innerHTML = htmlStr;
+                gm.querySelectorAll('img').forEach(img => {
+                  img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
+                });
+              }
             }
           }
           if (data.content.aboutImages && data.content.aboutImages.length > 0) {
             const aboutGrid = document.getElementById('about-grid');
             if (aboutGrid) {
-              aboutGrid.innerHTML = data.content.aboutImages.map((m, idx) => {
-                const isSpan2 = (idx === 0);
-                const style = isSpan2 
-                  ? 'width:100%; height:100%; min-height:200px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in' 
-                  : 'width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:4px; cursor:zoom-in';
-                return '<img src="' + m.url + '" alt="Enactus team photo" data-src="' + m.url + '" style="' + style + '" />';
-              }).join('');
-              aboutGrid.querySelectorAll('img').forEach(img => {
-                img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
-              });
+              const currentAbout = Array.from(aboutGrid.querySelectorAll('img')).map(img => img.getAttribute('data-src')).join(',');
+              const newAbout = data.content.aboutImages.map(m => normalizeUrl(m.url)).join(',');
+              if (currentAbout !== newAbout) {
+                aboutGrid.innerHTML = data.content.aboutImages.map((m, idx) => {
+                  const isSpan2 = (idx === 0);
+                  const style = isSpan2 
+                    ? 'width:100%; height:100%; min-height:200px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in; background:#E8E5DF;' 
+                    : 'width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:4px; cursor:zoom-in; background:#E8E5DF;';
+                  const u = normalizeUrl(m.url);
+                  return '<img loading="lazy" decoding="async" src="' + u + '" alt="Enactus team photo" data-src="' + u + '" style="' + style + '" />';
+                }).join('');
+                aboutGrid.querySelectorAll('img').forEach(img => {
+                  img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
+                });
+              }
             }
           }
           if (data.content.tafrahSiteImage) {

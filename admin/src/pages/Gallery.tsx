@@ -98,7 +98,10 @@ export default function Gallery() {
   };
 
   const copyUrl = (url: string) => {
-    navigator.clipboard.writeText(window.location.origin + url);
+    const fullUrl = url.startsWith('http://') || url.startsWith('https://')
+      ? url
+      : window.location.origin + (url.startsWith('/') ? url : '/' + url);
+    navigator.clipboard.writeText(fullUrl);
     setCopiedUrl(url);
     setTimeout(() => setCopiedUrl(null), 2000);
   };
@@ -205,7 +208,7 @@ export default function Gallery() {
           >
             <div style={{ position: 'relative', width: '100%', height: '180px', overflow: 'hidden', border: '2px solid #0E1013' }}>
               <img
-                src={item.url}
+                src={item.url.startsWith('/') || item.url.startsWith('http') ? item.url : '/' + item.url}
                 alt=""
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
