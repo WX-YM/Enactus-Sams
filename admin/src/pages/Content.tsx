@@ -147,20 +147,49 @@ export default function Content() {
       .catch(console.error);
   }, []);
 
-  // Inside the Club (Tab 04) Handlers — Independent of Manage Teams
-  const handleAddInsideTeam = () => {
+  // Inside the Club (Tab 04) Handlers — Synchronized with Manage Teams & Public Site
+  const handleAddInsideTeam = async () => {
     if (!newTeamName.trim()) return;
+    const trimmedName = newTeamName.trim();
+    const trimmedDesc = newTeamDesc.trim();
     const newT = {
       id: String(Date.now()),
-      name: newTeamName.trim(),
-      desc: newTeamDesc.trim()
+      name: trimmedName,
+      desc: trimmedDesc
     };
-    setContent((prev: any) => ({
-      ...prev,
-      insideTeams: [...(prev.insideTeams || []), newT]
-    }));
+    const nextInside = [...(content.insideTeams || []), newT];
+    const nextRecruitment = Array.from(new Set([...(content.recruitmentTeams || []), trimmedName]));
+    const nextContent = {
+      ...content,
+      insideTeams: nextInside,
+      recruitmentTeams: nextRecruitment
+    };
+    setContent(nextContent);
     setNewTeamName('');
     setNewTeamDesc('');
+
+    // 1. Immediately create operational team in /api/teams (Manage Teams)
+    try {
+      await authFetch('/api/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmedName, desc: trimmedDesc })
+      });
+    } catch (e) {
+      console.error('Failed to sync team to /api/teams:', e);
+    }
+
+    // 2. Auto-persist content so user does not need to scroll to top to click Save Changes
+    try {
+      await authFetch('/api/content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextContent)
+      });
+      showAlert({ title: 'Team Added', message: `Team "${trimmedName}" has been added to the club and saved live!`, type: 'primary' });
+    } catch (e) {
+      console.error('Failed to auto-save content:', e);
+    }
   };
 
   const handleStartEditInsideTeam = (t: any) => {
@@ -175,32 +204,76 @@ export default function Content() {
     setEditTeamDesc('');
   };
 
-  const handleSaveInsideTeam = (teamId: string) => {
+  const handleSaveInsideTeam = async (teamId: string) => {
     if (!editTeamName.trim()) return;
+    const oldTeam = (content.insideTeams || []).find((t: any) => t.id === teamId);
+    const oldName = oldTeam ? oldTeam.name : '';
+    const newName = editTeamName.trim();
+    const newDesc = editTeamDesc.trim();
+
     const updated = (content.insideTeams || []).map((t: any) => {
       if (t.id === teamId) {
-        return { ...t, name: editTeamName.trim(), desc: editTeamDesc.trim() };
+        return { ...t, name: newName, desc: newDesc };
       }
       return t;
     });
-    setContent((prev: any) => ({ ...prev, insideTeams: updated }));
+    const nextRecruitment = (content.recruitmentTeams || []).map((r: string) => r === oldName ? newName : r);
+    const nextContent = { ...content, insideTeams: updated, recruitmentTeams: nextRecruitment };
+    setContent(nextContent);
     setEditingTeamId(null);
     setEditTeamName('');
     setEditTeamDesc('');
+
+    // Sync to /api/teams and /api/content
+    try {
+      await authFetch('/api/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', oldName, name: newName, desc: newDesc })
+      });
+      await authFetch('/api/content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextContent)
+      });
+      showAlert({ title: 'Team Updated', message: `Team "${newName}" updated successfully!`, type: 'primary' });
+    } catch (e) {
+      console.error('Failed to sync team update:', e);
+    }
   };
 
   const handleDeleteInsideTeam = async (teamId: string, teamName: string) => {
     const ok = await confirm({
       title: 'Remove Team?',
-      message: `Are you sure you want to remove the team "${teamName}"? This will remove it from the public site homepage.`,
+      message: `Are you sure you want to remove the team "${teamName}"? This will remove it from the club, recruitment choices, and the public site.`,
       confirmText: 'Remove Team',
       cancelText: 'Cancel',
       type: 'danger'
     });
     if (!ok) return;
     const updated = (content.insideTeams || []).filter((t: any) => t.id !== teamId);
-    setContent((prev: any) => ({ ...prev, insideTeams: updated }));
+    const nextRecruitment = (content.recruitmentTeams || []).filter((r: string) => r !== teamName);
+    const nextContent = { ...content, insideTeams: updated, recruitmentTeams: nextRecruitment };
+    setContent(nextContent);
+
+    // Sync deletion to /api/teams and /api/content
+    try {
+      await authFetch('/api/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', name: teamName })
+      });
+      await authFetch('/api/content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextContent)
+      });
+      showAlert({ title: 'Team Removed', message: `Team "${teamName}" removed from the club.`, type: 'primary' });
+    } catch (e) {
+      console.error('Failed to sync team deletion:', e);
+    }
   };
+
 
   // Recruitment Choices (Tab 06) Handlers
   const handleAddChoice = () => {

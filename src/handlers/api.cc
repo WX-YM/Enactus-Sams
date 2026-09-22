@@ -669,7 +669,10 @@ void createTeam(const HttpRequestPtr &req, std::function<void(const HttpResponse
                     auto contentColl = client["application"]["content"];
                     contentColl.update_one(
                         make_document(),
-                        make_document(kvp("$pull", make_document(kvp("recruitmentTeams", deletedName))))
+                        make_document(kvp("$pull", make_document(
+                            kvp("recruitmentTeams", deletedName),
+                            kvp("insideTeams", make_document(kvp("name", bsoncxx::types::b_regex{"^" + deletedName + "$", "i"})))
+                        )))
                     );
                 } catch (...) {}
             }
@@ -745,9 +748,9 @@ void createTeam(const HttpRequestPtr &req, std::function<void(const HttpResponse
 
     if ((*json).isMember("action") && (*json)["action"].asString() == "update") {
         std::string teamId = (*json).isMember("id") ? (*json)["id"].asString() : "";
-        std::string oldName = (*json).isMember("oldName") ? (*json)["oldName"].asString() : "";
-        std::string name = (*json).isMember("name") ? (*json)["name"].asString() : "";
-        std::string desc = (*json).isMember("desc") ? (*json)["desc"].asString() : "";
+        std::string oldName = (*json).isMember("oldName") ? trimString((*json)["oldName"].asString()) : "";
+        std::string name = (*json).isMember("name") ? trimString((*json)["name"].asString()) : "";
+        std::string desc = (*json).isMember("desc") ? trimString((*json)["desc"].asString()) : "";
 
         on_db(req, std::move(callback), [teamId, oldName, name, desc](mongocxx::client& client) {
             auto collection = client["application"]["teams"];
@@ -806,6 +809,23 @@ void createTeam(const HttpRequestPtr &req, std::function<void(const HttpResponse
                         make_document(kvp("recruitmentTeams", actualOldName)),
                         make_document(kvp("$set", make_document(kvp("recruitmentTeams.$", name))))
                     );
+                    contentColl.update_one(
+                        make_document(kvp("insideTeams.name", bsoncxx::types::b_regex{"^" + actualOldName + "$", "i"})),
+                        make_document(kvp("$set", make_document(
+                            kvp("insideTeams.$.name", name),
+                            kvp("insideTeams.$.desc", desc)
+                        )))
+                    );
+                } catch (...) {}
+            } else if (!name.empty() && !desc.empty()) {
+                try {
+                    auto contentColl = client["application"]["content"];
+                    contentColl.update_one(
+                        make_document(kvp("insideTeams.name", bsoncxx::types::b_regex{"^" + name + "$", "i"})),
+                        make_document(kvp("$set", make_document(
+                            kvp("insideTeams.$.desc", desc)
+                        )))
+                    );
                 } catch (...) {}
             }
 
@@ -817,28 +837,66 @@ void createTeam(const HttpRequestPtr &req, std::function<void(const HttpResponse
         return;
     }
 
-    std::string name = (*json)["name"].asString();
-    std::string desc = (*json)["desc"].asString();
+    std::string name = trimString((*json)["name"].asString());
+    std::string desc = trimString((*json)["desc"].asString());
 
     on_db(req, std::move(callback), [name, desc](mongocxx::client& client) {
+        using bsoncxx::builder::basic::kvp;
+        using bsoncxx::builder::basic::make_document;
+
         auto collection = client["application"]["teams"];
-        bsoncxx::builder::basic::document doc{};
-        doc.append(bsoncxx::builder::basic::kvp("name", name));
-        doc.append(bsoncxx::builder::basic::kvp("desc", desc));
-        doc.append(bsoncxx::builder::basic::kvp("members", 0));
+        
+        // Prevent duplicate team insertion in teams collection
+        auto existing = collection.find_one(make_document(kvp("name", bsoncxx::types::b_regex{"^" + name + "$", "i"})));
+        if (!existing) {
+            bsoncxx::builder::basic::document doc{};
+            doc.append(kvp("name", name));
+            doc.append(kvp("desc", desc));
+            doc.append(kvp("members", 0));
+            collection.insert_one(doc.view());
+        } else if (!desc.empty()) {
+            collection.update_one(
+                make_document(kvp("_id", existing->view()["_id"].get_oid())),
+                make_document(kvp("$set", make_document(kvp("desc", desc))))
+            );
+        }
 
-        collection.insert_one(doc.view());
-
-        // Automatically add to recruitmentTeams in content so it appears in the public Join Us team choices
+        // Automatically sync to both recruitmentTeams and insideTeams in content
         try {
-            using bsoncxx::builder::basic::kvp;
-            using bsoncxx::builder::basic::make_document;
             auto contentColl = client["application"]["content"];
             contentColl.update_one(
                 make_document(),
                 make_document(kvp("$addToSet", make_document(kvp("recruitmentTeams", name)))),
                 mongocxx::options::update{}.upsert(true)
             );
+
+            auto curContent = contentColl.find_one({});
+            bool alreadyInInside = false;
+            if (curContent && curContent->view()["insideTeams"]) {
+                for (auto&& it : curContent->view()["insideTeams"].get_array().value) {
+                    if (it["name"] && trimString(std::string(it["name"].get_string().value)) == name) {
+                        alreadyInInside = true;
+                        break;
+                    }
+                }
+            }
+            if (!alreadyInInside) {
+                auto insideDoc = make_document(
+                    kvp("id", std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count())),
+                    kvp("name", name),
+                    kvp("desc", desc)
+                );
+                contentColl.update_one(
+                    make_document(),
+                    make_document(kvp("$push", make_document(kvp("insideTeams", insideDoc))))
+                );
+            } else if (!desc.empty()) {
+                contentColl.update_one(
+                    make_document(kvp("insideTeams.name", bsoncxx::types::b_regex{"^" + name + "$", "i"})),
+                    make_document(kvp("$set", make_document(kvp("insideTeams.$.desc", desc))))
+                );
+            }
         } catch (...) {}
 
         logSystemEvent(client, "Team Created", "New team " + name + " added to the club", "team");
@@ -879,9 +937,21 @@ void setContent(const HttpRequestPtr &req, std::function<void(const HttpResponse
         return;
     }
 
+    // Extract insideTeams to sync with application.teams collection
+    std::vector<std::pair<std::string, std::string>> insideList;
+    if (json->isMember("insideTeams") && (*json)["insideTeams"].isArray()) {
+        for (const auto& it : (*json)["insideTeams"]) {
+            std::string tName = it.isMember("name") ? trimString(it["name"].asString()) : "";
+            std::string tDesc = it.isMember("desc") ? trimString(it["desc"].asString()) : "";
+            if (!tName.empty()) {
+                insideList.push_back({tName, tDesc});
+            }
+        }
+    }
+
     std::string jsonStr = json->toStyledString();
     
-    on_db(req, std::move(callback), [jsonStr](mongocxx::client& client) {
+    on_db(req, std::move(callback), [jsonStr, insideList](mongocxx::client& client) {
         using bsoncxx::builder::basic::kvp;
         using bsoncxx::builder::basic::make_document;
         auto collection = client["application"]["content"];
@@ -893,12 +963,35 @@ void setContent(const HttpRequestPtr &req, std::function<void(const HttpResponse
             mongocxx::options::update{}.upsert(true)
         );
 
+        // Sync insideTeams into application.teams collection
+        auto teamsColl = client["application"]["teams"];
+        for (const auto& p : insideList) {
+            const std::string& tName = p.first;
+            const std::string& tDesc = p.second;
+            try {
+                auto existing = teamsColl.find_one(make_document(kvp("name", bsoncxx::types::b_regex{"^" + tName + "$", "i"})));
+                if (!existing) {
+                    bsoncxx::builder::basic::document tDoc{};
+                    tDoc.append(kvp("name", tName));
+                    tDoc.append(kvp("desc", tDesc));
+                    tDoc.append(kvp("members", 0));
+                    teamsColl.insert_one(tDoc.view());
+                } else if (!tDesc.empty()) {
+                    teamsColl.update_one(
+                        make_document(kvp("_id", existing->view()["_id"].get_oid())),
+                        make_document(kvp("$set", make_document(kvp("desc", tDesc))))
+                    );
+                }
+            } catch (...) {}
+        }
+
         logSystemEvent(client, "Content Updated", "Website content updated in Content CMS", "content");
         Json::Value ret;
         ret["status"] = "ok";
         return HttpResponse::newHttpJsonResponse(ret);
     });
 }
+
 
 void trackVisit(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback) {
     on_db(req, std::move(callback), [](mongocxx::client& client) {

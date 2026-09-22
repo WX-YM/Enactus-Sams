@@ -548,8 +548,8 @@
         <h2 style="margin:0; font-size:clamp(36px,5.6vw,82px); line-height:0.94; font-weight:900; letter-spacing:-0.04em; text-transform:uppercase">{{ joinTitle }}</h2>
         <p style="margin:0; font-size:clamp(16px,1.5vw,20px); line-height:1.55; max-width:48ch; color:#26292E">{{ joinDesc }}</p>
         <div style="display:flex; gap:12px; align-items:center; flex-wrap:nowrap">
-          <sc-if value="{{ openRecruit }}">
-            <button type="button" onClick="{{ submitApplication }}" style="display: {{ submitted ? 'none' : 'block' }}; opacity: {{ submitting ? 0.6 : 1 }}; cursor: {{ submitting ? 'not-allowed' : 'pointer' }}; padding:16px 28px; border-radius:999px; background:#0E1013; color:#FFC629; font-size:14px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; border:none; flex-shrink:0">{{ submitting ? 'Submitting...' : joinCta }}</button>
+          <sc-if value="{{ showSideSubmit }}">
+            <button type="button" id="apply-submit-btn-side" onClick="{{ submitApplication }}" style="padding:16px 28px; border-radius:999px; background:#0E1013; color:#FFC629; font-size:14px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; border:none; flex-shrink:0; cursor:pointer">{{ joinCtaText }}</button>
             <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.4; letter-spacing:0.06em; color:rgba(14,16,19,0.7)">{{ joinNote }}</span>
           </sc-if>
           <sc-if value="{{ isClosed }}">
@@ -609,7 +609,12 @@
               <button type="button" class="team-btn" data-team="Media Production" onClick="{{ pick }}" style="padding:10px 20px; border-radius:999px; border:1px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s">Media Production</button>
             </div>
           </div>
+
+          <div style="margin-top:20px">
+            <button type="button" id="apply-submit-btn-form" onClick="{{ submitApplication }}" style="width:100%; padding:18px 32px; border-radius:999px; background:#0E1013; color:#FFC629; font-family:Archivo,sans-serif; font-size:15px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; border:none; cursor:pointer; box-shadow:4px 4px 0px rgba(0,0,0,0.2); transition:all 0.2s">{{ joinCtaText }}</button>
+          </div>
         </sc-if>
+
       </div>
     </div>
   </section>
@@ -932,6 +937,7 @@ class Component extends DCLogic {
       openRecruit,
       canApply,
       isClosed,
+      showSideSubmit: openRecruit && !this.state.submitted,
       showForm: canApply,
       mobile: this.state.mobile,
       desktop: !this.state.mobile,
@@ -956,6 +962,7 @@ class Component extends DCLogic {
       },
       picked: this.state.picked,
       submitted: this.state.submitted,
+      submitting: this.state.submitting,
       submitApplication: (e) => {
         if (e && e.preventDefault) e.preventDefault();
         if (this.state.submitting) return;
@@ -987,6 +994,14 @@ class Component extends DCLogic {
         }
         
         this.setState({ submitting: true });
+        const btns = [document.getElementById('apply-submit-btn-side'), document.getElementById('apply-submit-btn-form')];
+        btns.forEach(b => {
+          if (b) {
+            b.innerText = 'Submitting...';
+            b.style.opacity = '0.6';
+            b.style.cursor = 'not-allowed';
+          }
+        });
 
         fetch('/api/applications', {
           method: 'POST',
@@ -999,9 +1014,18 @@ class Component extends DCLogic {
           }) 
         }).then(res => res.json()).then(data => {
           this.setState({ submitting: false, submitted: true });
+          btns.forEach(b => { if (b) b.style.display = 'none'; });
         }).catch(err => {
           console.error(err);
           this.setState({ submitting: false });
+          const defText = openRecruit ? (content.joinCtaOpen || 'Apply now') : (content.joinCtaClosed || 'Join the waitlist');
+          btns.forEach(b => {
+            if (b) {
+              b.innerText = defText;
+              b.style.opacity = '1';
+              b.style.cursor = 'pointer';
+            }
+          });
           showBrutalistAlert({
             type: 'danger',
             kicker: 'SYSTEM ERROR',
@@ -1059,8 +1083,8 @@ class Component extends DCLogic {
       // Join
       joinKicker: openRecruit ? (content.joinKickerOpen || 'Recruitment is open') : (content.joinKickerClosed || 'Recruitment'),
       joinTitle: content.joinTitle || 'Join the next season.',
-      joinDesc: content.joinDesc || 'Pick the team you want to start in, tell us why, and come to the interview. No experience required — only the willingness to do the work.',
       joinCta: openRecruit ? (content.joinCtaOpen || 'Apply now') : (content.joinCtaClosed || 'Join the waitlist'),
+      joinCtaText: this.state.submitting ? 'Submitting...' : (openRecruit ? (content.joinCtaOpen || 'Apply now') : (content.joinCtaClosed || 'Join the waitlist')),
       joinNote: openRecruit
         ? (content.joinNoteOpen || this.props.joinNote || 'Applications close at the end of the month')
         : (content.joinNoteClosed || 'We open applications at the start of each semester'),
