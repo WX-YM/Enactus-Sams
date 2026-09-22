@@ -26,6 +26,13 @@ using namespace drogon;
 
 namespace enactus {
 
+inline std::string trimString(const std::string& s) {
+    auto start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    auto end = s.find_last_not_of(" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
+
 static enactus::security::SlidingWindowRateLimiter gLoginLimiter(10, std::chrono::seconds(60));
 static enactus::security::SlidingWindowRateLimiter gSubmitLimiter(15, std::chrono::seconds(60));
 static const anvil::auth::PasswordHasher gPasswordHasher(anvil::auth::kDefaultArgon2Params);
@@ -401,11 +408,11 @@ void apply(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &
         return;
     }
 
-    std::string name = (*json)["name"].asString();
-    std::string team = (*json)["team"].asString();
-    std::string reason = (*json)["reason"].asString();
-    std::string email = (*json).isMember("email") ? (*json)["email"].asString() : "";
-    std::string phone = (*json).isMember("phone") ? (*json)["phone"].asString() : "";
+    std::string name = trimString((*json)["name"].asString());
+    std::string team = trimString((*json)["team"].asString());
+    std::string reason = trimString((*json)["reason"].asString());
+    std::string email = (*json).isMember("email") ? trimString((*json)["email"].asString()) : "";
+    std::string phone = (*json).isMember("phone") ? trimString((*json)["phone"].asString()) : "";
 
     auto now = std::chrono::system_clock::now();
     auto in_time_t = std::chrono::system_clock::to_time_t(now);
@@ -414,15 +421,47 @@ void apply(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &
     std::string timestamp = ss.str();
 
     on_db(req, std::move(callback), [name, team, reason, email, phone, timestamp](mongocxx::client& client) {
+        using bsoncxx::builder::basic::kvp;
+        using bsoncxx::builder::basic::make_document;
+
         auto collection = client["application"]["applications"];
+
+        // Deduplication: prevent duplicate application records for the same email
+        if (!email.empty()) {
+            try {
+                auto existing = collection.find_one(
+                    make_document(kvp("email", bsoncxx::types::b_regex{"^" + email + "$", "i"}))
+                );
+                if (existing) {
+                    auto eview = existing->view();
+                    collection.update_one(
+                        make_document(kvp("_id", eview["_id"].get_oid())),
+                        make_document(kvp("$set", make_document(
+                            kvp("name", name),
+                            kvp("phone", phone),
+                            kvp("team", team),
+                            kvp("reason", reason),
+                            kvp("submittedAt", timestamp)
+                        )))
+                    );
+                    logSystemEvent(client, "Application Updated", "Applicant " + name + " updated application for " + team, "application");
+
+                    Json::Value ret;
+                    ret["status"] = "ok";
+                    ret["updated"] = true;
+                    return HttpResponse::newHttpJsonResponse(ret);
+                }
+            } catch (...) {}
+        }
+
         bsoncxx::builder::basic::document doc{};
-        doc.append(bsoncxx::builder::basic::kvp("name", name));
-        doc.append(bsoncxx::builder::basic::kvp("email", email));
-        doc.append(bsoncxx::builder::basic::kvp("phone", phone));
-        doc.append(bsoncxx::builder::basic::kvp("team", team));
-        doc.append(bsoncxx::builder::basic::kvp("reason", reason));
-        doc.append(bsoncxx::builder::basic::kvp("status", "pending"));
-        doc.append(bsoncxx::builder::basic::kvp("submittedAt", timestamp));
+        doc.append(kvp("name", name));
+        doc.append(kvp("email", email));
+        doc.append(kvp("phone", phone));
+        doc.append(kvp("team", team));
+        doc.append(kvp("reason", reason));
+        doc.append(kvp("status", "pending"));
+        doc.append(kvp("submittedAt", timestamp));
 
         collection.insert_one(doc.view());
         logSystemEvent(client, "New Application", "New applicant " + name + " applied for " + team, "application");
@@ -577,6 +616,9 @@ void listTeams(const HttpRequestPtr &req, std::function<void(const HttpResponseP
             std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
             std::string errs;
             reader->parse(json_str.c_str(), json_str.c_str() + json_str.length(), &item, &errs);
+            if (item.isMember("name") && item["name"].isString()) {
+                item["name"] = trimString(item["name"].asString());
+            }
             arr.append(item);
         }
 

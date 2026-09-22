@@ -549,7 +549,7 @@
         <p style="margin:0; font-size:clamp(16px,1.5vw,20px); line-height:1.55; max-width:48ch; color:#26292E">{{ joinDesc }}</p>
         <div style="display:flex; gap:12px; align-items:center; flex-wrap:nowrap">
           <sc-if value="{{ openRecruit }}">
-            <button type="button" onClick="{{ submitApplication }}" style="display: {{ submitted ? 'none' : 'block' }}; padding:16px 28px; border-radius:999px; background:#0E1013; color:#FFC629; font-size:14px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; border:none; cursor:pointer; flex-shrink:0">{{ joinCta }}</button>
+            <button type="button" onClick="{{ submitApplication }}" style="display: {{ submitted ? 'none' : 'block' }}; opacity: {{ submitting ? 0.6 : 1 }}; cursor: {{ submitting ? 'not-allowed' : 'pointer' }}; padding:16px 28px; border-radius:999px; background:#0E1013; color:#FFC629; font-size:14px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; border:none; flex-shrink:0">{{ submitting ? 'Submitting...' : joinCta }}</button>
             <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.4; letter-spacing:0.06em; color:rgba(14,16,19,0.7)">{{ joinNote }}</span>
           </sc-if>
           <sc-if value="{{ isClosed }}">
@@ -957,7 +957,9 @@ class Component extends DCLogic {
       picked: this.state.picked,
       submitted: this.state.submitted,
       submitApplication: (e) => {
-        e.preventDefault();
+        if (e && e.preventDefault) e.preventDefault();
+        if (this.state.submitting) return;
+
         const fname = (document.getElementById('apply-firstname')?.value || '').trim();
         const lname = (document.getElementById('apply-lastname')?.value || '').trim();
         const email = (document.getElementById('apply-email')?.value || '').trim();
@@ -984,6 +986,8 @@ class Component extends DCLogic {
           return;
         }
         
+        this.setState({ submitting: true });
+
         fetch('/api/applications', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -994,9 +998,10 @@ class Component extends DCLogic {
             reason 
           }) 
         }).then(res => res.json()).then(data => {
-          this.setState({ submitted: true });
+          this.setState({ submitting: false, submitted: true });
         }).catch(err => {
           console.error(err);
+          this.setState({ submitting: false });
           showBrutalistAlert({
             type: 'danger',
             kicker: 'SYSTEM ERROR',

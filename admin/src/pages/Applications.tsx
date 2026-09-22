@@ -102,11 +102,15 @@ export default function Applications({ role }: { role: string }) {
     .catch(err => console.error('Failed to delete application:', err));
   };
 
-  const allTeamNames = Array.from(new Set([
-    ...teams.map(t => t.name),
-    ...apps.map(a => a.team),
-    ...apps.map(a => a.referredTo)
-  ].filter(Boolean))).sort();
+  const allTeamNames = Array.from(
+    new Set(
+      [
+        ...teams.map(t => (t.name || '').trim()),
+        ...apps.map(a => (a.team || '').trim()),
+        ...apps.map(a => (a.referredTo || '').trim())
+      ].filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
 
   const getAppTime = (a: any) => {
     if (a.submittedAt) {
@@ -135,11 +139,13 @@ export default function Applications({ role }: { role: string }) {
   };
 
   const toggleTeam = (teamName: string) => {
+    const target = teamName.trim();
     setSelectedTeams(prev => {
-      if (prev.includes(teamName)) {
-        return prev.filter(t => t !== teamName);
+      const exists = prev.some(t => t.trim().toLowerCase() === target.toLowerCase());
+      if (exists) {
+        return prev.filter(t => t.trim().toLowerCase() !== target.toLowerCase());
       } else {
-        return [...prev, teamName];
+        return [...prev, target];
       }
     });
   };
@@ -156,8 +162,8 @@ export default function Applications({ role }: { role: string }) {
     if (filter !== 'all' && a.status !== filter) return false;
 
     if (selectedTeams.length > 0) {
-      const direct = a.team && selectedTeams.some(t => t.toLowerCase() === a.team.toLowerCase());
-      const referred = a.referredTo && selectedTeams.some(t => t.toLowerCase() === a.referredTo.toLowerCase());
+      const direct = a.team && selectedTeams.some(t => t.trim().toLowerCase() === a.team.trim().toLowerCase());
+      const referred = a.referredTo && selectedTeams.some(t => t.trim().toLowerCase() === a.referredTo.trim().toLowerCase());
       if (!direct && !referred) return false;
     }
 
@@ -335,7 +341,7 @@ export default function Applications({ role }: { role: string }) {
                 ALL
               </button>
               {allTeamNames.map(t => {
-                const isSelected = selectedTeams.includes(t);
+                const isSelected = selectedTeams.some(st => st.trim().toLowerCase() === t.trim().toLowerCase());
                 return (
                   <button
                     key={t}
@@ -554,7 +560,7 @@ export default function Applications({ role }: { role: string }) {
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <select className="input-field" value={referTeam} onChange={e => setReferTeam(e.target.value)}>
                       <option value="">Select Team...</option>
-                      {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                      {allTeamNames.map(name => <option key={name} value={name}>{name}</option>)}
                     </select>
                     <button className="btn-outline" onClick={() => handleAction(selectedApp.id, 'referred')}>Refer</button>
                   </div>
