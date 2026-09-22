@@ -608,6 +608,7 @@ void listTeams(const HttpRequestPtr &req, std::function<void(const HttpResponseP
         auto collection = client["application"]["teams"];
         auto cursor = collection.find({});
 
+        std::unordered_set<std::string> seen;
         Json::Value arr = Json::arrayValue;
         for (auto&& doc : cursor) {
             Json::Value item;
@@ -617,7 +618,14 @@ void listTeams(const HttpRequestPtr &req, std::function<void(const HttpResponseP
             std::string errs;
             reader->parse(json_str.c_str(), json_str.c_str() + json_str.length(), &item, &errs);
             if (item.isMember("name") && item["name"].isString()) {
-                item["name"] = trimString(item["name"].asString());
+                std::string trimmed = trimString(item["name"].asString());
+                std::string lower = trimmed;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                if (seen.find(lower) != seen.end()) {
+                    continue;
+                }
+                seen.insert(lower);
+                item["name"] = trimmed;
             }
             arr.append(item);
         }
@@ -625,6 +633,7 @@ void listTeams(const HttpRequestPtr &req, std::function<void(const HttpResponseP
         Json::Value ret;
         ret["teams"] = arr;
         return HttpResponse::newHttpJsonResponse(ret);
+
     });
 }
 
