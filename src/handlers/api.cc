@@ -60,6 +60,69 @@ bool requireAdminAuth(const HttpRequestPtr& req, std::function<void(const HttpRe
         callback(resp);
         return false;
     }
+
+    try {
+        auto client = anvil::db::MongoPool::instance().acquire();
+        auto usersColl = (*client)["application"]["users"];
+        using bsoncxx::builder::basic::kvp;
+        using bsoncxx::builder::basic::make_document;
+
+        std::string userEmail = trimString(outClaims->email);
+        auto userDoc = usersColl.find_one(make_document(
+            kvp("email", bsoncxx::types::b_regex{"^\\s*" + userEmail + "\\s*$", "i"})
+        ));
+
+        if (!userDoc) {
+            Json::Value err;
+            err["status"] = "error";
+            err["message"] = "Unauthorized: user account has been revoked or no longer exists";
+            auto resp = HttpResponse::newHttpJsonResponse(err);
+            resp->setStatusCode(k401Unauthorized);
+            callback(resp);
+            return false;
+        }
+
+        auto view = userDoc->view();
+        if (view["status"]) {
+            std::string st = std::string(view["status"].get_string().value);
+            if (st == "revoked" || st == "suspended" || st == "disabled" || st == "inactive") {
+                Json::Value err;
+                err["status"] = "error";
+                err["message"] = "Unauthorized: user account is inactive or revoked";
+                auto resp = HttpResponse::newHttpJsonResponse(err);
+                resp->setStatusCode(k401Unauthorized);
+                callback(resp);
+                return false;
+            }
+        }
+
+        if (view["role"]) {
+            outClaims->role = std::string(view["role"].get_string().value);
+        }
+        if (view["team"]) {
+            outClaims->team = std::string(view["team"].get_string().value);
+        } else {
+            outClaims->team = "";
+        }
+        if (view["permissions"] && view["permissions"].type() == bsoncxx::type::k_array) {
+            outClaims->permissions.clear();
+            for (auto&& p : view["permissions"].get_array().value) {
+                if (p.type() == bsoncxx::type::k_string) {
+                    outClaims->permissions.push_back(std::string(p.get_string().value));
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[Security] requireAdminAuth user verification error: " << e.what() << std::endl;
+        Json::Value err;
+        err["status"] = "error";
+        err["message"] = "Internal authorization service error";
+        auto resp = HttpResponse::newHttpJsonResponse(err);
+        resp->setStatusCode(k503ServiceUnavailable);
+        callback(resp);
+        return false;
+    }
+
     return true;
 }
 

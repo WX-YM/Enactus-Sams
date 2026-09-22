@@ -21,6 +21,7 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
     localStorage.removeItem('admin_permissions');
     localStorage.removeItem('admin_session_expires_at');
     localStorage.removeItem('admin_last_activity');
+    sessionStorage.setItem('admin_session_message', 'Your account access has been revoked or your session has expired. Please sign in again.');
     window.location.hash = '#/login';
     window.location.reload();
   }

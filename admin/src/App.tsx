@@ -11,6 +11,7 @@ import FormResponses from './pages/FormResponses';
 import Users from './pages/Users';
 import Login from './pages/Login';
 import { ConfirmProvider } from './context/ConfirmContext';
+import { authFetch } from './api';
 
 const MAX_INACTIVITY_MS = 2 * 60 * 60 * 1000; // 2 hours of inactivity
 
@@ -26,7 +27,14 @@ function App() {
     }
   });
   const [menuOpen, setMenuOpen] = useState(false);
-  const [sessionMessage, setSessionMessage] = useState('');
+  const [sessionMessage, setSessionMessage] = useState(() => {
+    const msg = sessionStorage.getItem('admin_session_message');
+    if (msg) {
+      sessionStorage.removeItem('admin_session_message');
+      return msg;
+    }
+    return '';
+  });
   
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     const isAuth = localStorage.getItem('admin_auth') === 'true';
@@ -82,6 +90,33 @@ function App() {
     window.addEventListener('scroll', updateActivity, { passive: true });
     window.addEventListener('touchstart', updateActivity, { passive: true });
 
+    // Validate active session against backend immediately on mount/refresh
+    authFetch('/api/auth/me')
+      .then(res => {
+        if (!res.ok) {
+          handleLogout('Your account access has been revoked or your session has expired.');
+          return null;
+        }
+        return res.json();
+      })
+      .then(data => {
+        if (data && data.status === 'ok') {
+          if (data.role) {
+            setRole(data.role);
+            localStorage.setItem('admin_role', data.role);
+          }
+          if (data.team !== undefined) {
+            setTeam(data.team);
+            localStorage.setItem('admin_team', data.team);
+          }
+          if (data.permissions) {
+            setPermissions(data.permissions);
+            localStorage.setItem('admin_permissions', JSON.stringify(data.permissions));
+          }
+        }
+      })
+      .catch(() => {});
+
     // Periodic check every 30 seconds
     const interval = setInterval(() => {
       const isAuth = localStorage.getItem('admin_auth') === 'true';
@@ -94,6 +129,13 @@ function App() {
         handleLogout('Your session has expired. Please sign in again.');
       } else if (lastActivity && now - lastActivity > MAX_INACTIVITY_MS) {
         handleLogout('Logged out due to inactivity. Please sign in again.');
+      } else {
+        // Also verify session validity with backend
+        authFetch('/api/auth/me').then(res => {
+          if (!res.ok) {
+            handleLogout('Your account access has been revoked or your session has expired.');
+          }
+        }).catch(() => {});
       }
     }, 30000);
 
