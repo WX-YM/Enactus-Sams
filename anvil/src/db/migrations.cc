@@ -57,7 +57,15 @@ constexpr std::string_view kVersionDocumentId = "indexes";
     // A stable, explicit name. A generated one changes when a key is reordered,
     // and the index is then created alongside the old one rather than recognised
     // as the same.
-    options.name(std::string{spec.name});
+    //
+    // A VIEW of the spec's name rather than a std::string copy, under the same
+    // contract as `partial` and `collation` above: the only caller consumes the
+    // returned options in the statement that holds `spec`, so the view cannot
+    // outlive what it points into. The copy was correct too, but
+    // GCC 13 and 14 report a false -Wmaybe-uninitialized inside bsoncxx's
+    // view_or_value<string> destructor for it, and -Werror makes that a build
+    // failure on every stock Ubuntu toolchain.
+    options.name(bsoncxx::string::view_or_value{spec.name});
     if (spec.unique) { options.unique(true); }
     if (spec.sparse) { options.sparse(true); }
     if (spec.expire_after_seconds >= 0) {
