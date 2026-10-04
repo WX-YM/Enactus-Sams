@@ -235,8 +235,10 @@ int main() {
         .setThreadNum(config.http_threads)
         .setDocumentRoot(config.doc_root)
         // Only files with a known static extension are served from DOC_ROOT.
+        // Never json or map: a descriptor or source map dropped into the tree
+        // must not become public by accident.
         .setFileTypes({"html", "js", "css", "png", "jpg", "jpeg", "webp", "avif", "svg", "ico", "woff",
-                       "woff2", "txt", "json", "map"})
+                       "woff2", "txt", "xml"})
         .enableGzip(true)
         .enableBrotli(true)
         .setGzipStatic(true)

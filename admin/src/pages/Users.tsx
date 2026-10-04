@@ -32,8 +32,11 @@ export default function Users() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // A non-superadmin may grant only what they hold; the server refuses the rest.
+  // A non-superadmin may grant only what they hold, and manage only accounts
+  // whose access is within their own; the server refuses the rest.
   const grantable = kPermissions.filter((p) => superadmin || me.permissions.includes(p.name));
+  const manageable = (account: StaffAccount) =>
+    superadmin || (account.type !== 'superadmin' && account.permissions.every((p) => me.permissions.includes(p)));
 
   const save = async () => {
     if (editing === null) return;
@@ -114,12 +117,12 @@ export default function Users() {
                 <td style={{ fontSize: '12px' }}>{account.type === 'superadmin' ? 'Everything' : account.permissions.map((p) => kPermissions.find((k) => k.name === p)?.label ?? p).join(', ') || '—'}</td>
                 <td className="font-mono" style={{ fontSize: '12px', textTransform: 'uppercase' }}>{account.status}</td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <button className="btn-outline" onClick={() => { setError(null); setEditing({ account, email: account.email, password: '', role: account.role || 'member', team: account.team, permissions: [...account.permissions], superadmin: account.type === 'superadmin' }); }}>Edit</button>{' '}
+                  {manageable(account) && <><button className="btn-outline" onClick={() => { setError(null); setEditing({ account, email: account.email, password: '', role: account.role || 'member', team: account.team, permissions: [...account.permissions], superadmin: account.type === 'superadmin' }); }}>Edit</button>{' '}
                   {account.id !== me.id && (
                     <button className={account.status === 'active' ? 'btn-danger' : 'btn-outline'} aria-label={account.status === 'active' ? 'Disable account' : 'Enable account'} onClick={() => toggleActive(account)}>
                       {account.status === 'active' ? <Ban size={14} /> : <CheckCircle size={14} />}
                     </button>
-                  )}
+                  )}</>}
                 </td>
               </tr>
             ))}

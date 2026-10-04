@@ -158,6 +158,31 @@ check(code == 403, "content-only staff refused applications (%s)" % code)
 code, out = hr.req("POST", "/api/staff", {"email": "x2@enactussams.org", "credential": cred, "role": "member", "team": "", "permissions": ["users"]})
 check(code == 403, "manager cannot create staff (%s)" % code)
 
+# Access Control is bounded by the holder's own access.
+cred_users = credential("access-manager-pass", admin.req("POST", "/api/auth/salt", {"identifier": "access.mgr@enactussams.org", "purpose": "enroll"})[1])
+check(admin.req("POST", "/api/staff", {"email": "access.mgr@enactussams.org", "credential": cred_users, "role": "member", "team": "", "permissions": ["users"]})[0] == 201, "create access-control-only staff")
+cred_none = credential("no-access-password", admin.req("POST", "/api/auth/salt", {"identifier": "no.access@enactussams.org", "purpose": "enroll"})[1])
+check(admin.req("POST", "/api/staff", {"email": "no.access@enactussams.org", "credential": cred_none, "role": "member", "team": "", "permissions": []})[0] == 201, "create no-access staff")
+mgr, code = login("access.mgr@enactussams.org", "access-manager-pass")
+check(code == 200, "access-control-only staff signs in (%s)" % code)
+staff = {a["email"]: a for a in admin.req("GET", "/api/staff", origin=False)[1]["staff"]}
+hr_acct = staff["hr.lead@enactussams.org"]
+code, _ = mgr.req("PATCH", "/api/staff/" + hr_acct["id"], {"version": hr_acct["version"], "permissions": []})
+check(code == 403, "cannot strip an account with more access (%s)" % code)
+code, _ = mgr.req("DELETE", "/api/staff/" + hr_acct["id"], {})
+check(code == 403, "cannot disable an account with more access (%s)" % code)
+code, _ = mgr.req("DELETE", "/api/staff/" + staff["admin@enactussams.org"]["id"], {})
+check(code == 403, "cannot disable a superadmin (%s)" % code)
+code, _ = mgr.req("DELETE", "/api/staff/" + staff["no.access@enactussams.org"]["id"], {})
+check(code == 200, "can disable an account within own access (%s)" % code)
+
+# Reading form responses does not include deleting them.
+code, listing = hr.req("GET", "/api/forms/%s/responses" % fid, origin=False)
+check(code == 200 and len(listing["responses"]) > 0, "applications reviewer reads form responses (%s)" % code)
+if code == 200 and listing["responses"]:
+    code, _ = hr.req("DELETE", "/api/forms/%s/responses/%s" % (fid, listing["responses"][0]["id"]), {})
+    check(code == 403, "applications reviewer cannot delete a response (%s)" % code)
+
 code, _ = admin.req("POST", "/api/auth/logout", {})
 code2, _ = admin.req("GET", "/api/me", origin=False)
 check(code2 == 401, "after logout the session is gone (%s/%s)" % (code, code2))

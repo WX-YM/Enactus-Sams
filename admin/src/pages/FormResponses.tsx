@@ -96,7 +96,7 @@ export default function FormResponses() {
                   <td className="font-mono" style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>{formatDate(row.submitted_at)}</td>
                   {form.fields.map((f) => <td key={f.fid} dir="auto" style={{ whiteSpace: 'pre-wrap' }}>{answerText(row.answers[f.fid], f.fid)}</td>)}
                   <td>
-                    <button
+                    {affords(routeResponsesDelete) && <button
                       className="btn-danger"
                       aria-label="Delete response"
                       onClick={async () => {
@@ -108,7 +108,7 @@ export default function FormResponses() {
                       }}
                     >
                       <Trash2 size={14} />
-                    </button>
+                    </button>}
                   </td>
                 </tr>
               ))}

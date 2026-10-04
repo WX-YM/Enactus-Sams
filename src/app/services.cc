@@ -39,14 +39,16 @@ std::unique_ptr<Services>& slot() {
     return anvil::db::DatabaseNames{{std::string_view{stored}}};
 }
 
-// Five consecutive failures lock the account for fifteen minutes; each further
-// one doubles it, to a day (anvil docs/05-auth-sessions.md §4: the backoff is
-// the application's).
+// Five consecutive failures lock the account for fifteen minutes, and every
+// failure after that renews the same fifteen (anvil docs/05-auth-sessions.md
+// §4: the backoff is the application's). Flat rather than escalating: staff
+// addresses are guessable, so an escalating lock is a way for anyone to keep
+// an admin out for a day. Guessing stays bounded by the per-address and
+// per-IP sign-in budgets, and each guess costs the attacker an Argon2 prehash.
 [[nodiscard]] std::optional<anvil::db::TimeMs> lock_after(std::int32_t failures,
                                                           anvil::db::TimeMs now) {
     if (failures < 5) { return std::nullopt; }
-    const std::int32_t doublings = std::min(failures - 5, 7);
-    return now + std::chrono::minutes{15} * (1 << doublings);
+    return now + std::chrono::minutes{15};
 }
 
 // No route this application declares sends a code (accounts.h): there is no

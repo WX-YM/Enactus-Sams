@@ -5,7 +5,7 @@
 //     hammer codegen --descriptor <descriptor.json> --out <dir>
 //
 // Descriptor format: 4
-// Tables: sha256 80ab2cc16c0a142025dfe0bb542da7547771b3ffae9ab44c3606af957b580ff9
+// Tables: sha256 f8ded797049128c3ffe4cedf4250939e91fc140be4a5ef75f697e691c5f38b7d
 //
 // Nothing above `tables` in the descriptor reaches this file, and the
 // omission is the reason the hash covers `tables` and nothing else: an
@@ -26,7 +26,7 @@ export const kDescriptorFormat = 4;
 // stale bundle, and it is surfaced rather than acted on: an automatic reload
 // discards whatever the user had typed, on the deploy most likely to be
 // happening during working hours (docs/00-architecture.md §7.1).
-export const kTablesHash = "80ab2cc16c0a142025dfe0bb542da7547771b3ffae9ab44c3606af957b580ff9";
+export const kTablesHash = "f8ded797049128c3ffe4cedf4250939e91fc140be4a5ef75f697e691c5f38b7d";
 
 // --- error codes ------------------------------------------------------------
 
@@ -1057,7 +1057,7 @@ export const routeResponsesDelete = {
     visibility: "holder",
     method: null,
     path: null,
-    perms: [kPermFormRead],
+    perms: [kPermFormMaker],
     capability: null,
     rateLimit: "staff-write",
     idempotent: true,

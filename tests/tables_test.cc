@@ -58,6 +58,18 @@ TEST(Routes, TheAuditLogNeedsTheUsersPermission) {
     }
 }
 
+TEST(Routes, DeletingAFormResponseNeedsFormMakerNotJustRead) {
+    bool seen = false;
+    for (const ac::RoutePolicy& route : kRoutes) {
+        if (route.pattern == "/api/forms/{id}/responses/{response}" && route.method == ac::RouteMethod::Delete) {
+            seen = true;
+            EXPECT_TRUE(holds(route.required, Perm::FormMaker));
+            EXPECT_FALSE(holds(with_implied(anvil::perm_mask(Perm::Applications)), Perm::FormMaker));
+        }
+    }
+    EXPECT_TRUE(seen);
+}
+
 TEST(Applications, TheSlugIsAStableDigestOfTheEmail) {
     const std::string a = application_slug("someone@example.com");
     EXPECT_EQ(a.size(), 32U);

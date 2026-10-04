@@ -77,6 +77,16 @@ constexpr input::TextRules kCredentialRules{43, 43, anvil::i18n::TextClass::Iden
     return actor.permissions.contains_all(granted);
 }
 
+// Whether `actor` may edit or disable `target` at all. Below superadmin, only
+// an account whose access is within the actor's own: otherwise anyone holding
+// Access Control could strip or disable the board members above them. A
+// superadmin target is a superadmin's alone.
+[[nodiscard]] bool may_manage(const anvil::UserContext& actor, const anvil::identity::AccountRecord& target) {
+    if (ac::is_superadmin(actor.user_type)) { return true; }
+    if (target.user_type == UserType::SuperAdmin) { return false; }
+    return actor.permissions.contains_all(target.direct_permissions & kGrantable);
+}
+
 void append_permissions(std::string& out, const PermSet& held) {
     out += '[';
     bool first = true;
@@ -497,8 +507,7 @@ void staff_update(const http::HttpRequestPtr& req, http::Responder&& respond,
             return;
         }
         const anvil::identity::AccountRecord& current = *account.value();
-        // Only a superadmin may change a superadmin in any way.
-        if (current.user_type == UserType::SuperAdmin && !ac::is_superadmin(actor->user_type)) {
+        if (!may_manage(*actor, current)) {
             respond(http::failure(req, ErrorCode::Forbidden));
             return;
         }
@@ -577,8 +586,7 @@ void staff_disable(const http::HttpRequestPtr& req, http::Responder&& respond,
             respond(http::failure(req, ErrorCode::NotFound));
             return;
         }
-        if (account.value()->user_type == UserType::SuperAdmin &&
-            !ac::is_superadmin(actor->user_type)) {
+        if (!may_manage(*actor, *account.value())) {
             respond(http::failure(req, ErrorCode::Forbidden));
             return;
         }

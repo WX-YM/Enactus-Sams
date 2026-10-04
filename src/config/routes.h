@@ -90,7 +90,7 @@ inline constexpr std::array<ac::RoutePolicy, 45> kRoutes{{
      ac::RouteMethod::Delete},
     {need(Perm::FormRead), "/api/forms/{id}/responses", ac::RouteAccess::Guarded,
      ac::RouteMethod::Get},
-    {need(Perm::FormRead), "/api/forms/{id}/responses/{response}", ac::RouteAccess::Guarded,
+    {need(Perm::FormMaker), "/api/forms/{id}/responses/{response}", ac::RouteAccess::Guarded,
      ac::RouteMethod::Delete},
     {need(Perm::FormRead), "/api/forms/{id}/export", ac::RouteAccess::Guarded,
      ac::RouteMethod::Get},
