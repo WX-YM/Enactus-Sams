@@ -12,6 +12,7 @@
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/basic/kvp.hpp>
 #include <bsoncxx/document/view.hpp>
+#include <bsoncxx/stdx/optional.hpp>
 #include <bsoncxx/types.hpp>
 #include <mongocxx/options/find.hpp>
 
@@ -179,7 +180,8 @@ constexpr std::array<KeyMap, 61> kKeyMap{{
     if (!element) { return std::nullopt; }
     if (element.type() == bsoncxx::type::k_bool) { return element.get_bool().value; }
     if (element.type() == bsoncxx::type::k_string) {
-        const std::string value = lower(trim(element.get_string().value));
+        const auto raw = element.get_string().value;
+        const std::string value = lower(trim(std::string_view{raw.data(), raw.size()}));
         if (value == "true") { return true; }
         if (value == "false") { return false; }
     }
@@ -191,7 +193,10 @@ constexpr std::array<KeyMap, 61> kKeyMap{{
     const auto element = doc[key];
     if (!element || element.type() != bsoncxx::type::k_array) { return out; }
     for (const auto& item : element.get_array().value) {
-        if (item.type() == bsoncxx::type::k_string) { out.emplace_back(trim(item.get_string().value)); }
+        if (item.type() == bsoncxx::type::k_string) {
+            const auto raw = item.get_string().value;
+            out.emplace_back(trim(std::string_view{raw.data(), raw.size()}));
+        }
     }
     return out;
 }
@@ -331,7 +336,7 @@ void import_users(mongocxx::client& client, Report& report) {
     return std::any_of(names.begin(), names.end(), [name](const std::string& n) { return same_team_name(n, name); });
 }
 
-void import_teams(mongocxx::client& client, const std::optional<bsoncxx::document::value>& content,
+void import_teams(mongocxx::client& client, const bsoncxx::stdx::optional<bsoncxx::document::value>& content,
                   Report& report) {
     struct LegacyTeam final {
         std::string name;
