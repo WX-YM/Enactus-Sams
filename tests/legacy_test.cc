@@ -138,6 +138,19 @@ TEST(LegacyImages, OnlyLocalFilesUnderTheirRoots) {
     EXPECT_EQ(upload->directory, "/srv/up");
     EXPECT_EQ(upload->file, "471A1374.jpg");
 
+    // The old site's bundled images were stored document-relative.
+    const auto relative = legacy::local_file_for("assets/tafrah-site.jpg", "/srv/www", "/srv/up");
+    ASSERT_TRUE(relative.has_value());
+    EXPECT_EQ(relative->directory, "/srv/www/assets");
+    EXPECT_EQ(relative->file, "tafrah-site.jpg");
+    const auto dotted = legacy::local_file_for("./uploads/a.png", "/srv/www", "/srv/up");
+    ASSERT_TRUE(dotted.has_value());
+    EXPECT_EQ(dotted->directory, "/srv/up");
+    EXPECT_EQ(dotted->file, "a.png");
+    EXPECT_FALSE(legacy::local_file_for("assets/../etc/passwd", "/srv/www", "/u").has_value());
+    EXPECT_FALSE(legacy::local_file_for("etc/passwd", "/srv/www", "/u").has_value());
+    EXPECT_FALSE(legacy::local_file_for("assets", "/srv/www", "/u").has_value());
+
     EXPECT_FALSE(legacy::local_file_for("/assets/../../etc/passwd", "/srv/www", "/u").has_value());
     EXPECT_FALSE(legacy::local_file_for("/assets/.hidden", "/srv/www", "/u").has_value());
     EXPECT_FALSE(legacy::local_file_for("/etc/passwd", "/srv/www", "/u").has_value());

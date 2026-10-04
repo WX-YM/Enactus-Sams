@@ -942,6 +942,16 @@ std::optional<LocalFile> local_file_for(std::string_view url, std::string_view d
         url = url.substr(path);
     }
     if (const std::size_t cut = url.find_first_of("?#"); cut != std::string_view::npos) { url = url.substr(0, cut); }
+    // The old site stored its bundled images document-relative ("assets/x.jpg",
+    // sometimes "./assets/x.jpg"): the same files as "/assets/x.jpg". Only the
+    // two roots below are rooted this way; anything else relative is refused.
+    // `rooted` outlives every view taken into it below.
+    std::string rooted;
+    if (url.starts_with("./")) { url.remove_prefix(2); }
+    if (url.starts_with("assets/") || url.starts_with("uploads/")) {
+        rooted = "/" + std::string{url};
+        url = rooted;
+    }
     if (!url.empty() && url.front() != '/') { return std::nullopt; }
     std::vector<std::string_view> segments;
     std::size_t start = 1;

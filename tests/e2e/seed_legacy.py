@@ -27,8 +27,8 @@ db.content.insert_one({
   "footerAbout": "Line one\nLine two", "footerSocialFb": "https://facebook.com/enactussams",
   "footerSocialInsta": "not a url", "insideTeams": [{"name": "Presentation", "desc": "Shown inside"}],
   "recruitmentTeams": ["Presentation", "Human Resources", "Robotics"],
-  "mediaGallery": [{"url": "/assets/bench.jpg"}, {"url": "/assets/glasses.jpg"}, {"url": "https://evil.example/x.jpg"}, {"url": "/assets/../../etc/passwd"}],
-  "tafrahSiteImage": "/assets/tafrah-monitor.jpg",
+  "mediaGallery": [{"url": "/assets/bench.jpg"}, {"url": "assets/glasses.jpg"}, {"url": "https://evil.example/x.jpg"}, {"url": "/assets/../../etc/passwd"}],
+  "tafrahSiteImage": "assets/tafrah-monitor.jpg",
 })
 db.form_schema.insert_one({"title": "Volunteer Day", "description": "x", "fields": [
   {"id": "n", "label": "Full Name", "type": "text", "required": True},
