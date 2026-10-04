@@ -140,7 +140,7 @@ Result<std::uint64_t> AuthzService::resolve(mongocxx::client& client, const Uuid
 void AuthzService::resolve_async(const Uuid& user_id,
                                  std::function<void(Result<std::uint64_t>)> done) {
     // Captured BY VALUE. This is called from an event-loop thread and that frame
-    // is gone the instant try_post returns (ENGINEERING_RULES.md §3.3).
+    // is gone the instant try_post returns (CLAUDE.md §3.3).
     auto task = [this, user_id, done]() mutable {
         auto client = db::MongoPool::instance().acquire();
         done(resolve(*client, user_id));

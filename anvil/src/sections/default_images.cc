@@ -107,7 +107,7 @@ std::optional<Uuid> register_default_image(mongocxx::client& client, media::Medi
     // bootstrap against a populated database finds the identical bytes already
     // stored and reuses that row rather than storing a second copy.
     const Result<std::optional<media::MediaRecord>> duplicate =
-        media.find_duplicate(client, ns, ingested.value().sha256);
+        media.find_duplicate(client, ns, actor, ingested.value().sha256);
     if (!duplicate) { return std::nullopt; }
     if (duplicate.value().has_value()) {
         sink.discard();

@@ -21,6 +21,10 @@
 // library — something an application can write in twenty lines, permanently part
 // of the ABI, and one more thing to keep correct under concurrency.
 //
+// Chat is the exception, for the same reason turned round: it IS a producer
+// inside this library, so `chat/hub.h` ships a registry and a ring for chat's
+// own socket. The refusal above still stands for every other WebSocket.
+//
 // What is genuinely anvil's is the DESCRIPTOR BUDGET, because the budget is one
 // process-wide number that two subsystems would otherwise each spend in full.
 // `kUpgradeShare` in `core/descriptor_budget.h` is the share upgrades may take
@@ -54,7 +58,7 @@ inline constexpr std::chrono::seconds kFrameWindow{10};
 
 // A frame larger than this is a close, not a truncation.
 //
-// ENGINEERING_RULES.md §2.4: any payload that can exceed 256 KB is streamed or rejected,
+// CLAUDE.md §2.4: any payload that can exceed 256 KB is streamed or rejected,
 // and a WebSocket frame is neither streamable nor worth 256 KB of inbound buffer
 // per connection. Truncating instead would hand a handler a message that is not
 // the message that was sent, which is worse than not handling it.
@@ -154,7 +158,7 @@ public:
     [[nodiscard]] std::size_t frames_in_window() const noexcept { return frames_in_window_; }
 
 private:
-    // Largest alignment first (ENGINEERING_RULES.md §2.3). UserContext is 64 bytes and
+    // Largest alignment first (CLAUDE.md §2.3). UserContext is 64 bytes and
     // alignment 8, and the four members after it pack into the next sixteen with
     // no interior padding.
     UserContext   ctx_;                   // 64

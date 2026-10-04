@@ -8,7 +8,7 @@
 // acceptable trade because this preserves it server-side.
 //
 // Rows carry IDENTIFIERS and CODES. Never a payload, never a token, never a
-// submitted value, never personal data (ENGINEERING_RULES.md §5). That bound is structural
+// submitted value, never personal data (CLAUDE.md §5). That bound is structural
 // rather than a rule somebody follows: there is no free-form field on the row,
 // so there is nowhere for one to be put.
 

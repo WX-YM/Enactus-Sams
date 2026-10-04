@@ -9,7 +9,7 @@ namespace {
 
 // Immutable shared state swapped atomically rather than a mutex-guarded vector:
 // readers are on a request path and then need no lock at all, and the writer
-// runs once at boot (ENGINEERING_RULES.md §4).
+// runs once at boot (CLAUDE.md §4).
 using SamplerList = std::shared_ptr<const std::vector<GaugeSampler>>;
 
 std::atomic<SamplerList> g_samplers;

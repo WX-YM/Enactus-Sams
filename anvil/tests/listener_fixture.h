@@ -123,7 +123,7 @@ public:
 
         // A shared_ptr rather than a capture by reference: the advice outlives
         // this constructor's frame even though it fires inside it, and a
-        // dangling reference across a thread boundary is the crash ENGINEERING_RULES.md
+        // dangling reference across a thread boundary is the crash CLAUDE.md
         // §2.2 names as the most likely one in code built on this library.
         auto ready = std::make_shared<std::promise<std::uint16_t>>();
         std::future<std::uint16_t> port = ready->get_future();

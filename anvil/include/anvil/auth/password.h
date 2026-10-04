@@ -22,27 +22,23 @@
 #include <string>
 #include <string_view>
 
+#include "anvil/crypto/argon2.h"
+
 namespace anvil::auth {
 
-struct Argon2Params final {
-    std::uint32_t memory_kib;
-    std::uint32_t iterations;
-    std::uint32_t parallelism;
-
-    [[nodiscard]] constexpr bool operator==(const Argon2Params&) const noexcept = default;
-};
+// Argon2Params and VerifyOutcome moved to anvil/crypto/argon2.h, which is the
+// one reusable Argon2 component both this primitive and auth::prehash's server
+// stage build on (docs/05-auth-sessions.md, client prehash). Aliased rather
+// than redeclared so every existing `auth::Argon2Params` and `auth::VerifyOutcome`
+// call site keeps compiling unchanged.
+using Argon2Params = crypto::Argon2Params;
+using VerifyOutcome = crypto::VerifyOutcome;
 
 // Defaults from docs/05-auth-sessions.md §6: m = 64 MiB, t = 3, p = 1.
 inline constexpr Argon2Params kDefaultArgon2Params{
     .memory_kib = 65536,
     .iterations = 3,
     .parallelism = 1,
-};
-
-enum class VerifyOutcome : std::uint8_t {
-    Match = 0,
-    Mismatch,
-    Malformed,   // the stored hash is not a hash we can parse
 };
 
 // A hard ceiling applied BEFORE the password reaches Argon2. Field validation

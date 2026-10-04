@@ -59,7 +59,7 @@ void append_not_expired(Builder& filter, std::string_view field, db::TimeMs now)
 //                       outcome.
 //
 // Everything else is Internal. No branch of this function puts driver text,
-// a query fragment, or a submitted value into the Failure (ENGINEERING_RULES.md §5).
+// a query fragment, or a submitted value into the Failure (CLAUDE.md §5).
 [[nodiscard]] Failure translate(const mongocxx::operation_exception& error) noexcept;
 [[nodiscard]] Failure translate(const mongocxx::exception& error) noexcept;
 
@@ -110,7 +110,7 @@ template <typename Fn>
 // Deliberately not noexcept: the rethrow is the point. It is bounded — the
 // exception is thrown inside a with_transaction callback and caught by that
 // helper, so it never reaches a pool task — where an escaping exception calls
-// std::terminate and takes the process down (ENGINEERING_RULES.md §4).
+// std::terminate and takes the process down (CLAUDE.md §4).
 template <typename Fn>
 [[nodiscard]] auto guarded_in_transaction(Fn&& body) -> decltype(body()) {
     try {
@@ -165,7 +165,7 @@ template <typename Fn>
 //
 // It SLEEPS, on the calling thread. That is only correct because every caller is
 // already on db_pool — the driver is synchronous, so a transaction is a blocking
-// call by construction — and a loop thread may never reach here (ENGINEERING_RULES.md §4).
+// call by construction — and a loop thread may never reach here (CLAUDE.md §4).
 inline constexpr std::chrono::microseconds kBaseTransactionBackoff{2000};
 inline constexpr std::chrono::microseconds kMaxTransactionBackoff{64000};
 

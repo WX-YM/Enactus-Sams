@@ -5,7 +5,7 @@
 //     hammer codegen --descriptor <descriptor.json> --out <dir>
 //
 // Descriptor format: 3
-// Tables: sha256 f3cc31723490dcaf3777de352dc28a4a8ba28402e85a17851ec506c38bcb6153
+// Tables: sha256 b57c25e9451a60cd9e1c68c5492b6d4b82298b655d02f9b9cceb14a41e356f2f
 //
 // Nothing above `tables` in the descriptor reaches this file, and the
 // omission is the reason the hash covers `tables` and nothing else: an
@@ -26,7 +26,7 @@ export const kDescriptorFormat = 3;
 // stale bundle, and it is surfaced rather than acted on: an automatic reload
 // discards whatever the user had typed, on the deploy most likely to be
 // happening during working hours (docs/00-architecture.md §7.1).
-export const kTablesHash = "f3cc31723490dcaf3777de352dc28a4a8ba28402e85a17851ec506c38bcb6153";
+export const kTablesHash = "b57c25e9451a60cd9e1c68c5492b6d4b82298b655d02f9b9cceb14a41e356f2f";
 
 // --- error codes ------------------------------------------------------------
 
@@ -315,6 +315,17 @@ export const kUploadMaxBytes = 26214400;
 export const kBodyMaxBytes = 262144;
 export const kPageLimitMax = 100;
 
+// The image edit recipe's bounds, as the server enforces them. `hammer/edit`
+// validates a recipe against exactly these, so a person hitting the stroke cap
+// learns it while drawing rather than after pressing save. The two edges are
+// the server's widest and narrowest variant widths — numbers, not addresses.
+export const kEditLimits = {
+    maxStrokes: 64,
+    maxPoints: 4096,
+    maxEdgePx: 2560,
+    minEdgePx: 320,
+} as const;
+
 // --- routes -----------------------------------------------------------------
 
 // Every route's SHAPE is a type, and types are erased: a shape cannot leak
@@ -322,6 +333,13 @@ export const kPageLimitMax = 100;
 // by visibility, and only there.
 export type RouteId =
     | "auth.login"
+    | "auth.prehash"
+    | "auth.signup"
+    | "auth.verify"
+    | "auth.resend"
+    | "auth.reset"
+    | "auth.reset_confirm"
+    | "auth.password"
     | "auth.refresh"
     | "session.current"
     | "auth.logout"
@@ -330,6 +348,8 @@ export type RouteId =
     | "content.delete"
     | "media.list"
     | "media.delete"
+    | "media.edit"
+    | "media.edit_state"
     | "media.object"
     | "audit.list"
     | "content.preview"
@@ -339,6 +359,12 @@ export type RouteId =
 // Reachable with no credential at all — the paths below are values.
 export type PublicRouteId =
     | "auth.login"
+    | "auth.prehash"
+    | "auth.signup"
+    | "auth.verify"
+    | "auth.resend"
+    | "auth.reset"
+    | "auth.reset_confirm"
     | "auth.refresh"
     | "session.current"
     | "media.object"
@@ -348,12 +374,15 @@ export type PublicRouteId =
 // filtered by the server to what this holder's permissions actually reach, so a
 // content editor never learns the addresses of the routes above them.
 export type HolderRouteId =
+    | "auth.password"
     | "auth.logout"
     | "identity.me"
     | "content.get"
     | "content.delete"
     | "media.list"
     | "media.delete"
+    | "media.edit"
+    | "media.edit_state"
     | "audit.list"
     | "live.feed"
     | "live.audit";
@@ -363,6 +392,13 @@ export type HolderRouteId =
 // the time a bundle exists.
 export type RouteParams = {
     readonly "auth.login": Record<string, never>;
+    readonly "auth.prehash": Record<string, never>;
+    readonly "auth.signup": Record<string, never>;
+    readonly "auth.verify": Record<string, never>;
+    readonly "auth.resend": Record<string, never>;
+    readonly "auth.reset": Record<string, never>;
+    readonly "auth.reset_confirm": Record<string, never>;
+    readonly "auth.password": Record<string, never>;
     readonly "auth.refresh": Record<string, never>;
     readonly "session.current": Record<string, never>;
     readonly "auth.logout": Record<string, never>;
@@ -371,6 +407,8 @@ export type RouteParams = {
     readonly "content.delete": { readonly id: string };
     readonly "media.list": { readonly ns: string; readonly id: string };
     readonly "media.delete": { readonly ns: string; readonly id: string };
+    readonly "media.edit": { readonly ns: string; readonly id: string };
+    readonly "media.edit_state": { readonly ns: string; readonly id: string };
     readonly "media.object": { readonly ns: string; readonly id: string; readonly role: string };
     readonly "audit.list": Record<string, never>;
     readonly "content.preview": { readonly id: string };
@@ -381,6 +419,13 @@ export type RouteParams = {
 // The capability scope each route consumes, or null.
 export type RouteCapability = {
     readonly "auth.login": null;
+    readonly "auth.prehash": null;
+    readonly "auth.signup": null;
+    readonly "auth.verify": null;
+    readonly "auth.resend": null;
+    readonly "auth.reset": null;
+    readonly "auth.reset_confirm": null;
+    readonly "auth.password": null;
     readonly "auth.refresh": null;
     readonly "session.current": null;
     readonly "auth.logout": null;
@@ -389,6 +434,8 @@ export type RouteCapability = {
     readonly "content.delete": "ContentDelete";
     readonly "media.list": null;
     readonly "media.delete": "MediaUpload";
+    readonly "media.edit": null;
+    readonly "media.edit_state": null;
     readonly "media.object": null;
     readonly "audit.list": null;
     readonly "content.preview": "DraftPreview";
@@ -427,7 +474,7 @@ export type UuidText = string;
 // a `ServerInstant` cannot be subtracted from `Date.now()`: the device clock is
 // user-settable and is routinely minutes out, so a countdown built from the
 // difference of two clocks is wrong by an amount nothing on the device can
-// measure (`ENGINEERING_RULES.md` §6).
+// measure (`CLAUDE.md` §6).
 export type ServerTimeText = string;
 
 export interface RouteResponses {
@@ -436,6 +483,17 @@ export interface RouteResponses {
         readonly session_id: UuidText;
         readonly locale: string;
         readonly permissions: readonly string[] | null;
+    };
+    "media.edit": {
+        readonly id: UuidText;
+        readonly width: number;
+        readonly height: number;
+    };
+    "media.edit_state": {
+        readonly source: UuidText;
+        readonly width: number;
+        readonly height: number;
+        readonly recipe: string | null;
     };
 }
 
@@ -460,6 +518,97 @@ export const routeAuthLogin = {
     perms: [],
     capability: null,
     rateLimit: "login",
+    idempotent: false,
+    page: null,
+} as const;
+
+export const routeAuthPrehash = {
+    id: "auth.prehash",
+    access: "public",
+    visibility: "public",
+    method: "POST",
+    path: "/auth/prehash",
+    perms: [],
+    capability: null,
+    rateLimit: "login",
+    idempotent: true,
+    page: null,
+} as const;
+
+export const routeAuthSignup = {
+    id: "auth.signup",
+    access: "public",
+    visibility: "public",
+    method: "POST",
+    path: "/signup",
+    perms: [],
+    capability: null,
+    rateLimit: "signup",
+    idempotent: false,
+    page: null,
+} as const;
+
+export const routeAuthVerify = {
+    id: "auth.verify",
+    access: "public",
+    visibility: "public",
+    method: "POST",
+    path: "/auth/verify",
+    perms: [],
+    capability: null,
+    rateLimit: "verify",
+    idempotent: false,
+    page: null,
+} as const;
+
+export const routeAuthResend = {
+    id: "auth.resend",
+    access: "public",
+    visibility: "public",
+    method: "POST",
+    path: "/auth/resend",
+    perms: [],
+    capability: null,
+    rateLimit: "resend-addr",
+    idempotent: false,
+    page: null,
+} as const;
+
+export const routeAuthReset = {
+    id: "auth.reset",
+    access: "public",
+    visibility: "public",
+    method: "POST",
+    path: "/auth/reset",
+    perms: [],
+    capability: null,
+    rateLimit: "resend-addr",
+    idempotent: false,
+    page: null,
+} as const;
+
+export const routeAuthResetConfirm = {
+    id: "auth.reset_confirm",
+    access: "public",
+    visibility: "public",
+    method: "POST",
+    path: "/auth/reset/confirm",
+    perms: [],
+    capability: null,
+    rateLimit: "verify",
+    idempotent: false,
+    page: null,
+} as const;
+
+export const routeAuthPassword = {
+    id: "auth.password",
+    access: "authenticated",
+    visibility: "holder",
+    method: null,
+    path: null,
+    perms: [],
+    capability: null,
+    rateLimit: null,
     idempotent: false,
     page: null,
 } as const;
@@ -568,6 +717,32 @@ export const routeMediaDelete = {
     page: null,
 } as const;
 
+export const routeMediaEdit = {
+    id: "media.edit",
+    access: "guarded",
+    visibility: "holder",
+    method: null,
+    path: null,
+    perms: [kPermMediaUpload],
+    capability: null,
+    rateLimit: "media",
+    idempotent: false,
+    page: null,
+} as const;
+
+export const routeMediaEditState = {
+    id: "media.edit_state",
+    access: "guarded",
+    visibility: "holder",
+    method: null,
+    path: null,
+    perms: [kPermMediaUpload],
+    capability: null,
+    rateLimit: null,
+    idempotent: true,
+    page: null,
+} as const;
+
 export const routeMediaObject = {
     id: "media.object",
     access: "public",
@@ -639,6 +814,12 @@ export const routeLiveAudit = {
 // which is the choice being offered rather than made for them.
 export const publicRoutes = {
     "auth.login": routeAuthLogin,
+    "auth.prehash": routeAuthPrehash,
+    "auth.signup": routeAuthSignup,
+    "auth.verify": routeAuthVerify,
+    "auth.resend": routeAuthResend,
+    "auth.reset": routeAuthReset,
+    "auth.reset_confirm": routeAuthResetConfirm,
     "auth.refresh": routeAuthRefresh,
     "session.current": routeSessionCurrent,
     "media.object": routeMediaObject,
@@ -1234,7 +1415,8 @@ export const publicTopics = {
 export type EventName =
     | "PageViewed"
     | "SignupStarted"
-    | "SignupCompleted";
+    | "SignupCompleted"
+    | "ProjectViewed";
 
 export type EventClass =
     | "behaviour"
@@ -1244,6 +1426,13 @@ export type EventClass =
 // the `as const` is what makes a typo a compile error rather than a row the
 // ingest path drops — and a dropped row is the analytics defect nobody notices
 // for a quarter.
+//
+// An ENTITY dimension carries no values at all: it names a foreign id rather
+// than a member of a set, and the server stores no index for it. It is emitted
+// as `{ kind: "entity" }` rather than an empty array, so a consumer branching
+// on shape sees the two cases rather than an enum with nothing in it — and the
+// value it takes at a call site is a `Uuid`, encoded to the wire's 36-character
+// form once, rather than a member of a union with no members.
 export const eventPageViewed = {
     name: "PageViewed",
     code: 0,
@@ -1274,6 +1463,76 @@ export const eventSignupCompleted = {
         surface: ["web", "ios", "android"],
     },
 } as const;
+
+export const eventProjectViewed = {
+    name: "ProjectViewed",
+    code: 3,
+    class: "behaviour",
+    requiresConsent: true,
+    dimensions: {
+        project: { kind: "entity" },
+    },
+} as const;
+
+// --- accounts ---------------------------------------------------------------
+
+// anvil's own account lifecycle — registration, verification, sign-in, a
+// password reset and a credential change — described the way every other
+// content table here is: `null` for an application that declares none, and a
+// table of what it declared otherwise. There is no client here yet; this is
+// the descriptor's shape and nothing that reads it.
+//
+// `routes` names only the roles the application actually has, in the fixed
+// order above, and each value is the route's own generated `const` — never
+// its id as a string — so a role naming a route anvil retires fails to
+// compile rather than calling a path the server no longer answers.
+export const kAccounts = {
+    hashing: "client",
+    activation: "verify",
+    contact: "email",
+    identifiers: [
+        { kind: "email", required: true, signIn: true },
+        { kind: "username", required: true, signIn: true },
+        { kind: "phone", required: false, signIn: true },
+    ],
+    profile: [
+        {
+            key: "given_name",
+            required: true,
+            minCodePoints: 1,
+            maxCodePoints: 80,
+            text: "prose",
+            lineBreaks: false,
+        },
+        {
+            key: "family_name",
+            required: false,
+            minCodePoints: 1,
+            maxCodePoints: 80,
+            text: "prose",
+            lineBreaks: false,
+        },
+    ],
+    secret: { minCodePoints: 12, maxCodePoints: 128, maxBytes: 1024 },
+    codeDigits: 6,
+    routes: {
+        salt: routeAuthPrehash,
+        register: routeAuthSignup,
+        verify: routeAuthVerify,
+        resend: routeAuthResend,
+        signIn: routeAuthLogin,
+        resetRequest: routeAuthReset,
+        resetConfirm: routeAuthResetConfirm,
+        change: routeAuthPassword,
+        refresh: routeAuthRefresh,
+        signOut: routeAuthLogout,
+    },
+} as const;
+
+// A name for the shape above, so a consumer holding one before it is known
+// whether the application declared accounts writes `AccountsTable | null`
+// rather than spelling out `typeof kAccounts` at every boundary.
+export type AccountsTable = typeof kAccounts;
 
 // --- media ------------------------------------------------------------------
 

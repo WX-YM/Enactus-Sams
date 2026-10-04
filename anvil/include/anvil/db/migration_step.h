@@ -39,7 +39,7 @@ namespace anvil::db {
 // How the runner walks the collection. Both shapes are `{_id: {$gt: last}}` in
 // `_id` order — never skip(n), which is O(n) server-side so the last batch of a
 // large collection costs the most at the point the run is most likely to be
-// interrupted (ENGINEERING_RULES.md §7).
+// interrupted (CLAUDE.md §7).
 //
 // Two enumerators because two `_id` SHAPES exist, and the difference is what the
 // cursor value is allowed to be:
@@ -139,7 +139,7 @@ private:
 // and FilterFn, and for the same reason.
 //
 // The views borrow the runner's batch buffer and are valid only for the duration
-// of the call. A step that needs them afterwards copies them (ENGINEERING_RULES.md §2.2).
+// of the call. A step that needs them afterwards copies them (CLAUDE.md §2.2).
 using StepFn = StepOutcome (*)(StepContext& context,
                                std::span<const bsoncxx::document::view> batch) noexcept;
 

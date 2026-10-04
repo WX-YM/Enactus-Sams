@@ -66,8 +66,9 @@ enum class Granularity : std::int32_t {
 [[nodiscard]] std::chrono::milliseconds bucket_width(Granularity granularity) noexcept;
 
 // One counted bucket. The `_id` it is written under is the identity tuple —
-// (code, granularity, bucket, dimensions) — so a re-run is a primary-key upsert
-// and the collection carries no secondary index for the write path at all.
+// (code, granularity, bucket, dimensions, entity) — so a re-run is a
+// primary-key upsert and the collection carries no secondary index for the
+// write path at all.
 struct RollupRow final {
     db::TimeMs      bucket;       //  8
     // Events, summing the coalescer's repeat counts. A folded window standing
@@ -79,6 +80,12 @@ struct RollupRow final {
     DimensionValues dimensions;   //  4
     EventCode       code;         //  4
     Granularity     granularity;  //  4
+    // kNilUuid for a bucket whose event declares no Entity dimension, or whose
+    // rows never supplied one — grouped together like any other dimension
+    // combination, per (docs/17-analytics.md §19). Last, like Event::entity,
+    // so a positional aggregate-init written against the six-member struct
+    // keeps compiling.
+    Uuid            entity = kNilUuid;  // 16
 };
 
 // Where a paginated window walk resumes.
@@ -144,7 +151,7 @@ public:
 
     // The UPSERT IS the sessionisation. `_id` is the (visitor, day) pair itself,
     // so there is no read-then-write and no secondary index: N instances
-    // converge on one row with no coordination at all (ENGINEERING_RULES.md §6).
+    // converge on one row with no coordination at all (CLAUDE.md §6).
     //
     // True when this call created the session, which is what a "new visitors
     // today" number is counted from — and it comes from the server's own
@@ -163,12 +170,17 @@ struct RollupQuery final {
     DimensionValues dimensions = no_dimensions();
     EventCode       code = 0;
     Granularity     granularity = Granularity::Day;
-    // Bounded like every other read (ENGINEERING_RULES.md §7). A dashboard asking for five
+    // Bounded like every other read (CLAUDE.md §7). A dashboard asking for five
     // years of hourly buckets is asking for 43,800 documents.
     std::int32_t    limit = 512;
     // Whether `dimensions` is a filter at all. A query that does not name them
     // wants every combination, and one that does wants exactly one.
     bool            match_dimensions = false;
+    // Same shape as `dimensions`/`match_dimensions`, independent of it: a query
+    // can narrow by the entity id, by the enum dimensions, by both or by
+    // neither.
+    Uuid            entity = kNilUuid;
+    bool            match_entity = false;
 };
 
 class RollupRepository final : public repo::RepositoryBase {

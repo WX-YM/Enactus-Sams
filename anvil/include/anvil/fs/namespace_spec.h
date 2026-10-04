@@ -34,7 +34,9 @@ namespace anvil::fs {
 // The moment one namespace takes no AVIF, the narrower list gets written into
 // the client by hand again.
 
-using MimeMask = std::uint8_t;
+// Two bytes. It was one until the stored-file class needed a ninth type, and the
+// assertion below is what made that a decision rather than a wrapped shift.
+using MimeMask = std::uint16_t;
 
 // `Mime::Unknown` is 0 and deliberately has NO bit. It is the absence of a
 // recognised type rather than a type, so a mask can never accept it and
@@ -45,23 +47,70 @@ using MimeMask = std::uint8_t;
                : static_cast<MimeMask>(1U << (static_cast<unsigned>(mime) - 1U));
 }
 
-// Everything the pipeline decodes, DERIVED from the enum rather than listed.
-// Adding a Mime widens this by itself, which is what stops the default from
-// becoming the second list this whole mechanism exists to remove.
-inline constexpr MimeMask kDecodableMimes = []() constexpr {
+// Every type of one class, DERIVED from the enum rather than listed, so adding
+// a Mime widens the right one by itself and neither becomes the second list this
+// mechanism exists to remove.
+[[nodiscard]] constexpr MimeMask mimes_of(MimeClass mime_class_wanted) noexcept {
     MimeMask mask = 0;
     for (unsigned value = 1; value <= static_cast<unsigned>(kMaxMime); ++value) {
-        mask = static_cast<MimeMask>(mask | mime_bit(static_cast<Mime>(value)));
+        const auto mime = static_cast<Mime>(value);
+        if (mime_class(mime) == mime_class_wanted) {
+            mask = static_cast<MimeMask>(mask | mime_bit(mime));
+        }
     }
     return mask;
-}();
+}
 
-static_assert(static_cast<unsigned>(kMaxMime) <= 8,
-              "a MimeMask is one byte; a ninth Mime needs a wider mask, not a wrap");
+// Everything the image pipeline decodes, and the DEFAULT. It is the image class
+// and not the whole enum: when the file class landed, a default derived from
+// every Mime would have made every namespace that never stated a list start
+// accepting PDFs and video overnight. A namespace takes files only by naming
+// them.
+inline constexpr MimeMask kDecodableMimes = mimes_of(MimeClass::Image);
+
+// The stored-as-is types (fs/sniff.h). Never a default.
+inline constexpr MimeMask kFileMimes = mimes_of(MimeClass::File);
+
+// Ciphertext (fs/sniff.h). Never a default, never combined with anything: see
+// namespace_is_well_formed below.
+inline constexpr MimeMask kSealedMimes = mimes_of(MimeClass::Sealed);
+
+static_assert(static_cast<unsigned>(kMaxMime) <= 16,
+              "a MimeMask is two bytes; a seventeenth Mime needs a wider mask, not a wrap");
 
 [[nodiscard]] constexpr bool mime_accepted(MimeMask mask, Mime mime) noexcept {
     return (mask & mime_bit(mime)) != 0;
 }
+
+// --- how far deduplication reaches -----------------------------------------
+//
+// Uploads are deduplicated by content hash (docs/07-filesystem.md §4 step 4),
+// which saves a transcode and a copy. Across a whole namespace it is also an
+// ORACLE: a hit skips probing, normalising and deriving variants, so it answers
+// in milliseconds where new bytes take seconds, and uploading a guessed document
+// tells the uploader whether somebody in this namespace already has those exact
+// bytes. For a public namespace that is nothing; for a private one ("somebody
+// here holds this contract") it is the disclosure. No response shape can hide
+// it, because the clock is not in the response (docs/22-chat.md §6.3).
+//
+//   Namespace  every owner shares one copy. The default, and what every table
+//              written before this field existed keeps.
+//   Owner      only an owner's own earlier upload is reused, so a fast answer
+//              can only ever say "you uploaded this before".
+//   None       never reused. For bytes no two uploads share anyway, such as
+//              ciphertext under a fresh key.
+enum class Dedupe : std::uint8_t { Namespace = 0, Owner = 1, None = 2 };
+
+// --- who may be served an object without a grant ----------------------------
+//
+//   Public   the application's own media handler decides, from the route and
+//            the namespace (docs/07-filesystem.md §6). The default, and what
+//            every table written before this field existed keeps.
+//   Private  served ONLY on a grant minted by code that already checked the
+//            caller against the object's owning document (media/grant.h). The
+//            serving call refuses the namespace without one, so a handler that
+//            has an id and no grant cannot serve it, however it got the id.
+enum class Visibility : std::uint8_t { Public = 0, Private = 1 };
 
 // One storage namespace: which API owns a stored object.
 //
@@ -76,15 +125,43 @@ struct NamespaceSpec final {
     // this field existed keeps its exact behaviour and a namespace that has no
     // opinion states none.
     MimeMask         accepts{kDecodableMimes};
+
+    Dedupe           dedupe{Dedupe::Namespace};
+
+    Visibility       visibility{Visibility::Public};
 };
 
 // It was `sizeof(std::string_view)` until the mask landed, and the eight bytes
-// of padding are stated here rather than discovered: this table is a handful of
+// after the view are stated here rather than discovered (the mask, the dedupe
+// scope and the visibility live in them): this table is a handful of
 // entries in `.rodata`, read at boot and at emit time and never per request, so
 // the padding buys a per-namespace rule for nothing that matters. A struct on a
 // request path would not get that answer.
 static_assert(sizeof(NamespaceSpec) == sizeof(std::string_view) + alignof(std::string_view),
               "NamespaceSpec must not grow past one view and one word");
+
+// The rules a namespace must keep whatever the application meant by it.
+// anvil/fs/namespace.h static_asserts this over the application's table, so a
+// breach is a compile error in the application's build. A function over one
+// spec rather than over the table, so a refusal can be tested with a spec no
+// real table should contain.
+//
+// A namespace that takes SEALED takes nothing else. The upload path for a
+// sealed namespace sniffs nothing (UploadSink::finish_sealed), so a namespace
+// that also took images would have two upload paths with opposite rules, and
+// a client choosing between them would be choosing whether its bytes are
+// inspected. It is also never deduplicated (every ciphertext is under a fresh
+// key, so a lookup can only ever cost a round trip, and a hit would be a
+// timing oracle on somebody else's blob — docs/22-chat.md §6.3) and never
+// Public (an object an id alone can fetch is one a leaked id serves forever).
+[[nodiscard]] constexpr bool namespace_is_well_formed(const NamespaceSpec& spec) noexcept {
+    if ((spec.accepts & kSealedMimes) == 0) { return true; }
+    return spec.accepts == kSealedMimes && spec.dedupe == Dedupe::None &&
+           spec.visibility == Visibility::Private;
+}
+
+static_assert(kSealedMimes != 0 && (kSealedMimes & (kDecodableMimes | kFileMimes)) == 0,
+              "the sealed class shares no type with anything the pipeline sniffs");
 
 // --- roles: what a client asks for instead of a width ----------------------
 //

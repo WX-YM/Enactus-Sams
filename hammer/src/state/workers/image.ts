@@ -17,7 +17,7 @@
 //
 // OUT: the `File`. A `File` is a handle, not bytes, until something reads it, so
 // posting one costs nothing and the original never enters any JS heap
-// (`ENGINEERING_RULES.md` §2.2). There is no `readAsArrayBuffer` in this library and a
+// (`CLAUDE.md` §2.2). There is no `readAsArrayBuffer` in this library and a
 // script fails the build if one appears.
 //
 // BACK: a `Blob`, which is also a handle. The re-encoded image is the one piece
@@ -48,7 +48,7 @@ const kImageWaiting = 0;
 export type DownscaleRequest = {
     readonly file: Blob;
 
-    // CSS pixels, named in the field (`ENGINEERING_RULES.md` §10). The image is scaled to
+    // CSS pixels, named in the field (`CLAUDE.md` §10). The image is scaled to
     // fit within this on its longest edge and is never scaled UP: enlarging a
     // small image produces a larger file with no more detail in it, which is the
     // opposite of what this pool is for.
@@ -112,7 +112,7 @@ export class ImagePool {
 //     serveImagePool(self);
 //
 // A function rather than a module with a top-level listener, because this
-// library has no top-level side effects (`ENGINEERING_RULES.md` §2.1) — and because a
+// library has no top-level side effects (`CLAUDE.md` §2.1) — and because a
 // worker entry is the application's file to name, since only its bundler can
 // turn one into a URL.
 export function serveImagePool(scope: WorkerScope): void {

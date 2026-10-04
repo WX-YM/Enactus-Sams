@@ -165,7 +165,7 @@ struct Answer final {
 // One answer as it arrived, still untyped.
 //
 // The JSON node is NOT carried forward: it borrows from the request body and the
-// arena, and a view that crosses onto db_pool is the dangling read ENGINEERING_RULES.md §2.2
+// arena, and a view that crosses onto db_pool is the dangling read CLAUDE.md §2.2
 // names as the most likely crash in code built on this library. Text is copied
 // here, once, at the boundary.
 struct RawAnswer final {

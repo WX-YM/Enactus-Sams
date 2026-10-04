@@ -6,7 +6,7 @@
 // stream is, and a live region that announces an arrival without stealing focus
 // from whatever the person was typing. Every application built on anvil needs
 // exactly that, and every one of them gets some part of it wrong the first time
-// (`ENGINEERING_RULES.md` §9).
+// (`CLAUDE.md` §9).
 //
 // What it does NOT own is the word for "notifications", which topics deserve a
 // badge, or what "read" means in this product.
@@ -60,7 +60,7 @@ export type BellCopy = {
 
     // What the badge means, for the people who are not looking at it. The count
     // is a parameter because a plural rule and a digit shape belong to the
-    // locale rather than to the number (`ENGINEERING_RULES.md` §8).
+    // locale rather than to the number (`CLAUDE.md` §8).
     readonly unread: (count: number) => string;
 
     // Announced when something arrives.
@@ -80,7 +80,7 @@ export type BellOptions<T> = {
     readonly markRead: (ids: readonly string[]) => void;
 
     // The words for one notification. A topic name and the sentence about it are
-    // the application's (`ENGINEERING_RULES.md` §9); what this ships is that they end up in
+    // the application's (`CLAUDE.md` §9); what this ships is that they end up in
     // a list somebody can walk.
     readonly describe: (item: Notification<T>) => string;
 
@@ -146,6 +146,18 @@ export function renderBell<T>(mount: Element, options: BellOptions<T>): Mounted 
             return;
         }
         open = next;
+
+        // Read before `hidden` is set, not after: a real browser blurs an
+        // element the instant it is hidden, moving focus to the document
+        // body SYNCHRONOUSLY and before this function's next line ever runs.
+        // Checking `doc.activeElement` after `popover.hidden = true` was
+        // reading the browser's own post-blur state, which is never inside
+        // the popover — so the restore below never ran, silently, and focus
+        // was left on the body every time. happy-dom does not blur a hidden
+        // element, so this was invisible to the whole suite until it ran
+        // against Chromium (`docs/15-tasks.md` Phase 8 B2).
+        const wasFocusedInPopover = !next && popover.contains(doc.activeElement);
+
         popover.hidden = !next;
         trigger.setAttribute("aria-expanded", next ? "true" : "false");
 
@@ -155,10 +167,10 @@ export function renderBell<T>(mount: Element, options: BellOptions<T>): Mounted 
             return;
         }
 
-        // Only where focus is still inside the popover. If the person has
+        // Only where focus was still inside the popover. If the person had
         // already clicked into something else, taking focus back would be the
         // theft this whole path exists to avoid.
-        if (popover.contains(doc.activeElement)) {
+        if (wasFocusedInPopover) {
             const back = returnTo;
             if (back !== null && "focus" in back && typeof back.focus === "function") {
                 (back as HTMLElement).focus();
@@ -176,7 +188,7 @@ export function renderBell<T>(mount: Element, options: BellOptions<T>): Mounted 
     const onKeyDown = (event: KeyboardEvent): void => {
         if (event.key === "Escape" && open) {
             // Not a trap: Escape always closes and always hands focus back
-            // (`ENGINEERING_RULES.md` §9).
+            // (`CLAUDE.md` §9).
             event.stopPropagation();
             setOpen(false);
         }

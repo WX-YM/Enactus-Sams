@@ -13,7 +13,7 @@ everything in this document is a consequence.
 
 anvil ships the mechanism. **The table is yours** (docs/01-seams.md §6) — anvil holds no
 application's section keys, field names, bounds or copy, and a `constexpr` table anvil
-populated would be exactly the bug ENGINEERING_RULES.md §1 names.
+populated would be exactly the bug CLAUDE.md §1 names.
 
 ---
 

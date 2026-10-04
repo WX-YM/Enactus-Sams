@@ -20,7 +20,7 @@ void append_number(std::string& out, std::int64_t value) {
     std::array<char, kMaxNumberChars> digits{};
     std::size_t length = 0;
     // Negated into an UNSIGNED accumulator: -(-2^63) overflows in int64, and
-    // signed overflow is undefined behaviour (ENGINEERING_RULES.md §5).
+    // signed overflow is undefined behaviour (CLAUDE.md §5).
     const bool negative = value < 0;
     auto magnitude = negative ? (~static_cast<std::uint64_t>(value) + 1U)
                               : static_cast<std::uint64_t>(value);

@@ -33,7 +33,7 @@ std::string with_pool_size(std::string_view uri, std::size_t max_pool_size) {
 }  // namespace
 
 MongoPool::MongoPool(std::string_view uri, std::size_t max_pool_size)
-    // Member-initialiser list order must match declaration order (ENGINEERING_RULES.md §3.2).
+    // Member-initialiser list order must match declaration order (CLAUDE.md §3.2).
     : instance_{},
       pool_{mongocxx::uri{with_pool_size(uri, max_pool_size)}},
       max_size_{max_pool_size} {}

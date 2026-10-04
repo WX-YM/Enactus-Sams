@@ -5,7 +5,7 @@
 // safe is that it reaches the store and not the cache, and a stand-in for the
 // resource would assert that the test knows that.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { fail, ok } from "../../src/core/result.js";
 import type { ResourceFailure } from "../../src/state/resource.js";

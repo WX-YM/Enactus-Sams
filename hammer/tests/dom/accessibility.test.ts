@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // Every component, enumerated.
 //
@@ -9,7 +8,7 @@
 // component tests whatever somebody remembered; this one makes a new component
 // fail until it is labelled, reachable and operable.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "../support/test.js";
 
 import { accessibleName, components, focusable, hiddenFromReaders, mountEach, published } from "./registry.js";
 

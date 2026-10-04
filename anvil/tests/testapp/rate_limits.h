@@ -33,7 +33,7 @@ namespace h = anvil::http;
 
 // Every rule this application declares, in one table so the conformance check has
 // something to check. A rule declared outside it is a rule nothing verifies.
-inline constexpr std::array<h::RateLimitRule, 8> kRateLimits{{
+inline constexpr std::array<h::RateLimitRule, 12> kRateLimits{{
     // Sign-in. Two buckets, both applied — see the header comment.
     {"login", std::chrono::seconds{60}, 20},
     {"login-acct", std::chrono::minutes{15}, 10},
@@ -59,6 +59,19 @@ inline constexpr std::array<h::RateLimitRule, 8> kRateLimits{{
     {"verify", std::chrono::minutes{15}, 10},
     {"verify-addr", std::chrono::minutes{15}, 5},
     {"resend-addr", std::chrono::minutes{60}, 3},
+
+    // Conversations, per account. Sending is the volume, and receipts, edits and
+    // reactions ride with it because a busy reader makes them at the same rate;
+    // what changes a conversation is rare and gets a tighter budget of its own,
+    // so a flood of sends cannot spend the budget for leaving a group.
+    {"chat-send", std::chrono::minutes{1}, 120},
+    {"chat-write", std::chrono::minutes{1}, 30},
+    // Prekey claims, twice (docs/22-chat.md §7.5): per claiming account, and
+    // per account whose one-time keys are claimed. The second is the tighter,
+    // because draining a victim's pool is the attack and an attacker with many
+    // accounts spends many first budgets but only the victim's one second.
+    {"chat-claim", std::chrono::minutes{1}, 120},
+    {"chat-claim-target", std::chrono::minutes{1}, 30},
 }};
 
 // A malformed table is a build error, not a limiter that silently does not limit.
@@ -69,7 +82,7 @@ inline constexpr std::array<h::RateLimitRule, 8> kRateLimits{{
 static_assert(h::rate_limit_table_is_well_formed(kRateLimits),
               "an empty bucket, a zero window, a zero budget, or two rules sharing a bucket");
 
-static_assert(kRateLimits.size() == 8,
+static_assert(kRateLimits.size() == 12,
               "adding a rule is a deliberate act: the bucket name is part of a Redis key and "
               "is therefore shared with every other process in the deployment");
 

@@ -6,7 +6,7 @@
 // that keeps a client from hammering its own session endpoint every time
 // somebody clicks a button they do not have.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClientError } from "../../src/core/errors.js";
 import type { ResolvableRoute, SessionSource } from "../../src/wire/resolve.js";

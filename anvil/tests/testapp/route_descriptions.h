@@ -13,6 +13,7 @@
 #include <array>
 
 #include "anvil/descriptor/route_description.h"
+#include "anvil/media/edit_shapes.h"
 
 #include "responses.h"
 #include "routes.h"
@@ -21,10 +22,32 @@ namespace testapp {
 
 namespace d = anvil::descriptor;
 
-inline constexpr std::array<d::RouteDescription, 14> kRouteDescriptions{{
+inline constexpr std::array<d::RouteDescription, 69> kRouteDescriptions{{
     // Public, so the path is compiled into a client bundle. Not idempotent: a
     // repeated login is a second session and a second row in the security log.
     {"auth.login", "/login", "", "login", "", 0, ac::RouteMethod::Post, false},
+
+    // The salt route. Counted into the login bucket, because it is the first
+    // half of a login and an unmetered one is a free way to walk the users
+    // index. Idempotent: it is a read, and a client that lost the answer asks
+    // again.
+    {"auth.prehash", "/auth/prehash", "", "login", "", 0, ac::RouteMethod::Post, true},
+
+    // Not idempotent: a registration that is retried after a lost response is
+    // answered as a duplicate — correctly, and indistinguishably — but it is
+    // still a second attempt at a write, and a client must not be told it may
+    // repeat one freely.
+    {"auth.signup", "/signup", "", "signup", "", 0, ac::RouteMethod::Post, false},
+
+    // A code guess counts into `verify`; asking for a new code into
+    // `resend-addr`. Neither is idempotent: a verify consumes a code, and a
+    // resend or a reset request mints a new one that replaces the last.
+    {"auth.verify", "/auth/verify", "", "verify", "", 0, ac::RouteMethod::Post, false},
+    {"auth.resend", "/auth/resend", "", "resend-addr", "", 0, ac::RouteMethod::Post, false},
+    {"auth.reset", "/auth/reset", "", "resend-addr", "", 0, ac::RouteMethod::Post, false},
+    {"auth.reset_confirm", "/auth/reset/confirm", "", "verify", "", 0,
+     ac::RouteMethod::Post, false},
+    {"auth.password", "/auth/password", "", "", "", 0, ac::RouteMethod::Post, false},
 
     // Public, so a client compiles the path in — and it has to, because the call
     // that recovers a session cannot itself be discovered from one.
@@ -101,6 +124,17 @@ inline constexpr std::array<d::RouteDescription, 14> kRouteDescriptions{{
     {"media.delete", "/media/{ns}/{id}", "MediaUpload", "media", "",
      0, ac::RouteMethod::Delete, false},
 
+    // An edit is one libvips render on cpu_pool, the same cost as an upload, so
+    // it counts into the same `media` bucket. NOT idempotent in the transport
+    // sense — it creates an object — although the server does resolve the same
+    // recipe on the same source to one object (docs/21-image-edits.md §3). The
+    // declared shapes are the library's own, so they are the bytes its handlers
+    // write rather than a description of them kept here.
+    {"media.edit", "/media-edits/{ns}/{id}", "", "media", "", 0, ac::RouteMethod::Post, false,
+     false, false, anvil::media::kEditResponse},
+    {"media.edit_state", "/media-edits/{ns}/{id}", "", "", "", 0, ac::RouteMethod::Get, true,
+     false, false, anvil::media::kEditStateResponse},
+
     // The media grammar, declared here rather than derived anywhere.
     //
     // It does NOT become a field in the `media` object. That table says what a
@@ -138,6 +172,120 @@ inline constexpr std::array<d::RouteDescription, 14> kRouteDescriptions{{
     // Stealth, so the path never reaches a bundle — the same rule as
     // `audit.list`, and it applies to an upgrade for exactly the same reason.
     {"live.audit", "/ws/audit", "", "", "", 0, ac::RouteMethod::Get, true},
+
+    // Conversations (docs/22-chat.md §9). The handlers are anvil's; the ids,
+    // patterns and budgets are this table's, and install_chat_routes refuses at
+    // boot a pattern with the wrong number of placeholders.
+    //
+    // A send is IDEMPOTENT although it is a POST, and it is the route the flag
+    // exists for: the client id in the body is the key, and a retry after a lost
+    // response is answered with the first message (docs/22 §4.2). Creating a
+    // conversation is too, for the same reason: its required `cid` finds the
+    // first conversation on a retry (§3.1). Receipts are watermarks that only
+    // move forward, and a join while already a member is that membership.
+    // Adding people, removing one, revoking and minting an invite are not: each
+    // repeated is a second effect, or a refusal a client would misread.
+    //
+    // Responses are hand-written and undescribed: a message nests attachments,
+    // mentions, a card and a system event, which the flat response grammar does
+    // not express (anvil/chat/routes.h).
+    {"chat.create", "/chat/conversations", "", "chat-write", "",
+     0, ac::RouteMethod::Post, true},
+    {"chat.open_direct", "/chat/direct/{user}", "", "chat-write", "",
+     0, ac::RouteMethod::Put, true},
+    {"chat.list", "/chat/conversations", "", "", "act", 100, ac::RouteMethod::Get, true},
+    {"chat.get", "/chat/conversations/{c}", "", "", "", 0, ac::RouteMethod::Get, true},
+    {"chat.update", "/chat/conversations/{c}", "", "chat-write", "",
+     0, ac::RouteMethod::Patch, true},
+    {"chat.set_timer", "/chat/conversations/{c}/timer", "", "chat-write", "",
+     0, ac::RouteMethod::Put, true},
+    {"chat.members", "/chat/conversations/{c}/members", "", "", "u",
+     100, ac::RouteMethod::Get, true},
+    {"chat.add_members", "/chat/conversations/{c}/members", "", "chat-write", "",
+     0, ac::RouteMethod::Post, false},
+    {"chat.update_member", "/chat/conversations/{c}/members/{user}", "", "chat-write", "",
+     0, ac::RouteMethod::Patch, true},
+    {"chat.remove_member", "/chat/conversations/{c}/members/{user}", "", "chat-write", "",
+     0, ac::RouteMethod::Delete, false},
+    {"chat.send", "/chat/conversations/{c}/messages", "", "chat-send", "",
+     0, ac::RouteMethod::Post, true},
+    {"chat.history", "/chat/conversations/{c}/messages", "", "", "seq",
+     100, ac::RouteMethod::Get, true},
+    {"chat.edit", "/chat/conversations/{c}/messages/{seq}", "", "chat-send", "",
+     0, ac::RouteMethod::Patch, true},
+    {"chat.revoke", "/chat/conversations/{c}/messages/{seq}", "", "chat-write", "",
+     0, ac::RouteMethod::Delete, false},
+    {"chat.react", "/chat/conversations/{c}/messages/{seq}/reaction", "", "chat-send", "",
+     0, ac::RouteMethod::Put, true},
+    {"chat.read_by", "/chat/conversations/{c}/messages/{seq}/readers", "", "", "",
+     0, ac::RouteMethod::Get, true},
+    {"chat.receipts", "/chat/conversations/{c}/receipts", "", "chat-send", "",
+     0, ac::RouteMethod::Post, true},
+    {"chat.preferences", "/chat/conversations/{c}/preferences", "", "chat-write", "",
+     0, ac::RouteMethod::Patch, true},
+    {"chat.create_invite", "/chat/conversations/{c}/invites", "", "chat-write", "",
+     0, ac::RouteMethod::Post, false},
+    {"chat.revoke_invite", "/chat/conversations/{c}/invites", "", "chat-write", "",
+     0, ac::RouteMethod::Delete, true},
+    {"chat.join", "/chat/join", "", "chat-write", "", 0, ac::RouteMethod::Post, true},
+    {"chat.follow", "/chat/conversations/{c}/follow", "", "chat-write", "",
+     0, ac::RouteMethod::Post, true},
+    {"chat.block", "/chat/blocks/{user}", "", "chat-write", "", 0, ac::RouteMethod::Put, true},
+    {"chat.unblock", "/chat/blocks/{user}", "", "chat-write", "",
+     0, ac::RouteMethod::Delete, true},
+    // An upgrade, idempotent for live.feed's reason: a second handshake from
+    // the same device replaces the first socket rather than adding to it.
+    {"chat.socket", "/chat/socket", "", "", "", 0, ac::RouteMethod::Get, true},
+    {"chat.presence", "/chat/presence/{user}", "", "", "", 0, ac::RouteMethod::Get, true},
+    // Devices, keys and the queue. Registering and linking are not idempotent:
+    // a second attempt with the same device id is a Conflict, never the first
+    // answer again. Unlinking and acknowledging are.
+    {"chat.my_devices", "/chat/devices", "", "", "", 0, ac::RouteMethod::Get, true},
+    {"chat.register_device", "/chat/devices", "", "chat-write", "",
+     0, ac::RouteMethod::Put, false},
+    {"chat.link_device", "/chat/devices/link", "", "chat-write", "",
+     0, ac::RouteMethod::Post, false},
+    {"chat.unlink_device", "/chat/devices/{device}", "", "chat-write", "",
+     0, ac::RouteMethod::Delete, true},
+    {"chat.upload_prekeys", "/chat/keys", "", "chat-write", "", 0, ac::RouteMethod::Post, false},
+    // The per-claimer bucket, once per request; the per-target one is checked
+    // inside, once for each account named in the body that is a member.
+    {"chat.claim_prekeys", "/chat/conversations/{c}/keys/claim", "", "chat-claim", "",
+     0, ac::RouteMethod::Post, false},
+    {"chat.conversation_devices", "/chat/conversations/{c}/devices", "", "", "u",
+     64, ac::RouteMethod::Get, true},
+    {"chat.device_queue", "/chat/device-queue", "", "", "_id", 100, ac::RouteMethod::Get, true},
+    {"chat.acknowledge_queue", "/chat/device-queue", "", "chat-send", "",
+     0, ac::RouteMethod::Delete, true},
+
+    {"chat.presence_many", "/chat/presence", "", "", "", 0, ac::RouteMethod::Get, true},
+    // Idempotent: the same keys again are the same state.
+    {"chat.rotate_prekeys", "/chat/devices/{device}/keys", "", "chat-write", "",
+     0, ac::RouteMethod::Put, true},
+    // Not idempotent: each request is a new token replacing the last.
+    {"chat.request_link", "/chat/link-requests", "", "chat-write", "",
+     0, ac::RouteMethod::Post, false},
+    {"chat.read_link_request", "/chat/link-requests/read", "", "chat-send", "",
+     0, ac::RouteMethod::Post, true},
+    // Not idempotent: a second approval is a Conflict, never the first again.
+    {"chat.approve_link_request", "/chat/link-requests/approve", "", "chat-write", "",
+     0, ac::RouteMethod::Post, false},
+    // Not idempotent: the approval is handed over once and then gone.
+    {"chat.collect_link_approval", "/chat/link-requests/collect", "", "chat-send", "",
+     0, ac::RouteMethod::Post, false},
+    {"chat.review_conversation", "/chat/review/{c}", "", "", "u", 100, ac::RouteMethod::Get,
+     true},
+    {"chat.review_history", "/chat/review/{c}/messages", "", "", "seq", 100,
+     ac::RouteMethod::Get, true},
+    // Idempotent: a report over the same range by the same member is the first.
+    {"chat.report", "/chat/conversations/{c}/reports", "", "chat-write", "",
+     0, ac::RouteMethod::Post, true},
+    {"chat.reports", "/chat/reports", "", "", "_id", 100, ac::RouteMethod::Get, true},
+    // Public, so the path is in a client bundle, and it has to be: a client
+    // builds MEDIA_ORIGIN + this pattern from the grant a history page handed
+    // it. The grant is the authority, so naming where it is spent discloses
+    // nothing.
+    {"media.grant", "/m/{grant}/{role}", "", "", "", 0, ac::RouteMethod::Get, true},
 }};
 
 static_assert(d::descriptions_match(kRoutes, kRouteDescriptions),

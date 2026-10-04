@@ -14,6 +14,7 @@
 
 import type { ClassNames } from "hammer";
 import type { ChartPart } from "hammer/chart";
+import type { EditorPart } from "hammer/edit";
 import type {
     AuthPart,
     BellPart,
@@ -124,4 +125,22 @@ export const chartClasses: ClassNames<ChartPart> = {
     table: "tk-table",
     row: "tk-row",
     current: "tk-current",
+};
+
+export const editorClasses: ClassNames<EditorPart> = {
+    root: "tk-edit",
+    toolbar: "tk-edit-toolbar",
+    button: "tk-edit-button",
+    canvas: "tk-edit-canvas",
+    shade: "tk-edit-shade",
+    cropBox: "tk-edit-crop",
+    handle: "tk-edit-handle",
+    stroke: "tk-edit-stroke",
+    selected: "tk-edit-selected",
+    strokeList: "tk-edit-strokes",
+    strokeItem: "tk-edit-stroke-item",
+    palette: "tk-edit-palette",
+    widths: "tk-edit-widths",
+    resize: "tk-edit-resize",
+    status: "tk-edit-status",
 };

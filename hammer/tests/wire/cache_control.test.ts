@@ -1,7 +1,7 @@
 // What the server said about storing a response, and what this client refuses to
 // infer when it said nothing.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { kNoDirectives, parseCacheControl } from "../../src/wire/cache_control.js";
 

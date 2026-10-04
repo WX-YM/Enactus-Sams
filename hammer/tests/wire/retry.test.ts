@@ -6,7 +6,7 @@
 // into a silent overwrite, a failed report of a succeeded operation, or an
 // account lockout.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { HammerError, ServerError } from "../../src/core/errors.js";
 import type { RetryFacts } from "../../src/wire/retry.js";

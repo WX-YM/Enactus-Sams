@@ -91,7 +91,7 @@ struct InboxHooks final {
 
 // One entry as the reader sees it. The rendered strings are OWNED: the row they
 // were rendered from is released before this crosses back to the caller's thread,
-// and a view into it would dangle (ENGINEERING_RULES.md §2.2).
+// and a view into it would dangle (CLAUDE.md §2.2).
 struct InboxEntry final {
     Rendered                   content;
     // The MERGE CURSOR, and the id the reader marks read by. It is the inbox

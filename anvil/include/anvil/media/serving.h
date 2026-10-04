@@ -8,7 +8,7 @@
 // socket inside the kernel. Reading a 4 MB image into a std::string to write it
 // to a socket costs two copies, 4 MB of heap per concurrent request, and a
 // thread held for the duration of a slow client's download — a hundred slow
-// mobile clients would occupy a hundred threads (ENGINEERING_RULES.md §2.4).
+// mobile clients would occupy a hundred threads (CLAUDE.md §2.4).
 //
 // THE ENTIRE SECURITY BOUNDARY IS `internal;` ON THE NGINX LOCATION. Without
 // that keyword every file under the storage root is reachable by direct URL, and
@@ -37,6 +37,7 @@
 #include "anvil/fs/paths.h"
 #include "anvil/fs/sniff.h"
 #include "anvil/images/variants.h"
+#include "anvil/media/grant.h"
 
 namespace anvil::media {
 
@@ -51,6 +52,18 @@ inline constexpr std::string_view kAccelPrefix = "/protected_storage/";
 // These routes are access-controlled, so the response is `private`: a shared
 // cache holding one would serve it to the next requester.
 inline constexpr std::string_view kMediaCacheControl = "private, max-age=31536000, immutable";
+
+// On every stored FILE (fs/sniff.h): nothing loads, nothing runs, and a document
+// rendered from the response is in a unique opaque origin. `media-src 'self'` is
+// what still lets the browser play the audio or video it is.
+inline constexpr std::string_view kFileContentSecurityPolicy =
+    "default-src 'none'; media-src 'self'; sandbox";
+
+// On every SEALED object: the file policy without `media-src`. A sealed blob is
+// never played or rendered by the browser — the recipient's client fetches it,
+// checks its hash and decrypts it — so there is nothing the policy needs to
+// allow, and every allowance kept is one an attacker-chosen body could use.
+inline constexpr std::string_view kSealedContentSecurityPolicy = "default-src 'none'; sandbox";
 
 // Percent-encodes every byte that is not an RFC 3986 unreserved character,
 // leaving '/' as a separator.
@@ -135,7 +148,28 @@ inline constexpr std::string_view kMediaCacheControl = "private, max-age=3153600
 // `mime` is the STORED enum, never anything from the request. A file cannot be
 // allowed to choose how a browser interprets it, and the one place that could
 // happen is here.
+//
+// A stored FILE additionally carries a sandboxing policy and a
+// Content-Disposition from fs::disposition, and no `Vary: Accept`. It has no
+// variants, so its key is always the master.
+//
+// A SEALED namespace (fs::Ns::sealed()) is served as application/octet-stream,
+// `attachment`, under kSealedContentSecurityPolicy, from the master, WHATEVER
+// `mime` and `key` say. The namespace takes nothing else, so the arguments can
+// only disagree through a corrupt row or a caller's mistake, and neither may
+// turn ciphertext into something a browser renders.
+//
+// A PRIVATE namespace is refused here with the stealth 404: an id is not
+// enough to serve one, whoever holds it. Use the overload below, which takes
+// the grant itself.
 [[nodiscard]] drogon::HttpResponsePtr accel_redirect_response(fs::Ns ns, const Uuid& id,
+                                                              fs::VariantKey key,
+                                                              fs::Mime mime);
+
+// The same response for an object a grant names, in any namespace. The grant is
+// the only way to construct the argument (media/grant.h), so serving a private
+// object cannot be reached by passing an id somebody found.
+[[nodiscard]] drogon::HttpResponsePtr accel_redirect_response(const MediaGrant& grant,
                                                               fs::VariantKey key,
                                                               fs::Mime mime);
 

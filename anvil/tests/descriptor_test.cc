@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 
+#include <stdexcept>
+
 #include <array>
 #include <string>
 #include <string_view>
@@ -16,6 +18,7 @@
 #include "anvil/http/response_spec.h"
 
 #include "capabilities.h"
+#include "chat_kinds.h"
 #include "events.h"
 #include "field_types.h"
 #include "perms.h"
@@ -43,6 +46,7 @@ namespace {
         .sections = testapp::kSections,
         .topics = testapp::kTopics,
         .events = testapp::kEvents,
+        .chat_kinds = testapp::kChatKinds,
         .limits = Limits{.upload_max_bytes = 26214400,
                          .body_max_bytes = 262144,
                          .page_limit_max = 100},
@@ -68,6 +72,17 @@ namespace {
 }
 
 }  // namespace
+
+TEST(Descriptor, ARoutePagingPastTheGlobalCeilingIsRefused) {
+    // The reference tables agree with themselves...
+    EXPECT_TRUE(page_ceiling_covers(testapp::kRouteDescriptions, reference_input().limits));
+    // ...and a ceiling below the largest route (chat.list, chat.history and
+    // chat.members page to 100) is a descriptor that contradicts itself.
+    DescriptorInput lower = reference_input();
+    lower.limits.page_limit_max = 64;
+    EXPECT_FALSE(page_ceiling_covers(testapp::kRouteDescriptions, lower.limits));
+    EXPECT_THROW((void)emit_descriptor(lower), std::invalid_argument);
+}
 
 TEST(Descriptor, IsDeterministic) {
     // The hash is over these bytes, so two runs producing two byte strings means
@@ -277,6 +292,23 @@ TEST(Descriptor, CarriesTheClosedDimensionValuesAndTheConsentFlag) {
     // The CLOSED set, because the row stores the INDEX into it. A dimension whose
     // values came from a request is the cardinality explosion the set refuses.
     EXPECT_TRUE(contains(entry, "\"values\":[\"web\",\"ios\",\"android\"]"));
+    // Every ordinary dimension says so explicitly, so a client can tell the two
+    // kinds apart without inferring one from an empty "values" array.
+    EXPECT_TRUE(contains(entry, "\"kind\":\"enum\""));
+}
+
+TEST(Descriptor, AnEntityDimensionCarriesItsKindAndAnEmptyValueSet) {
+    const std::string doc = emit_descriptor(reference_input());
+
+    const std::size_t viewed = doc.find("\"ProjectViewed\"");
+    ASSERT_NE(viewed, std::string::npos);
+    const std::string_view entry{doc.data() + viewed, 400};
+    // No closed set to enumerate — the value space is an application id
+    // admitted one at a time at ingest, not a table a client could read
+    // (docs/17-analytics.md §19) — so a client sees the kind and an empty
+    // array rather than inferring "entity" from the array's emptiness alone.
+    EXPECT_TRUE(contains(entry, "\"kind\":\"entity\""));
+    EXPECT_TRUE(contains(entry, "\"values\":[]"));
 }
 
 TEST(Descriptor, AttachesAWidthToARoleAndShipsNoLadderToBuildPathsFrom) {
@@ -291,6 +323,12 @@ TEST(Descriptor, AttachesAWidthToARoleAndShipsNoLadderToBuildPathsFrom) {
     EXPECT_TRUE(contains(std::string_view{doc.data() + content, 320},
                          "{\"role\":\"thumb\",\"width\":320}"));
     EXPECT_TRUE(contains(doc, "\"default_role\":\"card\""));
+
+    // The edit recipe's bounds, so a client's validator and this server's
+    // agree: the codec's two caps, and the ladder's two ends as NUMBERS beside
+    // names — not a ladder a path could be assembled from.
+    EXPECT_TRUE(contains(doc, "\"edit\":{\"max_strokes\":64,\"max_points\":4096,"
+                              "\"max_edge_px\":2560,\"min_edge_px\":320}"));
 
     // And nothing a path could be built out of: no bare ladder, and no file
     // EXTENSION. A client that knows those is a client that will start building
@@ -445,10 +483,11 @@ TEST(Descriptor, ADescribedRouteCarriesItsFieldsInDeclarationOrder) {
 TEST(Descriptor, AnUndescribedRouteSaysSoRatherThanOmittingTheKey) {
     // `null` and not a missing key, for the reason `"page":null` is not a missing
     // key either: a generator branching on "is this member present" branches on a
-    // typo. Eleven of the twelve reference routes are undescribed, which is the
-    // honest state of a table where adoption is per route.
+    // typo. Most reference routes are undescribed, which is the honest state of
+    // a table where adoption is per route; three are — `/me` and the two image
+    // edit routes, whose shapes are the library's own.
     const std::string doc = emit_descriptor(reference_input());
-    EXPECT_EQ(count_of(doc, R"("response":null)"), testapp::kRouteDescriptions.size() - 1) << doc;
+    EXPECT_EQ(count_of(doc, R"("response":null)"), testapp::kRouteDescriptions.size() - 3) << doc;
 }
 
 TEST(Descriptor, TheNestedSessionBodyIsLeftUndescribedRatherThanApproximated) {
@@ -470,6 +509,36 @@ TEST(Descriptor, TheFormatNumberSaysAResponseMayBeNonNull) {
     EXPECT_GE(kDescriptorFormat, 3);
     EXPECT_TRUE(contains(emit_descriptor(reference_input()),
                          R"("descriptor":)" + std::to_string(kDescriptorFormat)));
+}
+
+TEST(Descriptor, ChatPublishesEachKindFromTheTableTheServerEnforces) {
+    const std::string doc = emit_descriptor(reference_input());
+    const std::size_t at = doc.find(R"("chat":{"text_max_code_points":4096,)");
+    ASSERT_NE(at, std::string::npos) << doc;
+    // Up to the table after `limits`, so what is asserted absent is absent from
+    // chat and not merely from the rest of the document.
+    const std::size_t end = doc.find(R"("field_types":)", at);
+    ASSERT_NE(end, std::string::npos);
+    const std::string_view chat = std::string_view{doc}.substr(at, end - at);
+
+    EXPECT_TRUE(contains(chat, R"("attachments_max":10,)"));
+    EXPECT_TRUE(contains(chat, R"("mentions_max":32,)"));
+    // Enums by name and rights by name: a client handed the stored byte would
+    // need a copy of anvil's enum to read it.
+    EXPECT_TRUE(contains(chat, R"({"key":"group","shape":"group","encryption":"optional",)"));
+    EXPECT_TRUE(contains(chat, R"("create_requires":["ChatCreateGroup"])"));
+    EXPECT_TRUE(contains(chat, R"({"key":"channel","shape":"channel","encryption":"never",)"));
+    EXPECT_TRUE(contains(chat, R"("owner":["post","react","add_member")"));
+    // Whether a kind takes attachments, and never where they are stored.
+    EXPECT_TRUE(contains(chat, R"("attachments":true,)"));
+    EXPECT_FALSE(contains(chat, "media_ns"));
+    EXPECT_FALSE(contains(chat, "sealed"));
+}
+
+TEST(Descriptor, AnApplicationWithoutChatSaysSoRatherThanOmittingTheKey) {
+    DescriptorInput input = reference_input();
+    input.chat_kinds = {};
+    EXPECT_TRUE(contains(emit_descriptor(input), R"("chat":null)"));
 }
 
 TEST(Descriptor, CarriesNoStorageVocabulary) {

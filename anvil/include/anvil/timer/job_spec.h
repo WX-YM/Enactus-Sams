@@ -46,7 +46,7 @@ enum class JobPool : std::uint8_t { Db = 0, Cpu = 1 };
 // interior padding, and deliberately small: it is constructed per execution.
 //
 // `args` borrows the claimed envelope's bytes and is valid only for the duration
-// of the call. A handler that needs them afterwards copies them (ENGINEERING_RULES.md §2.2).
+// of the call. A handler that needs them afterwards copies them (CLAUDE.md §2.2).
 struct JobRunContext final {
     std::span<const std::uint8_t> args;    // 16
     Uuid                          id;      // 16 — for log correlation

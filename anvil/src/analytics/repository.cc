@@ -52,6 +52,26 @@ void append_dimensions(bsoncxx::builder::basic::document& doc, std::string_view 
     }));
 }
 
+// OMITTED when nil, unlike the dimension slots: those are fixed-width and
+// written unconditionally so every row has the same shape (comment above), but
+// an entity id is sixteen bytes an ordinary row will never carry, and most
+// rows — including every one written before this field existed — never
+// declare one at all.
+void append_entity(bsoncxx::builder::basic::document& doc, std::string_view key,
+                   const Uuid& entity) {
+    if (!is_nil(entity)) { codec::append_uuid(doc, key, entity); }
+}
+
+// Absent decodes to kNilUuid — the same value an event or bucket with no
+// entity dimension carries — so a row written before this field existed reads
+// identically to one that simply never used one. Only a PRESENT field of the
+// wrong shape is Internal, per codec::read_optional_uuid.
+[[nodiscard]] Result<Uuid> read_entity(const bsoncxx::document::view& doc, std::string_view key) {
+    const Result<std::optional<Uuid>> value = codec::read_optional_uuid(doc, key);
+    if (!value) { return value.error(); }
+    return value.value().value_or(kNilUuid);
+}
+
 [[nodiscard]] Result<DimensionValues> read_dimensions(const bsoncxx::document::view& doc,
                                                       std::string_view key) {
     DimensionValues values = no_dimensions();
@@ -102,6 +122,10 @@ void append_not_expired(bsoncxx::builder::basic::document& filter, db::TimeMs no
     if (!subject) { return subject.error(); }
     row.event.subject = subject.value();
 
+    const Result<Uuid> entity = read_entity(doc, ef::kEntity);
+    if (!entity) { return entity.error(); }
+    row.event.entity = entity.value();
+
     const Result<std::int32_t> repeats = codec::read_int32(doc, ef::kRepeats);
     if (!repeats) { return repeats.error(); }
     if (repeats.value() < 0) { return fail(ErrorCode::Internal, ef::kRepeats); }
@@ -147,6 +171,7 @@ Status EventRepository::append_many(mongocxx::client& client, std::span<const Ev
             doc.append(kvp(codec::key_of(ef::kSession), codec::bytes_bin(row.event.session)));
             codec::append_optional_uuid(doc, ef::kSubject, row.event.subject);
             append_dimensions(doc, ef::kDimensions, row.event.dimensions);
+            append_entity(doc, ef::kEntity, row.event.entity);
             doc.append(kvp(codec::key_of(ef::kRepeats),
                            bsoncxx::types::b_int32{static_cast<std::int32_t>(row.repeats)}));
             // Retention is a TTL index over this field. It is a LIFETIME rather
@@ -216,7 +241,7 @@ Result<EventPage> EventRepository::window(mongocxx::client& client, db::TimeMs f
             kvp(codec::key_of(ef::kId), 1), kvp(codec::key_of(ef::kCode), 1),
             kvp(codec::key_of(ef::kAt), 1), kvp(codec::key_of(ef::kSession), 1),
             kvp(codec::key_of(ef::kSubject), 1), kvp(codec::key_of(ef::kDimensions), 1),
-            kvp(codec::key_of(ef::kRepeats), 1)));
+            kvp(codec::key_of(ef::kEntity), 1), kvp(codec::key_of(ef::kRepeats), 1)));
 
         EventPage out{};
         out.rows.reserve(static_cast<std::size_t>(page));
@@ -335,6 +360,11 @@ Status RollupRepository::put(mongocxx::client& client,
                                     static_cast<std::int32_t>(row.granularity)}));
             identity.append(kvp(codec::key_of(rf::kBucket), codec::time_date(row.bucket)));
             append_dimensions(identity, rf::kDimensions, row.dimensions);
+            // LAST in the identity, and OMITTED when nil: a bucket whose event
+            // declares no Entity dimension writes the exact `_id` shape it
+            // always has, so a rollup already on disk before this feature
+            // existed is found and $set again rather than duplicated.
+            append_entity(identity, rf::kEntity, row.entity);
 
             bsoncxx::builder::basic::document set;
             codec::append_int64(set, rf::kCount, row.count);
@@ -377,6 +407,14 @@ Result<std::vector<RollupRow>> RollupRepository::read(mongocxx::client& client,
                 }
             }));
         }
+        if (query.match_entity) {
+            // `_id.ent` exists only on a document written with one, exactly
+            // like `_id.dims` is always present: an equality against a real id
+            // matches only rows that carried that id, which is the query this
+            // is for. Filtering for kNilUuid is not a supported query — there
+            // is no document to find, because a nil entity is never written.
+            filter.append(kvp(codec::key_of("_id.ent"), codec::uuid_bin(query.entity)));
+        }
 
         mongocxx::options::find options{};
         // Paginated by the indexed bucket key rather than skip(n), and bounded
@@ -413,6 +451,10 @@ Result<std::vector<RollupRow>> RollupRepository::read(mongocxx::client& client,
                 read_dimensions(identity, rf::kDimensions);
             if (!dimensions) { return dimensions.error(); }
             row.dimensions = dimensions.value();
+
+            const Result<Uuid> entity = read_entity(identity, rf::kEntity);
+            if (!entity) { return entity.error(); }
+            row.entity = entity.value();
 
             const Result<std::int64_t> count = codec::read_int64(doc, rf::kCount);
             if (!count) { return count.error(); }

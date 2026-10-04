@@ -6,7 +6,7 @@
 // find_one followed by an unconditional update_one is a lost update. Two staff
 // members editing the same document from two tabs is not a rare event — it is
 // the normal case for a small team working the same content — and the loser's
-// write vanishes with no error anywhere (ENGINEERING_RULES.md §6).
+// write vanishes with no error anywhere (CLAUDE.md §6).
 //
 // The mechanism: the expected version is part of the FILTER, and the update
 // $incs it. The server matches at most one document, so exactly one of N
@@ -110,7 +110,7 @@ template <TransactionScope Scope, typename Fn>
         options.return_document(mongocxx::options::return_document::k_after);
         // Only the new version comes back. Returning the whole document to read
         // one integer costs network, BSON decode CPU and heap on every write
-        // (ENGINEERING_RULES.md §7).
+        // (CLAUDE.md §7).
         options.projection(bsoncxx::builder::basic::make_document(
             bsoncxx::builder::basic::kvp(db::codec::key_of(kVersionField),
                                          bsoncxx::types::b_int32{1})));

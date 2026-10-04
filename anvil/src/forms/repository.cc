@@ -794,7 +794,7 @@ Result<std::vector<Uuid>> FormRepository::bound_media(mongocxx::client& client,
         mongocxx::options::find options{};
         // Only the attachment array comes back. Pulling whole submissions —
         // answers, envelopes and all — to read one array would cost network, BSON
-        // decode CPU and heap for data nothing here reads (ENGINEERING_RULES.md §7).
+        // decode CPU and heap for data nothing here reads (CLAUDE.md §7).
         options.projection(make_document(kvp(codec::key_of(f::kMedia),
                                              bsoncxx::types::b_int32{1})));
         options.sort(make_document(kvp(codec::key_of(f::kSubmittedAt),

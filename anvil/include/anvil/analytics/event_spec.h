@@ -30,6 +30,19 @@
 // docs/17): an event carrying a free-text dimension is a collection whose index
 // cardinality is chosen by a visitor. A dimension's values are declared beside
 // the event, and what the row stores is the INDEX.
+//
+// --- the one dimension that is NOT a closed set -----------------------------
+//
+// An `Entity` dimension names an id the application mints elsewhere — an entry,
+// a catalogue row — rather than a value this table can enumerate: the whole
+// point is that a new project must not need a deploy to be counted separately
+// (docs/17-analytics.md §19). It keeps every other property of a dimension
+// (declared beside the event, checked at the door) except the closed value
+// list, which is why it is a KIND of dimension rather than a different thing
+// bolted on beside one. Its cardinality is bounded a different way — the
+// application's admission check at ingest (anvil/analytics/ingest.h) — and its
+// stored form is the 16-byte id itself, never an index into anything, because
+// there is no table to index into.
 
 #include <cstddef>
 #include <cstdint>
@@ -77,12 +90,24 @@ enum class EventClass : std::uint8_t {
     return "behaviour";
 }
 
-struct DimensionSpec final {
-    std::string_view                  name;    // 16
-    std::span<const std::string_view> values;  // 16 — a CLOSED set
+// `Enum` is the closed set every dimension used to be; `Entity` is the one
+// described above. Kept a two-value enum rather than a bool so a third kind, if
+// one is ever needed, is an addition rather than an inversion of this one.
+enum class DimensionKind : std::uint8_t {
+    Enum = 0,
+    Entity = 1,
 };
 
-static_assert(sizeof(DimensionSpec) == 32, "DimensionSpec must not grow padding");
+struct DimensionSpec final {
+    std::string_view                  name;    // 16
+    // ENUM ONLY: the entire closed value set. Empty for an Entity dimension —
+    // `values` and `kind` disagreeing would be two ways to ask the same
+    // question with two different answers, so `well_formed()` refuses it.
+    std::span<const std::string_view> values;  // 16
+    DimensionKind                     kind = DimensionKind::Enum;  // 1 (+7 pad)
+};
+
+static_assert(sizeof(DimensionSpec) == 40, "DimensionSpec must not grow padding");
 
 // Ordered largest-alignment-first so the table packs.
 struct EventSpec final {
@@ -112,23 +137,36 @@ static_assert(sizeof(EventSpec) == 40, "EventSpec must not grow padding");
         // sentinel, and so a decoder reading a rollup can bound what it sees.
         if (spec.code < 0) { return false; }
         if (spec.dimensions.size() > kMaxDimensions) { return false; }
+        std::size_t entity_dimensions = 0;
         for (std::size_t d = 0; d < spec.dimensions.size(); ++d) {
             const DimensionSpec& dimension = spec.dimensions[d];
             if (!ct::is_non_empty_utf8(dimension.name)) { return false; }
-            // A dimension with no values contributes nothing and makes every
-            // offer() against it silently drop the dimension.
-            if (dimension.values.empty()) { return false; }
-            if (dimension.values.size() > kMaxDimensionValues) { return false; }
-            for (std::size_t v = 0; v < dimension.values.size(); ++v) {
-                if (!ct::is_non_empty_utf8(dimension.values[v])) { return false; }
-                for (std::size_t w = 0; w < v; ++w) {
-                    if (dimension.values[w] == dimension.values[v]) { return false; }
+            if (dimension.kind == DimensionKind::Entity) {
+                // No closed set to check — an Entity dimension's `values` must
+                // be empty, or the table is stating the space two ways and
+                // disagreeing with itself.
+                if (!dimension.values.empty()) { return false; }
+                ++entity_dimensions;
+            } else {
+                // A dimension with no values contributes nothing and makes
+                // every offer() against it silently drop the dimension.
+                if (dimension.values.empty()) { return false; }
+                if (dimension.values.size() > kMaxDimensionValues) { return false; }
+                for (std::size_t v = 0; v < dimension.values.size(); ++v) {
+                    if (!ct::is_non_empty_utf8(dimension.values[v])) { return false; }
+                    for (std::size_t w = 0; w < v; ++w) {
+                        if (dimension.values[w] == dimension.values[v]) { return false; }
+                    }
                 }
             }
             for (std::size_t e = 0; e < d; ++e) {
                 if (spec.dimensions[e].name == dimension.name) { return false; }
             }
         }
+        // Event carries exactly one entity slot (anvil/analytics/event.h) — not
+        // an array like the enum dimensions — so a second Entity dimension on
+        // the same event would have nowhere of its own to be stored.
+        if (entity_dimensions > 1) { return false; }
         for (std::size_t j = 0; j < i; ++j) {
             // A duplicate code makes the second entry unreachable and makes
             // every row already written under it ambiguous.
@@ -171,6 +209,16 @@ static_assert(sizeof(EventSpec) == 40, "EventSpec must not grow padding");
                                                        std::string_view name) noexcept {
     for (const EventSpec& spec : table) {
         if (spec.name == name) { return &spec; }
+    }
+    return nullptr;
+}
+
+// nullptr when this event declares no Entity-kind dimension — the ordinary
+// case, since most events never will. `well_formed()` guarantees there is at
+// most one, so the first found is the only one there is.
+[[nodiscard]] constexpr const DimensionSpec* entity_dimension_of(const EventSpec& spec) noexcept {
+    for (const DimensionSpec& dimension : spec.dimensions) {
+        if (dimension.kind == DimensionKind::Entity) { return &dimension; }
     }
     return nullptr;
 }

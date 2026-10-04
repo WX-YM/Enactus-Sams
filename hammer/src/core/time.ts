@@ -6,7 +6,7 @@
 // are not two points on one line, and subtracting them yields a number that is
 // wrong by an amount nothing on the device can measure. Expiry belongs to the
 // server; a countdown is rendered from a DURATION the server sent
-// (`ENGINEERING_RULES.md` §6).
+// (`CLAUDE.md` §6).
 //
 // That is a rule people forget, so it is a type rule here instead.
 // `ServerInstant` is not a number: it holds one privately, it has no accessor
@@ -18,7 +18,7 @@
 import type { Result } from "./result.js";
 import { fail, ok } from "./result.js";
 
-// Durations are milliseconds and the name says so (`ENGINEERING_RULES.md` §10). There is no
+// Durations are milliseconds and the name says so (`CLAUDE.md` §10). There is no
 // day here on purpose: a day is a calendar unit rather than a duration, and
 // treating it as 86,400,000 ms is wrong twice a year in every zone that changes.
 export const kSecondMs = 1000;
@@ -96,14 +96,14 @@ export class ServerInstant {
 // sent.
 //
 // Monotonic — `performance.now()`, injected rather than read here so a test can
-// supply its own and so this module keeps no global (`ENGINEERING_RULES.md` §3.3). A
+// supply its own and so this module keeps no global (`CLAUDE.md` §3.3). A
 // countdown driven by the wall clock jumps when the user changes the device
 // time, or when the operating system corrects it, and a session that appears to
 // expire in negative four minutes is a session the user reports as broken.
 //
 // It is a hint about the UI and never a guarantee about the work. The tab can be
 // frozen or discarded at any point and the number stops advancing with it;
-// anything that must happen happens server-side (`ENGINEERING_RULES.md` §6).
+// anything that must happen happens server-side (`CLAUDE.md` §6).
 export class Countdown {
     private readonly totalMs: number;
     private readonly startedAtMs: number;

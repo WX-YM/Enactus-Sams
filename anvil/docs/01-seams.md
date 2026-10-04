@@ -43,6 +43,13 @@ include path. Everything else is only ever *looked up*, so a `constexpr`-initial
 | Route descriptions | `std::span` | `DescriptorInput`, at build time, and the session projection |
 | Response shapes | `std::span` | `RouteDescription::response`, and the writer that walks it |
 | Field types, sections, topics, events | the same spans they already arrive by | `DescriptorInput`, a second time, at build time |
+| Client prehash | a policy struct, keys from configuration | `PrehashService` / `PrehashHasher` constructor; a salt route you serve |
+| Accounts | `constexpr` schema and description | `AccountService` constructor, `install_account_routes`, and `DescriptorInput::accounts` |
+| Session revocation | a function | `SessionService` and `StaffService` constructors |
+| Image edits | two route ids and a rate rule | `install_media_edit_routes`; an index you declare |
+| Conversation kinds | `std::span` | the chat service's constructor and `DescriptorInput` |
+| Message (card) kinds | `std::span` of key, code and a binder function | `ChatServiceDeps::cards` |
+| Live chat delivery | a config struct, one object per process, a route id | `ChatServiceDeps::live` and `install_chat_socket` |
 
 ---
 
@@ -560,6 +567,65 @@ Doc 12 §6 has the rest of the invalidation design, and doc 12 §8 the bootstrap
 
 ---
 
+## 6a. Entries: sections that repeat
+
+A kind is a section shape that can have many instances: a project in a portfolio, a post in a
+feed, a reply in a thread. The shape stays `constexpr`; the instances, their slugs, flags and
+order are data. [`20-entries.md`](20-entries.md) is the design.
+
+### What anvil ships
+
+`KindSpec` (a `sections::SectionSpec` plus `flags`, `parent`, `capacity`, `workflow`,
+`ordering`, `slug`), `FlagSpec`, `EntrySeed`, `KindSeeds`, the lookups (`find_kind`,
+`kind_index`, `flag_bit`, `declared_flags`, `is_wellformed_slug`) and two conformance checks.
+`EntryService` over one collection, with `entry_fields::` naming every stored column, and the
+binders and serialisers in `entries/payload.h`.
+
+### What you write
+
+The kind table, optionally seeds, one collection in `config::kCollections`, and two indexes over
+it:
+
+```cpp
+static_assert(anvil::entries::kinds_are_well_formed(kKinds));
+static_assert(anvil::entries::seeds_match_kinds(kKinds, kSeeds));
+
+namespace enf = anvil::entries::entry_fields;
+{{{{enf::kScope, 1}, {enf::kLive, 1}, {enf::kPosition, 1}, {enf::kId, 1}}}, "entries",
+ "entries_listing", nullptr, -1, 4, false, false},
+{{{{enf::kKind, 1}, {enf::kSlug, 1}}}, "entries", "entries_slug_unique",
+ &entry_slug_present_only, -1, 2, true, false},   // partial: {slug: {$exists: true}}
+```
+
+`tests/testapp/entries.h` is the compiled worked example: a blog, a forum thread with replies,
+and a seeded, staff-ordered gallery, which between them exercise every knob.
+`tests/testapp/queries.h` lists the eight query shapes to explain.
+
+### Notes that are not obvious
+
+**Permissions are yours.** The service enforces invariants (shape, slug, flags, parent,
+capacity, version, media counts) and no policy. `WriteGuard{author}` is the one policy hook:
+"only if this user wrote it", answered `NotFound` on a mismatch so it reads like an absent id.
+
+**Flags and positions are unversioned on purpose.** A pin must not stale an open editor. See
+doc 20 §4.
+
+**Seeding is once per kind, ever, not insert-if-absent.** A kind staff emptied stays empty
+across deploys. See doc 20 §7.
+
+**`kind_index` exists for the compile-time checks.** GCC under `-fsanitize=undefined` will not
+constant-evaluate a null comparison against a pointer into a namespace-scope table, which is the
+constraint `defaults_match_registry` is written around too.
+
+### The one hook this seam carries
+
+`EntryServiceConfig::on_invalidated(kind)` is called after a change **readers** would see, on
+the writing instance and, through Redis, on every other. The kind is the table's own spelling.
+It must not block, exceptions are caught, and an undeclared kind is dropped. It is the same
+contract as §6's hook, and the reason this service keeps no cache of its own.
+
+---
+
 ## 7. Jobs, rate limits and idempotency
 
 Three smaller seams. The first two are a `std::span` handed to the owning service at
@@ -950,7 +1016,7 @@ inline constexpr anvil::audit::AuditAction kDenialAction =
 ## 10. The queries to explain
 
 The counterpart of the index catalogue. Adding a query without adding its index in the same
-commit is not allowed (ENGINEERING_RULES.md §7), and that rule is unenforceable by inspection: a
+commit is not allowed (CLAUDE.md §7), and that rule is unenforceable by inspection: a
 collection scan over four hundred rows in a developer's database is indistinguishable from an
 index scan, and stays that way until the collection has four hundred thousand.
 
@@ -1157,6 +1223,62 @@ static_assert(kEvents.size() == 3,
 - **The three collections are yours to declare**, in `config::kCollections`, like every other
   collection. anvil names none of them. Two of them want the high-churn database, and
   [`17-analytics.md`](17-analytics.md) §15 says why.
+
+### An entity dimension, for a value space that is not fixed at compile time
+
+A dimension declared `DimensionKind::Entity` instead of the default `Enum` carries no closed
+`values` list — its space is an application-minted UUID (a project, an entry) rather than a name
+a table could enumerate, because the whole reason it exists is that the space is not fixed at
+compile time ([`17-analytics.md`](17-analytics.md) §19 gives the full account).
+
+```cpp
+namespace a = anvil::analytics;
+
+inline constexpr std::array<std::string_view, 0> kNoValues{};
+inline constexpr std::array<a::DimensionSpec, 1> kProject{
+    {{"project", kNoValues, a::DimensionKind::Entity}}};
+
+inline constexpr std::array<a::EventSpec, 1> kEvents{{
+    {"ProjectViewed", kProject, 0, a::EventClass::Behaviour, true},
+}};
+
+static_assert(a::event_table_is_well_formed(kEvents));
+
+// Wired up wherever the sink is constructed:
+const a::IngestConfig config{
+    .entity_admission = [](std::string_view dimension, a::EventCode code, const Uuid& id) {
+        // Answer from an in-memory set kept current by your own invalidation
+        // signal — entries::EntryServiceConfig::on_invalidated is what such a
+        // set is built from. NEVER a database read: this runs on the request
+        // path's event loop.
+        return is_a_published_project(id);
+    },
+};
+```
+
+`tests/testapp/events.h`'s `ProjectViewed` is the compiled worked example.
+
+- **`values` must be empty for an `Entity` dimension, and non-empty for an `Enum` one** —
+  `event_table_is_well_formed` refuses either disagreeing with its own `kind`, the same way it
+  refuses any other malformed table.
+- **The stored form is the id itself, never an index** — BSON `BinData` subtype 4, sixteen bytes,
+  omitted entirely from a row that carries none. An enum dimension's slot is written even when
+  absent so a rollup's equality filter never distinguishes "no dimensions" from "field missing";
+  an entity id has no array position to keep uniform, so it is simply present or it is not.
+- **`EntityAdmission` is the bound.** A `constexpr` value space is what bounds an enum dimension's
+  cardinality (§6 above); an entity dimension cannot take that fix, because its whole point is
+  that the space is not `constexpr`. The bound moves to the only place that can see every id
+  before it is written — `offer()` — through a hook the application supplies. Unset, it refuses
+  every id: deny by default, because nothing at compile time can catch a runtime hook being
+  missing.
+- **The hook must not block and must not throw.** `offer()` runs on a Trantor event-loop thread
+  (CLAUDE.md §4), so a real implementation answers from an in-memory set, never a database read —
+  `entries::EntryServiceConfig::on_invalidated` is the signal such a set is refilled from. An
+  exception is caught and treated as a refusal rather than reaching `offer()`'s own `noexcept`,
+  but that is a safety net and not a license to rely on it.
+- **At most one `Entity` dimension per event.** Unlike the enum dimensions, which share one
+  four-slot array regardless of how many an event declares, the entity value has exactly one slot
+  of its own — a second `Entity` dimension on the same event would have nowhere to be stored.
 
 ---
 
@@ -1534,7 +1656,13 @@ of a table an application declares once, not a second table:
 .sections    = kSections,     // §6
 .topics      = kTopics,       // §7a
 .events      = kEvents,       // §12
+.chat_kinds  = kChatKinds,    // §18, under limits.chat
 ```
+
+`Limits::page_limit_max` is read by a client as the server's ceiling for every list, so it
+must be at least every route's own `limit_max`. `page_ceiling_covers(descriptions, limits)` is
+constexpr for an application to `static_assert` (`tests/testapp/emit_descriptor.cc` does), and
+`emit_descriptor` throws `std::invalid_argument` on a descriptor that breaks it.
 
 The media table is not among them, because it is not a span seam: namespaces and the role
 ladder are declared in `<anvil_app_config.h>` and dimension arrays inside anvil's own
@@ -1637,6 +1765,11 @@ types a namespace should take is a fact about that namespace. It is per namespac
 global for the reason a global one would not close: the moment one namespace takes no AVIF, the
 narrower list gets written into the client by hand again.
 
+A namespace's mask may also be `kSealedMimes`, for encrypted blobs (docs/22-chat.md §6.4), and
+then it may be nothing else: `fs::namespace_is_well_formed` requires such a namespace to take
+only the sealed class, to be `Dedupe::None` and to be `Private`, and `anvil/fs/namespace.h`
+asserts it over your table. `Ns::sealed()` asks it.
+
 SVG never appears in an emitted list, and not by omission — there is no `Mime` for it at all,
 because [`07-filesystem.md`](07-filesystem.md) §5 refuses it explicitly so that an upload
 attempt is auditable as the probe it is.
@@ -1697,3 +1830,705 @@ alternative is a runtime cursor, which turns a build error into a 500.
   boundary rather than a gap waiting to be closed: the value of a declared shape is that it
   cannot lie, and a grammar stretched to cover nested documents would stop being checkable at
   the point where it started being useful.
+
+---
+
+## 15. Client prehash
+
+An optional password mode in which the browser runs the Argon2id and the server stores a stage
+over its output ([`05-auth-sessions.md`](05-auth-sessions.md) §12). anvil ships the record
+format, the stages, the salt derivation, the wire writer and the migration. The costs, the
+keys and the ROUTES are yours: which parameters a phone of your audience can afford is a
+product decision, and a route path is always the application's (§3).
+
+Plain mode (`auth/password.h`, `identity/password_service.h`) is untouched. Nothing here is
+required of an application that does not opt in.
+
+### What anvil ships
+
+```cpp
+namespace anvil::auth {
+
+struct PrehashKeyedDigestStage final { std::string key_id; crypto::Key256 key; };
+struct PrehashArgon2Stage      final { crypto::Argon2Params params; };
+using  PrehashServerStage = std::variant<PrehashKeyedDigestStage, PrehashArgon2Stage>;
+
+struct PrehashRetiredPepper final { std::string key_id; crypto::Key256 key; };
+
+struct PrehashPolicy final {
+    crypto::Argon2Params              client;           // new enrolments, missing accounts
+    PrehashServerStage                server;           // the stage every new record gets
+    std::vector<PrehashRetiredPepper> retired_peppers;  // still verify; rehashed on login
+    crypto::Key256                    salt_key;         // keys a missing account's salt
+};
+
+class PrehashHasher;   // derive_salt, answer_for, enroll, enroll_plaintext, verify,
+                       // consume_dummy_time, needs_rehash, wrap_legacy
+
+std::optional<PrehashKey> decode_prehash_credential(std::string_view wire) noexcept;
+void append_prehash_salt_answer(std::string& body, const PrehashSaltAnswer& answer);
+
+}  // namespace anvil::auth
+
+namespace anvil::identity {
+class PrehashService;  // enroll_async, verify_async, saturated, hasher()
+}
+```
+
+### What you write
+
+The policy, from configuration read at boot ([`14-config.md`](14-config.md) §3):
+
+```cpp
+anvil::auth::PrehashPolicy policy{
+    .client = {.memory_kib = 65536, .iterations = 3, .parallelism = 1},
+    .server = anvil::auth::PrehashKeyedDigestStage{.key_id = config.prehash_pepper_id,
+                                                   .key = std::move(config.prehash_pepper)},
+    .retired_peppers = std::move(config.prehash_retired_peppers),
+    .salt_key = std::move(config.prehash_salt_key),
+};
+const anvil::identity::PrehashService prehash{std::move(policy)};
+```
+
+Three routes, whose paths are yours:
+
+| Route | Body | Does |
+|---|---|---|
+| the salt route, `POST` | `{"identifier": …}` | canonicalise as the login lookup does; one indexed lookup; `answer_for(record-or-nullopt, kind, canonical)`; `append_prehash_salt_answer`; always `200` |
+| login, `POST` | the identifier and `{"credential": …}` | `decode_prehash_credential`; the lookup; `verify_async` with the record, or with an empty record when there is no account |
+| registration, `POST` | the new account's fields and `{"credential": …}` | `derive_salt(kind of email, canonical email)` + `policy().client`, never values from the body; `enroll_async`; store the record as the password hash |
+
+The reference application (`tests/testapp/reference_server.cc`) serves all three, as
+`/auth/prehash`, `/login` and `/signup`, and `tools/check-reference-server.sh` drives them with
+`testapp_prehash_credential` standing in for the browser.
+
+
+### Notes that are not obvious
+
+- **Salt and parameters at registration come from the server, never from the request.** A
+  client that sent its own would choose its own cost, and a registration whose salt differs
+  from the salt route's earlier answer is one that makes the salt route an oracle for "this
+  address just became an account".
+- **Canonicalise before deriving.** `derive_salt` must see the form your login lookup uses; a
+  salt derived from one spelling and a lookup under another is an account whose answer depends
+  on how its owner typed their address.
+- **`kind` is a byte you choose per identifier space** — the reference passes
+  `identity::LoginIdentity`. It exists because an email and a username can be the same string.
+- **Keep every pepper a live record still names.** A record whose pepper id this process does
+  not hold is `Malformed`: its owner cannot sign in until the key is restored. Retire a pepper
+  into `retired_peppers`; delete it only when no record names it.
+- **Rate-limit the salt route as you rate-limit login.** It is unauthenticated and costs a
+  lookup; unmetered, it is a free way to exercise the users index.
+- **Raising `client` does not upgrade existing accounts** — the server never has the password.
+  They move at their next password change.
+
+---
+
+## 16. Accounts
+
+The built-in account flows ([`05-auth-sessions.md`](05-auth-sessions.md) §13): registration,
+verification, sign-in, reset, change, refresh and sign-out. anvil ships every flow and every
+handler. What an account is made of is yours, as a table.
+
+### What anvil ships
+
+```cpp
+namespace anvil::accounts {
+
+struct IdentifierSpec   final { LoginIdentity kind; bool required; bool sign_in; };
+struct ProfileFieldSpec final { std::string_view key; input::TextRules rules; bool required; };
+
+enum class Activation : std::uint8_t { AfterVerification, Immediate };
+enum class Hashing    : std::uint8_t { Client /* the default */, Server };
+
+struct AccountSchema final {
+    std::span<const IdentifierSpec>   identifiers;
+    std::span<const ProfileFieldSpec> profile;
+    LoginIdentity                     contact = LoginIdentity::Email;   // receives codes
+    Activation                        activation = Activation::AfterVerification;
+};
+
+enum class AccountRole : std::uint8_t { Salt, Register, Verify, Resend, SignIn,
+                                        ResetRequest, ResetConfirm, Change, Refresh, SignOut };
+struct AccountRoute       final { AccountRole role; std::string_view route_id; };
+struct AccountDescription final { const AccountSchema* schema; Hashing hashing; std::span<const AccountRoute> routes; };
+
+constexpr bool account_schema_is_well_formed(const AccountSchema&) noexcept;
+constexpr bool account_description_is_well_formed(const AccountDescription&) noexcept;
+
+class AccountService;   // the flows (service.h)
+void install_account_routes(const AccountService&, routes, route_descriptions);   // routes.h
+
+}  // namespace anvil::accounts
+```
+
+### What you write
+
+```cpp
+inline constexpr std::array<acc::IdentifierSpec, 3> kIdentifiers{{
+    {LoginIdentity::Email,    true,  true},    // required, signs in, and receives codes
+    {LoginIdentity::Username, true,  true},
+    {LoginIdentity::Phone,    false, true},
+}};
+inline constexpr std::array<acc::ProfileFieldSpec, 2> kProfile{{
+    {"given_name",  anvil::input::kPersonNameRules, true},
+    {"family_name", anvil::input::kPersonNameRules, false},
+}};
+inline constexpr acc::AccountSchema kSchema{kIdentifiers, kProfile};
+static_assert(acc::account_schema_is_well_formed(kSchema));
+
+inline constexpr std::array<acc::AccountRoute, 10> kRoles{{
+    {acc::AccountRole::Salt, "auth.prehash"}, {acc::AccountRole::SignIn, "auth.login"}, /* … */ }};
+inline constexpr acc::AccountDescription kAccounts{&kSchema, acc::Hashing::Client, kRoles};
+static_assert(acc::account_description_is_well_formed(kAccounts));
+```
+
+then, at boot, an `AccountService` from that description, your budgets, your lockout backoff and
+your delivery, and `install_account_routes(service, kRoutes, kRouteDescriptions)`. Pass
+`&kAccounts` as `DescriptorInput::accounts` so the client is generated from the same table.
+`tests/testapp/accounts.h` and `tests/testapp/reference_server.cc` are the worked example.
+
+### Notes that are not obvious
+
+- **An optional identifier needs a partial index.** anvil writes a missing email, username or
+  phone ABSENT rather than empty; a unique index that is not partial treats every absent one as
+  the same null, and the second account without one collides with the first.
+- **The contact must be an email or a phone, declared and required** — a code needs somewhere to
+  go. `account_schema_is_well_formed` refuses anything else.
+- **A profile key is a stored key, a wire key and a field reason.** Lower case, digits and `_`,
+  at most 32, and none of the keys a registration body already uses.
+- **The hashing in the description must match the service's credential policy**, and the service
+  refuses to construct otherwise: the descriptor tells every client which to do, and a server
+  doing the other refuses every one of them.
+- **`DeliverCode` must not block and should enqueue.** It runs on a pool thread after the answer;
+  a synchronous SMTP send there holds a `db_pool` thread for as long as the mail server takes.
+- **A salt route exists exactly when the client hashes**, and `account_description_is_well_formed`
+  checks it both ways.
+- **Every account route checks `Origin`**, against the list you install with
+  `install_allowed_origins`, before it reads the body, and answers `FORBIDDEN` to a request
+  from another origin or from none. Without it a page on any site could post your user's
+  sign-in form with its own credential and plant its session in their browser (login CSRF).
+  Install the list before serving: nothing installed means every account route refuses
+  everything, sign-in included.
+
+### The one hook sessions carry
+
+`identity::SessionsRevoked` is told, after the fact, every session that was revoked: the user
+and the ids, once per revocation. Give the same function to `SessionService` (its last
+constructor argument, after the `SessionPolicy`) and to `StaffService` (after the
+`AuthzService`). Between them they revoke on every path: a sign-out, a reset, a password
+change, an eviction past the concurrent-session cap, a replayed refresh token, a refresh that
+finds the account no longer active, and an administrator disabling the account.
+
+```cpp
+void end_chat_devices(mongocxx::client& client, const Uuid& user,
+                      std::span<const Uuid> sessions) {
+    for (const Uuid& session : sessions) { (void)chat().session_ended(client, user, session); }
+}
+
+id::SessionService sessions{db, "user_sessions", "users", pepper, keys, authz,
+                            id::SessionPolicy{}, &end_chat_devices};
+```
+
+- **An application with chat devices must forward it to `ChatService::session_ended`** (§18).
+  Without it "sign out everywhere" leaves the devices those sessions registered in every
+  conversation's device set, and senders keep encrypting to a stolen phone.
+- **It runs on the revoking `db_pool` thread, after the revocation and the epoch bump.** The
+  `client` is that thread's. The access token is what stops a session being used, so nothing
+  the hook does stands between a sign-out and that.
+- **It is best effort.** A hook that throws is logged and ignored, because a sign-out must
+  not fail over what follows it. A process killed between the revocation and the hook never
+  asks. What the hook ends must also be ended by something durable: a chat device whose
+  session is gone can no longer be used, so the idle sweeper takes it.
+- **A bulk revocation reads the ids, then revokes those ids,** 64 at a time, until a read
+  finds none. It no longer revokes with one `update_many` over the filter, which could not
+  say which rows it matched. The page read is `{uid, rev: false}`, served by the index that
+  serves the sessions listing (`sessions_to_revoke` in the reference catalogue).
+
+---
+
+## 17. Image edits
+
+Crop, rotate, flip, resize and freehand drawing on a stored image, as a canonical recipe the
+server renders once into a new object ([`21-image-edits.md`](21-image-edits.md)). anvil ships
+the recipe codec, the renderer, the rows and both handlers. The routes, the permission and the
+budget are yours.
+
+### What anvil ships
+
+```cpp
+// anvil/images/recipe.h — pure, in the foundation
+struct EditLimits final { std::uint16_t max_strokes, max_points, max_edge_px, min_edge_px; };
+Result<Recipe>   decode_recipe(std::span<const std::uint8_t>, const EditLimits&);
+void             encode_recipe(const Recipe&, std::vector<std::uint8_t>&);
+Result<EditPlan> plan_edit(const Recipe&, ImageInfo master, const EditLimits&);
+input::FieldError field_error(std::string_view fault);      // edit.* → {field, reason}
+
+// anvil/media/edit_shapes.h — the two success bodies, for your route descriptions
+inline constexpr std::array<http::ResponseField, 3> kEditResponse;       // {id, width, height}
+inline constexpr std::array<http::ResponseField, 4> kEditStateResponse;  // {source, width, height, recipe}
+
+// anvil/media/edit_routes.h — ANVIL_WITH_VIPS only
+struct EditOutcome final { const HttpRequestPtr& request; Uuid actor; fs::Ns ns; Uuid source;
+                           std::optional<Uuid> edit; bool created; ErrorCode code; };
+using  EditObserver = std::function<void(const EditOutcome&)>;
+struct EditRoutes final { std::string_view edit_route_id, state_route_id; http::RateLimitRule budget;
+                          EditObserver on_edit{}; };
+void install_media_edit_routes(const MediaService&, http::RateLimiter&, routes,
+                               route_descriptions, const EditRoutes&);
+```
+
+The descriptor's `limits` block carries `"edit":{max_strokes, max_points, max_edge_px,
+min_edge_px}` on every build. The two edges are the ladder's widest and narrowest rungs.
+
+### What you write
+
+Two routes under a prefix of their own, both ending `{ns}/{id}`; their descriptions, naming
+the library's shapes; and one index:
+
+```cpp
+// routes.h
+{perm_mask(Perm::MediaUpload), "/media-edits/{ns}/{id}", Guarded, RouteMethod::Post},
+{perm_mask(Perm::MediaUpload), "/media-edits/{ns}/{id}", Guarded, RouteMethod::Get},
+
+// route_descriptions.h
+{"media.edit",       "/media-edits/{ns}/{id}", "", "media", "", 0, Post, false, false, false,
+ anvil::media::kEditResponse},
+{"media.edit_state", "/media-edits/{ns}/{id}", "", "",      "", 0, Get,  true,  false, false,
+ anvil::media::kEditStateResponse},
+
+// indexes.h — unique and partial on `src` existing
+{{{{mf::kNamespace, 1}, {mf::kSource, 1}, {mf::kEditSha, 1}}}, "media", "media_ns_edit",
+ &media_edits_only, -1, 3, true, false},
+```
+
+then, at boot, `install_media_edit_routes(media, limiter, kRoutes, kRouteDescriptions,
+{"media.edit", "media.edit_state", your_media_rule, record_edit})`, where `record_edit` writes
+your audit row. `tests/testapp/reference_server.cc` is the worked example, and
+`tools/check-reference-server.sh` drives it.
+
+### Notes that are not obvious
+
+- **Not under `/media/{ns}/{id}/…`.** Every GET there is a role on the public object route, and
+  an edit route beneath it would be one role name away from being answered by the wrong
+  handler. `install_media_edit_routes` refuses a pattern that does not end `{ns}/{id}`.
+- **Without the index, two identical edits racing each other make two objects.** Nothing is
+  corrupted and both are served, but a retry after a lost response then creates a duplicate
+  rather than finding the first. The index is yours because every index is (§13).
+- **Count edits into the budget your uploads use.** An edit is one libvips render on
+  `cpu_pool`, the same cost as an upload's.
+- **A crop is not redaction.** The source stays addressable by its id, which is what lets an
+  edit be reopened. `"detach": true` renders the same pixels with no link back, so the source
+  can be collected once your document releases it. If another document still references those
+  bytes, which dedupe makes possible, the source correctly survives. Say which one your screen
+  offers, and offer `detach` as its own action.
+- **The edit route checks `Origin` itself**, against the list you install with
+  `install_allowed_origins`, and answers `FORBIDDEN` to a write from anywhere else or from no
+  origin at all. The access filter decides who may edit and knows nothing of where a request
+  came from, and a page on a same-site subdomain carries the SameSite cookie. Nothing
+  installed means nothing is allowed, so a server that never installed its list refuses every
+  edit rather than accepting forged ones.
+- **The state route answers for any object.** For an edit it names the source, the source's
+  size and the recipe, so an editor always opens on the original; for anything else the object
+  is its own source and the recipe is `null`.
+- **`on_edit` is how an edit reaches your audit log**, because the handler is anvil's and an
+  upload's audit row is written by your own handler. It is called once per answered edit,
+  after the response, with the actor, the source as the path named it, the object handed
+  back (and whether it is new), and the code: `FORBIDDEN` for a refused origin,
+  `VALIDATION_FAILED`, `RATE_LIMITED`, `NOT_FOUND`, `SERVICE_UNAVAILABLE`, or `OK`. It runs on
+  whichever thread answered, so it must not block: `AuditService::write_async` is the call.
+  It is not called for what the access filter refused, which your `DenialSink` already
+  records, nor for a path whose namespace or id does not parse. Leave it empty and nothing
+  is recorded.
+
+---
+
+## 18. Conversation kinds
+
+A conversation kind is a `constexpr` row saying what a conversation is: its shape, how many
+people it may hold, who may do what in it, how long anything is kept, and whether it is
+encrypted ([`22-chat.md`](22-chat.md) §2). anvil ships the vocabulary and the checks. Every
+number is yours, which is why "a group of 1 024", "admins only" and "24 hours" appear nowhere in
+anvil.
+
+### What anvil ships
+
+```cpp
+// anvil/chat/kind_spec.h — in the foundation
+enum class Shape    : std::uint8_t { Direct, Group, Channel };
+enum class E2ee     : std::uint8_t { Never, Optional, Required };
+enum class History  : std::uint8_t { FromJoin, Full };
+enum class Receipts : std::uint8_t { Off, Delivered, Read };
+enum class Role     : std::uint8_t { Member = 0, Admin = 1, Owner = 2 };   // STORED
+enum class Right    : std::uint16_t { Post, React, AddMember, RemoveMember, EditInfo,
+                                      SetTimer, ManageAdmins, CreateInvite, RevokeAny, Pin };
+struct RoleRights final { RightMask member, admin, owner; };
+
+struct ConversationKindSpec final {
+    std::string_view key;  std::span<const std::uint32_t> timers_s;  PermSet create_requires;
+    std::uint32_t max_members, retention_days, edit_window_s, revoke_window_s,
+                  max_text_code_points;
+    RoleRights rights;  KindCode code;  Shape shape;  E2ee e2ee;  History history;
+    Receipts receipts;  bool mentions_break_mute;
+    std::optional<fs::Ns> media_ns, sealed_ns;
+};
+static_assert(sizeof(ConversationKindSpec) == 88);
+
+constexpr bool kinds_are_well_formed(std::span<const ConversationKindSpec>);
+constexpr std::optional<KindCode> kind_from_key(kinds, key), kind_from_stored(kinds, int32);
+constexpr bool role_may(const ConversationKindSpec&, Role, Right);
+constexpr bool timer_allowed(const ConversationKindSpec&, std::uint32_t seconds);
+```
+
+### What you write
+
+```cpp
+// chat_kinds.h
+inline constexpr std::array<anvil::chat::ConversationKindSpec, 4> kChatKinds{{
+    {.key = "direct", .timers_s = kChatTimers, .create_requires = {}, .max_members = 2, …,
+     .code = 0, .shape = Shape::Direct, .e2ee = E2ee::Optional, …,
+     .media_ns = kChat, .sealed_ns = kSealed},
+    {.key = "group", …, .code = 1, .shape = Shape::Group, …},
+    …
+}};
+static_assert(anvil::chat::kinds_are_well_formed(kChatKinds));
+```
+
+`tests/testapp/chat_kinds.h` is the compiled worked example: a direct chat and a group a member
+may encrypt, an announcements group only admins post in, and a channel anyone may follow.
+
+### Notes that are not obvious
+
+- **The code is stored and the table is indexed by it**, so the table is append-only and
+  `code` must equal the row's position. A retired kind keeps its row; a conversation stored
+  with its code still has to be readable.
+- **A request names a kind by key, and nothing after the lookup sees the request's
+  spelling.** Joining is the disclosure, for the reason a topic is a code (§7a).
+- **Rights are read from the kind at every check, never copied onto a member.** Changing the
+  table changes every existing conversation of the kind at the next deploy, which is what a
+  rule should do.
+- **Chat media must live in a `Private` namespace that does not deduplicate across owners.**
+  The check refuses anything else at compile time: a public namespace serves an object to
+  anybody holding its id, and a namespace-wide dedupe tells an uploader whether somebody else
+  already holds the file ([`07-filesystem.md`](07-filesystem.md) §2, 22 §6).
+- **An encrypted kind needs a `sealed_ns` that is `Private` and never deduplicates, and
+  `History::FromJoin`.** A joiner cannot decrypt what was sent before they joined, so serving
+  it to them would be ciphertext they cannot read and metadata they were not owed.
+- **The device and key directories take two more collection names and a config**
+  (`DeviceCollections{identities, prekeys}`, `DeviceConfig{max_devices = 5, touch_interval =
+  60 min}`, asserted by `device_config_is_well_formed`). `max_devices` is at most
+  `kMaxDevicesCeiling` (16); `tests/testapp/chat_collections.h` declares the reference
+  application's.
+- **An encrypted kind is not for production yet.** The server's half is built and tested, but
+  the protocol is the riskiest code in either repository, and phase 20 does not ship
+  encryption to an application before an external review of both halves (15, phase 20, the
+  review row). Until that row is checked, `E2ee::Optional` and `E2ee::Required` are for
+  development and for building hammer against, and nothing a real user's privacy depends on.
+- **Encrypted kinds need the device directory and the device queue on the service.**
+  `DeviceCollections` names a third collection, `queue` (`chat_device_queue` in the reference
+  application), which you declare with `exp` as its lifetime: its rows hold no media
+  reference, so the TTL monitor may collect them. Build one `DeviceDirectory` and one
+  `DeviceQueue` over those names and hand both to `ChatServiceDeps::devices` and `queue`; the
+  service throws at construction if you hand it one without the other. Whatever links or unlinks
+  a device calls `ChatService::propagate_devices(user)` straight after, and you register
+  `ChatService::sweep_device_changes(now, batch)` as a recurring job under a Redis lease, as you
+  do the expiry sweeper: it finishes a change whose request died before propagating it. Until
+  it has run, senders pass the device-set fence on the old set (22 §7.4). Two more indexes
+  serve it: `{u, c}` on members and `{pend}` partial on identities, and three serve the queue:
+  `{d, _id}`, `{c, s}` and a TTL on `exp` (`tests/testapp/indexes.h`).
+- **Application message kinds are a second, optional table** (`anvil/chat/card_spec.h`): a
+  key, a stored code equal to its position, and a binder — a plain function pointer taking the
+  parsed body and answering its canonical JSON or a refusal, written with the same
+  `input::ObjectBinder` as every request body. anvil re-parses what the binder answers and
+  refuses anything that is not a JSON object within 4 KiB, because a card is served back inside
+  every page that holds it. A missing binder is refused when the service is built, not by
+  `cards_are_well_formed`: GCC does not fold a function pointer's nullness in a constant
+  expression under UBSan. `tests/testapp/chat_cards.h` is a poll.
+- **The rest of what `kinds_are_well_formed` refuses** is in 22 §2.3, and each refusal is a
+  `static_assert` in `tests/chat_kind_test.cc`: a direct chat anyone can add to, a channel
+  that encrypts or takes receipts or lets followers post, rights that are not monotone, timers
+  out of order or longer than retention, and a text bound above anvil's.
+
+
+### The routes
+
+anvil ships the handlers and one installer; the application declares the ids, the patterns, the
+permissions and the budgets, the arrangement image edits use (§17).
+
+```cpp
+// anvil/chat/routes.h — in anvil::app
+struct ChatRouteIds final {           // one route id per handler
+    std::string_view create, open_direct, list, get, update, set_timer, members, add_members,
+                     update_member, remove_member, send, history, edit, revoke, react, read_by,
+                     receipts, preferences, create_invite, revoke_invite, join, follow, block,
+                     unblock, presence, my_devices, register_device, link_device,
+                     unlink_device, upload_prekeys, claim_prekeys, conversation_devices,
+                     device_queue, acknowledge_queue;
+};
+struct ChatRoutes final {
+    ChatRouteIds ids;
+    http::RateLimitRule send_budget, write_budget, claim_budget, claim_target_budget;
+};
+
+void install_chat_routes(const ChatService&, http::RateLimiter&,
+                         std::span<const accesscontrol::RoutePolicy>,
+                         std::span<const descriptor::RouteDescription>, const ChatRoutes&);
+```
+
+You write 34 `RoutePolicy` rows and 34 `RouteDescription` rows with matching ids, and pass four
+rules from your rate-limit table. `tests/testapp/routes.h` and `route_descriptions.h` are the
+worked example, at the paths of [`22-chat.md`](22-chat.md) §9.
+
+- **The routes are `Authenticated` with no bit.** Membership decides everything inside a
+  conversation, and the handler answers a non-member with the stealth 404 itself. Which bit
+  creating a group or a channel needs is the kind's `create_requires`, because the kind is in
+  the body.
+- **Each pattern's placeholders are read in order** — `{conversation}`, then `{user}` or
+  `{seq}` — and the installer throws at boot for an id that is not described or a pattern with
+  the wrong number of them. The comment beside each id in `routes.h` names what it takes.
+- **`send_budget` is the volume, `write_budget` the rest.** Sends, edits, reactions and receipts
+  count into the first; anything that changes a conversation, its members or a block into the
+  second, so a flood of messages cannot spend the budget for leaving a group. Both are per
+  account and checked on `db_pool`, never on the loop thread, because each is a Redis round
+  trip.
+- **The send route takes an encrypted body too**, told apart by its `dsv`: `{cid, device, dsv,
+  ciphertext?, devices?: [{device, ciphertext}], page?, attachments?}` (22 §7.6). A stale one is
+  answered `409` with `"reason":"chat.devices_stale"` and the first page of the conversation's
+  device lists beside the error. Every conversation the routes answer carries its `dsv`.
+- **The device routes** (22 §9) serve the directory, the keys and the queue, and need the
+  device machinery on the service; without it each answers `503`. A first device needs
+  `ChatHooks::authenticated_at`: when the session last proved itself with a password or a
+  passkey, which the reference application reads out of its v7 session id because a session
+  there is only ever made by signing in. **Unset refuses every first device.** The refusal
+  is `428 CAPABILITY_REQUIRED` with `"reason":"chat.fresh_authentication","field":
+  "authenticated_at"` beside the error, never a `401`: a client refreshes its token on a
+  `401`, and a second one after a good refresh signs the person out.
+  `ChatHooks::on_device` reports each registration, link and unlink after it commits, for the
+  account's security log. Forward `identity::SessionsRevoked` (§16) to
+  `ChatService::session_ended(user, session)`, which ends the device that session registered,
+  and call it yourself wherever you revoke a session outside anvil's session services; and
+  register `ChatService::sweep_idle_devices(now, idle_days, batch)` as a recurring job.
+- **Claims are budgeted twice**, `claim_budget` per claiming account and
+  `claim_target_budget` per account claimed against, in distinct buckets. A claim names up to
+  `kMaxClaimBatch` (32) accounts and is answered per account (22 §7.5); the first rule is
+  spent once per request and the second once per account claimed. The second is spent
+  only after both people are found to share the encrypted conversation the route names, so a
+  stranger cannot spend a victim's.
+- **Edits, revokes and reaction changes have a cursor of their own** (22 §4.5): every
+  conversation answers `mutations`, every message `mutation`, the history route takes
+  `changed_after=<n>`, and the socket sends a `Mutation` frame. One more index serves it,
+  `{c, mu}` on messages, partial on `mu` existing (`chat_message_mutation` in
+  `tests/testapp/indexes.h`). A plaintext edit, revoke or reaction is now a transaction.
+- **Presence has a batch read**, the `presence_many` route id: `GET` with no placeholder and
+  `?users=<id>,…`, at most `kMaxPresenceBatch` (100). Each account is asked of `may_see`.
+- **The link relay is four route ids**, `request_link`, `read_link_request`,
+  `approve_link_request` and `collect_link_approval`, all `POST` with no placeholder, because
+  every token travels in a body (22 §7.3.1). `DeviceCollections` gains `links`, a collection
+  you declare with `exp` as its lifetime (`chat_link_requests` in the reference application),
+  with a `{u, sid}` index and a TTL on `exp`. Creating and approving spend `write_budget`;
+  reading and collecting, which a waiting device polls, spend `send_budget`.
+- **Staff review is optional, and four route ids** (22 §9.2): `review_conversation` and
+  `review_history` (`GET`, `{conversation}`), `report` (`POST`, `{conversation}`) and
+  `reports` (`GET`), all named or none. Declare the two reads and the listing `Stealth`
+  behind a permission of yours (`ChatReview` in the reference application). Hand the service
+  `ChatReview{.audit, .read_action}`, an `AuditService` and an action from your audit table,
+  without which a read is `503`; mark the kinds that may be read `reviewable`; declare a
+  `reports` collection in `ChatCollections` with no lifetime and its `{c, by, f, to}` unique
+  index; and set `ChatHooks::on_report` if anybody should hear of one.
+- **The client's codec and validator have printed fixtures**: `testapp_emit_chat_frames`
+  (frames and refusals) and `testapp_emit_chat_text` (the composer's validator), beside
+  `testapp_emit_chat_vectors` (keys). Each prints only what anvil's own suite holds anvil to.
+- **A device rotates its signed keys** through the `rotate_prekeys` route id, `PUT` with a
+  `{device}` placeholder (`/chat/devices/{device}/keys`), spending `write_budget`.
+- **`GET` my devices marks the caller's own** with `"mine"`, true on the device the
+  calling session registered, so a client whose key store was evicted can unlink it.
+- **A mute is a duration** (22 §5.1): the preferences route takes `mute_for_s` (zero
+  unmutes, at most 366 days) or `mute_indefinitely`, beside the absolute `muted_until`, and
+  answers `200` with the membership after, so the instant comes from the server's clock.
+- **The readers route answers both watermarks** (22 §5.1): `{"read_by":[…]|null,
+  "delivered_to":[…]}`, `read_by` null for a kind whose receipts are `Delivered`, and `403`
+  for one whose receipts are `Off`. One more index, `{c, dlv}` on members.
+- **A send is idempotent although it is a POST**: the client id in the body is the key, and a
+  retry is answered with the first message and `200` rather than `201`. Describe it so.
+  **So is `create`** (22 §3.1): its body requires a `cid`, a retry is answered with the
+  first conversation and `200`, and one more index serves it, `{by, cid}` on conversations,
+  unique and partial on `cid` existing (`chat_created_cid`). `ChatService::create` returns
+  `CreatedConversation`, which says which.
+- **Responses are hand-written and undescribed** in the descriptor: a message nests
+  attachments, mentions, a card and a system event, which the flat response grammar does not
+  express. Every attachment is a grant, never an id (22 §6.2).
+- **`may_reach` must be set** on the service the routes are installed over. Unset refuses
+  every direct conversation and every add.
+- **The descriptor publishes the kinds** when `DescriptorInput::chat_kinds` is given: anvil's
+  bounds and, per kind, its key, shape, encryption, history, receipts, windows, timers, the
+  permission names that create one and each role's rights by name, under `limits.chat`.
+  Whether a kind takes attachments is a boolean; its namespaces are storage and are not
+  published.
+
+### The grant route
+
+```cpp
+// anvil/media/grant_route.h — in anvil::app
+void install_media_grant_route(const MediaService&, const GrantKeys&,
+                               std::span<const accesscontrol::RoutePolicy>,
+                               std::span<const descriptor::RouteDescription>,
+                               std::string_view route_id);
+```
+
+One route, `Public`, `GET`, whose pattern carries the grant and then the role
+(`/m/{grant}/{role}` in the reference application), served on the media origin. Install it
+over the same `GrantKeys` the chat service mints with. It opens the grant on the loop thread,
+reads the row on `db_pool`, and refuses — always with the stealth 404 — a forged or expired
+grant, a segment that is not a role, and a row nothing holds any more, so a delete for everyone
+stops a grant already handed out at its next use. A response is cacheable `private` for no
+longer than the grant opens.
+
+### Live delivery and the socket
+
+```cpp
+// anvil/chat/live.h — in anvil::app
+struct ChatLiveConfig final {
+    WakeSubscriberConfig subscriber;            // its own Redis connection
+    HubLimits            hub{};                 // max_sockets (0 = from kUpgradeShare), max_per_account
+    std::size_t          member_cache_bytes{8U << 20U};
+    notifications::SseHub* sse{nullptr};        // the fallback, when you serve streams
+    PresenceConfig       presence{};            // off unless you turn it on
+};
+
+// anvil/chat/presence.h
+using PresenceHook = std::function<bool(mongocxx::client&, const Uuid& viewer,
+                                        const Uuid& subject)>;
+struct PresenceConfig final {
+    bool enabled{false};  PresenceHook may_see;
+    std::string_view collection;  db::DatabaseNames databases{};
+    std::chrono::seconds refresh{20}, online_window{45}, last_seen_write{300};
+};
+class ChatLive final {
+    ChatLive(ChatLiveConfig, sw::redis::Redis& publisher, const ChatRepository&);
+    class StreamLease;                          // move-only, held for a stream's life
+    StreamLease follow_on_stream(const Uuid& reader);
+};
+
+// anvil/chat/socket.h — in anvil::app
+inline constexpr std::uint16_t kCloseReplaced = 4001, kCloseOverflow = 4002, kCloseSilent = 4003,
+                               kCloseFull = 4004, kCloseReauthenticate = 4005,
+                               kCloseBadFrame = 4006;
+void install_chat_socket(ChatLive&, const ChatService&,
+                         std::span<const accesscontrol::RoutePolicy>,
+                         std::span<const descriptor::RouteDescription>, std::string_view route_id);
+```
+
+You build one `ChatLive` at boot, after Redis answers, hand its address to
+`ChatServiceDeps::live`, and install the socket at one route id: a `GET` with no placeholders,
+`Authenticated` with no bit, described as idempotent (`/chat/socket` in the reference
+application). Every committed send then wakes its members' sockets on whichever process holds
+them. `tests/testapp/reference_server.cc` (`chat_live()`) is the worked example.
+
+- **`live` left null is Phase 18's chat**: nothing is pushed and every client polls. The
+  routes are the same either way, because no write ever travels over the socket (22 §8.1).
+- **Both objects must outlive serving**, and `install_chat_socket` is called once per
+  process: Drogon builds the WebSocket controller itself, so the handlers reach `ChatLive` and
+  the service through process-wide pointers set at install.
+- **Call `ChatLive::stop()` before your shutdown releases the pools**, if it releases them
+  before `ChatLive` is destroyed. The subscriber and the presence tracker run threads of their
+  own, and the tracker writes through `MongoPool`. The destructor calls it too.
+- **The subscriber holds a Redis connection of its own**, at the same URL as the rest of the
+  process. It blocks on reads, so it cannot share the pooled one.
+- **A device is the session the access token names.** A second socket from the same session
+  closes the first with `kCloseReplaced`. `max_per_account` should be the device directory's
+  `max_devices` where the application has one.
+- **The close codes are the client's contract.** `4001` replaced: do NOT reconnect
+  automatically, because reconnecting takes the socket back from the device that just took it,
+  and that never ends. `4002` overflow, `4003` silent, `4005` reauthenticate: reconnect,
+  then sync. `4004` full: back off, and the HTTP routes and polling still work. `4006` bad
+  frame: the client is broken.
+- **The fallback is yours to wire, and costs one line per stream.** Give `sse` the `SseHub`
+  your notification stream route already uses, and when that route opens a stream for a reader
+  who wants chat, hold `follow_on_stream(reader)` for as long as the stream lives. The stream
+  then carries `SseEventKind::ChatWake`, whose `notification` field is the conversation to
+  catch up, and `ChatSync`, which means catch every conversation up. No message and no seq: an
+  `SseEvent` stays 32 bytes for every stream in the process. No typing either. Without a
+  configured `sse`, `follow_on_stream` throws, because a lease that silently carried nothing
+  would hide a wiring fault.
+- **Presence is off until you set `enabled`, and then every read asks `may_see`.** It may
+  block (it is asked on `db_pool` or the tracker's thread, never on a loop), so it can read
+  your contacts. A **nil viewer** asks "may anybody see this account", and last seen is stored
+  only for an account where the answer is yes. Unset, nobody may. `collection` is one you
+  declare in your collection table with no lifetime (`chat_presence` in the reference
+  application), one row per account keyed by its id; enabled without it declared throws at
+  boot. The read is the `presence` route id, `GET` with a `{user}` placeholder, and with
+  presence off it answers the stealth 404 as if it did not exist. Withheld and never-seen are
+  the same bytes, `{"online":false,"last_seen":null}`.
+- **A client syncs from its cursors on open and on every `Sync` frame**, and answers every
+  `Ping` with a `ClientPong`. A socket that says nothing for 45 seconds is closed. Drogon
+  exposes no write-buffer level, so a client that has stopped reading is only found by its
+  silence.
+
+### Push nudges
+
+```cpp
+// anvil/chat/push.h — in anvil::app
+struct PushReader final { Locale locale; bool previews; };
+struct PushHooks final {
+    std::function<Status(std::span<const std::uint8_t> args, db::TimeMs due,
+                         std::string_view key)> enqueue;            // required
+    std::function<PushReader(mongocxx::client&, const Uuid& user)> reader;   // required
+    std::function<std::string(mongocxx::client&, const Uuid& user)> name_of;
+};
+struct PushConfig final {
+    std::chrono::seconds window{5}, grace{3};
+    notifications::TemplateId preview, plain;
+    notifications::TopicCode  topic;
+};
+class ChatPush final {
+    ChatPush(PushConfig, PushHooks, const ChatRepository&,
+             const notifications::NotificationRepository&,
+             std::span<const notifications::TemplateSpec>, notifications::Transport web_push);
+    timer::JobOutcome run(const timer::JobRunContext&) const noexcept;   // your handler calls it
+};
+```
+
+anvil ships the job body. You ship three rows in your own tables and the wiring: a **job
+kind** in your job table, whose handler calls `run`; a **topic** with `WebPush` in its
+channels, which nothing is ever published to; and **two templates**, one with the message's
+text and one without. Build one `ChatPush` at boot over the same `Transports::web_push` your
+`OutboundSender` uses, and hand its address to `ChatServiceDeps::push`.
+`tests/testapp/chat_push.h`, `anvil_app_jobs.h`, `jobs.cc`, `topics.h` and
+`reference_server.cc` (`chat_push()`) are the worked example.
+
+```cpp
+hooks.enqueue = [&](std::span<const std::uint8_t> args, db::TimeMs due,
+                    std::string_view key) -> Status {
+    const Result<timer::JobId> job = queue.schedule_at(kChatPushJob, args, due, key);
+    if (!job) { return job.error(); }
+    return ok();
+};
+```
+
+- **The idempotency key is the coalescing.** Every send in one window asks with the same key
+  and your queue keeps one job, which tells each recipient how many messages are waiting: a
+  burst of forty is one push saying forty. `JobQueue::schedule_at` already dedupes by key; an
+  `enqueue` that does not makes a push per message.
+- **The job is asked for before the message commits**, from the `db_pool` thread the send
+  holds, so `enqueue` blocks on your queue's Redis. A send never fails because of it: a refused
+  ask is logged and counted (`enqueue_failures()`), and the message stands.
+- **Who is pushed is decided by the delivered watermark, not by sockets.** A device that holds a
+  message must post `{delivered}` to the receipts route as soon as it does; that is what spares
+  its account the push, on whichever process the device is connected to. A client that never
+  posts it is pushed for everything, which is a duplicate and never a miss.
+- **The templates bind `{n}` the count, `{t}` the title** (in a direct conversation, the
+  sender's name), **`{s}` the sender's name, and `{b}` the newest message's text, only into
+  `preview`.** A reader for whom `reader` answers `previews = false` gets `plain`, and their
+  push never carries the text. A value a template cannot show (a bidi override in a name) is
+  left out rather than costing the push. `{b}` is at most 120 code points, cut in the query.
+- **`reader` is asked once per recipient per job and `name_of` once per sender.** Both run on
+  the job's thread and may block; cache them, because a group is up to a thousand recipients.
+- **No notification row is written**, and nothing reaches an inbox. The chat list is chat's
+  inbox. Your topic exists so the transport can tell the service worker what a push is, and so
+  a device can switch chat pushes off in its notification preferences.
+- **Mute is honoured, and a mention breaks it only where the kind's `mentions_break_mute` is
+  set.** Channels are never pushed, as they are never woken.
+- **An encrypted conversation's push has an empty title and a body that IS the payload**,
+  `{"c":"<uuid>","seq":<n>}` (`chat::encrypted_push_payload`). Send that body verbatim, not
+  wrapped in the object your plaintext pushes use: the service worker fetches from its cursor,
+  decrypts and writes the notification itself (22 §7.8). Neither wording hook is asked for it.

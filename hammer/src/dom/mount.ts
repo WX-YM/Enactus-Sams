@@ -12,14 +12,14 @@
 // never from the global. `tools/check-layering.sh` fails the build on a bare
 // `document.` in this layer for the same reason it does in the three below it:
 // the platform's singletons are injected so a test supplies its own rather than
-// racing every other test in the file (`ENGINEERING_RULES.md` §3.3). Here it buys a second
+// racing every other test in the file (`CLAUDE.md` §3.3). Here it buys a second
 // thing — a component that reaches the global cannot be rendered into a document
 // that is not the tab's, which is what an editor preview and a print view both
 // are.
 //
 // --- closing is not optional ------------------------------------------------
 //
-// `Mounted.close` is `[[nodiscard]]` in spirit (`ENGINEERING_RULES.md` §3.3). A component
+// `Mounted.close` is `[[nodiscard]]` in spirit (`CLAUDE.md` §3.3). A component
 // subscribes to stores, opens resources that are refcounted and may hold a timer;
 // a caller that drops the handle leaks all three, in a tab that stays open for
 // days. Every component built here routes its cleanup through `Closers`, so
@@ -41,7 +41,7 @@ export type Mounted = {
 //
 // A throw rather than a `Result`, and it is one of the few places that is true:
 // an element with no owner document is a caller that passed something it built
-// wrong, which is programmer error (`ENGINEERING_RULES.md` §3.1). The alternative — falling
+// wrong, which is programmer error (`CLAUDE.md` §3.1). The alternative — falling
 // back to the global — is exactly the reach this layer is not allowed to make.
 export function documentOf(mount: Element): Document {
     const owner = mount.ownerDocument;
@@ -54,7 +54,7 @@ export function documentOf(mount: Element): Document {
 // An element, with the application's class name on it if there is one.
 //
 // The class is passed rather than looked up: hammer ships no class name and no
-// default for one (`ENGINEERING_RULES.md` §1), and a component that invented a fallback
+// default for one (`CLAUDE.md` §1), and a component that invented a fallback
 // would be shipping a design system one string at a time.
 export function elementIn<K extends keyof HTMLElementTagNameMap>(
     doc: Document,
@@ -74,7 +74,7 @@ export function elementIn<K extends keyof HTMLElementTagNameMap>(
 // an Arabic name inside a Latin interface lays out as Arabic and does not drag
 // the punctuation around it to the other side. Without it the result is not a
 // cosmetic defect: it changes which words the sentence appears to contain
-// (`ENGINEERING_RULES.md` §8).
+// (`CLAUDE.md` §8).
 //
 // `textContent`, never a markup route. The one insertion site in this library
 // takes a `SanitizedHtml` and lives in `dom/sanitized.ts`.
@@ -95,7 +95,7 @@ export function isolatedAttribute(text: string): string {
 // way to spell them.
 //
 // A counter and not `crypto.getRandomValues`, and the distinction is exactly
-// what `ENGINEERING_RULES.md` §5's rule is about: that rule governs an id, a key or a nonce
+// what `CLAUDE.md` §5's rule is about: that rule governs an id, a key or a nonce
 // whose value has to be UNPREDICTABLE, because guessing one is the attack. This
 // one has to be unique and nothing else — it is a reference between two elements
 // that is sitting in the markup, readable by anyone who can read the markup at
@@ -127,17 +127,15 @@ export function bind<T>(store: Readable<T>, render: (value: T) => void): Unsubsc
 
 // Takes a node out of the tree, through its parent.
 //
-// `node.remove()` is the shorter spelling and this does not use it: happy-dom
-// 15 resolves the parent of a `<form>` through its form-owner rather than
-// through the tree, and throws `removeChild` at itself — so a form renderer that
-// used it would leave its root behind in the suite and nowhere else. Going
-// through `parentNode` is one call longer, correct in both, and says which tree
-// the node is being taken out of, which `remove()` never does.
+// `node.remove()` is the shorter spelling and, in a real browser, the correct
+// one; this used to go through `parentNode`/`removeChild` instead because
+// happy-dom 15 resolved a `<form>`'s parent through its form-owner rather than
+// through the tree and threw `removeChild` at itself — a workaround for a
+// fake DOM's bug, retired once `tests/dom/mount.test.ts` ran the same case
+// against real Chromium and it passed with the short spelling
+// (`docs/15-tasks.md` Phase 8 B2).
 export function detach(node: ChildNode): void {
-    const parent = node.parentNode;
-    if (parent !== null) {
-        parent.removeChild(node);
-    }
+    node.remove();
 }
 
 // One cleanup list, run once.

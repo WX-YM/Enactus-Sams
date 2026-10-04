@@ -38,7 +38,7 @@ export type SectionPart = "root" | "field" | "label" | "value";
 
 // One field of a section, as the generated module carries it.
 //
-// Structural, so no application's table reaches this layer (`ENGINEERING_RULES.md` §1).
+// Structural, so no application's table reaches this layer (`CLAUDE.md` §1).
 // `labels` is indexed by the LOCALE TABLE's order, which is persisted and
 // append-only — index 0 means nothing in particular (`docs/01-seams.md` §5).
 export type SectionFieldView = {

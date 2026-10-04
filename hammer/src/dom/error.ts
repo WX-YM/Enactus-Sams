@@ -7,7 +7,7 @@
 // is the reason that is the right design: the words belong to whoever knows the
 // audience and the locale. An English default here is a string that ships to an
 // Arabic user, from a library, so it ships to every application at once
-// (`ENGINEERING_RULES.md` §1).
+// (`CLAUDE.md` §1).
 //
 // --- a 404 is not a permission error ----------------------------------------
 //
@@ -36,7 +36,7 @@
 //
 // No value from the request reaches this surface. Reflecting one is the
 // reflected-XSS and log-injection hazard anvil keeps out of its own responses,
-// and it is an encoding hazard on non-Latin input besides (`ENGINEERING_RULES.md` §5).
+// and it is an encoding hazard on non-Latin input besides (`CLAUDE.md` §5).
 
 import type { HammerError } from "../core/errors.js";
 import type { ClassNames } from "../core/tables.js";

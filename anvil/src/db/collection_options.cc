@@ -262,7 +262,7 @@ CollectionOptionsReport apply_collection_options(mongocxx::client& client,
             // is the normal case on a rolling deploy and not a violation. Every
             // other driver failure is reported rather than thrown: the operator
             // wants the rest of the catalogue checked in the same pass, and no
-            // driver text reaches the report (ENGINEERING_RULES.md §5).
+            // driver text reaches the report (CLAUDE.md §5).
             if (e.code().value() != 48) {
                 report.violations.push_back(OptionsViolation{
                     std::string{spec.collection},

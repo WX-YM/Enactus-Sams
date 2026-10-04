@@ -1,5 +1,6 @@
 #include "anvil/http/rate_limit.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <span>
@@ -32,7 +33,7 @@ namespace {
 // and the window belongs to whichever process opened it: no other process can
 // compute what is left of it from a clock of its own.
 constexpr std::string_view kWindowScript = R"lua(
-local hits = redis.call('INCR', KEYS[1])
+local hits = redis.call('INCRBY', KEYS[1], ARGV[2])
 local ttl = redis.call('PTTL', KEYS[1])
 if ttl < 0 then
   redis.call('PEXPIRE', KEYS[1], ARGV[1])
@@ -83,7 +84,10 @@ void count_decision(bool degraded, bool allowed) noexcept {
 }  // namespace
 
 BucketHit LocalBuckets::hit(std::string_view key, const RateLimitRule& rule,
-                            Clock::time_point now) noexcept {
+                            Clock::time_point now, std::uint64_t weight) noexcept {
+    // Clamped to the slot's width; a weight past it is past every rule anyway.
+    const auto events = static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(std::max<std::uint64_t>(weight, 1), UINT32_MAX));
     const std::uint64_t fingerprint = fingerprint_of(key);
     const std::size_t index = static_cast<std::size_t>(fingerprint) & (kSlots - 1);
     const std::lock_guard<std::mutex> lock{shards_[index % kShards]};
@@ -96,12 +100,12 @@ BucketHit LocalBuckets::hit(std::string_view key, const RateLimitRule& rule,
     if (slot.fingerprint != fingerprint || slot.window_ends <= now) {
         slot.fingerprint = fingerprint;
         slot.window_ends = now + rule.window;
-        slot.count = 1;
-        return BucketHit{.count = 1, .remaining = rule.window};
+        slot.count = events;
+        return BucketHit{.count = events, .remaining = rule.window};
     }
     // Saturating rather than wrapping: an unsigned wrap here would hand an
-    // attacker a fresh budget at 2^32 requests (ENGINEERING_RULES.md §5).
-    if (slot.count != UINT32_MAX) { ++slot.count; }
+    // attacker a fresh budget at 2^32 requests (CLAUDE.md §5).
+    slot.count = slot.count > UINT32_MAX - events ? UINT32_MAX : slot.count + events;
     // The slot carries the window's END rather than what is left of it, so the
     // subtraction happens here and against the same steady_clock the slot was
     // stamped from. A wall clock would make the answer follow an NTP step.
@@ -121,17 +125,19 @@ void LocalBuckets::clear() noexcept {
     }
 }
 
-RateLimitVerdict RateLimiter::check(std::string_view key, const RateLimitRule& rule) {
+RateLimitVerdict RateLimiter::check(std::string_view key, const RateLimitRule& rule,
+                                    std::uint64_t weight) {
+    const std::uint64_t events = std::max<std::uint64_t>(weight, 1);
     try {
         sw::redis::Redis& redis = redis::RedisClient::instance();
         // A tuple rather than a container filled through an output iterator: the
         // reply is exactly two integers, and a heap-allocated sequence to hold
         // them would be an allocation on a path whose whole design is that it
-        // does none (ENGINEERING_RULES.md §2.1).
+        // does none (CLAUDE.md §2.1).
         const auto [hits, ttl_ms] = redis.eval<std::tuple<long long, long long>>(
             sw::redis::StringView{kWindowScript.data(), kWindowScript.size()},
             {sw::redis::StringView{key.data(), key.size()}},
-            {std::to_string(rule.window.count())});
+            {std::to_string(rule.window.count()), std::to_string(events)});
 
         const auto count = static_cast<std::uint64_t>(hits);
         // Announced once, on the way back, and only after a load says there is
@@ -171,7 +177,7 @@ RateLimitVerdict RateLimiter::check(std::string_view key, const RateLimitRule& r
                          "process: "
                       << e.what();
         }
-        const BucketHit local = local_.hit(key, rule, LocalBuckets::Clock::now());
+        const BucketHit local = local_.hit(key, rule, LocalBuckets::Clock::now(), events);
         const bool allowed = local.count <= rule.max_events;
         count_decision(true, allowed);
         return RateLimitVerdict{
@@ -194,6 +200,17 @@ RateLimitVerdict RateLimiter::check_ip(const std::array<std::uint8_t, 16>& ip,
     key.push_back(':');
     key += crypto::base64url_encode(ip);
     return check(key, rule);
+}
+
+RateLimitVerdict RateLimiter::check_account_weighted(std::string_view normalised_identifier,
+                                                     const RateLimitRule& rule,
+                                                     std::uint64_t weight) {
+    const crypto::Digest256 digest = crypto::sha256(normalised_identifier);
+    std::string key = "rl:acct:";
+    key += rule.bucket;
+    key.push_back(':');
+    key += crypto::base64url_encode(std::span<const std::uint8_t>{digest.data(), 16});
+    return check(key, rule, weight);
 }
 
 RateLimitVerdict RateLimiter::check_account(std::string_view normalised_identifier,

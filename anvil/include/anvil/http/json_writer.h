@@ -53,7 +53,7 @@ void append_json_time(std::string& out, std::int64_t epoch_ms);
 // this took until it acquired a caller: `Uuid` is `std::array<std::uint8_t, 16>`
 // throughout this library and does not convert to a reference to a C array, so
 // the old spelling could only be called through a cast. The extent is part of
-// the type, so a shorter buffer is still a compile error (ENGINEERING_RULES.md §3.1).
+// the type, so a shorter buffer is still a compile error (CLAUDE.md §3.1).
 void append_json_uuid(std::string& out, std::span<const std::uint8_t, 16> id);
 
 }  // namespace anvil::http

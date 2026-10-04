@@ -10,12 +10,12 @@
 //
 // A field's label is passed in per field, so a control cannot be drawn without
 // one: an unlabelled control is a defect rather than a polish item, and one
-// shipped from a library is shipped to every consumer at once (`ENGINEERING_RULES.md` §9).
+// shipped from a library is shipped to every consumer at once (`CLAUDE.md` §9).
 // A reason is a CODE — `TOO_LONG`, not a sentence — and the sentence comes from
 // the application's copy table keyed by that code (`docs/01-seams.md` §13).
 //
 // The control is chosen from the descriptor's flags and never from a table of
-// type names held here. A table hammer populates is a bug (`ENGINEERING_RULES.md` §1), and
+// type names held here. A table hammer populates is a bug (`CLAUDE.md` §1), and
 // an unknown field type is a generation failure rather than a runtime fallback:
 // a fallback draws a text box for a signature pad and posts a string the server
 // rejects.
@@ -26,7 +26,7 @@
 // the server checks against. `maxlength` is deliberately not set: it counts
 // UTF-16 code units, so an emoji is two and every astral character is two, and
 // the attribute would silently halve the allowance for the scripts that need it
-// most (`ENGINEERING_RULES.md` §8). A person typing past the bound is told; they are not
+// most (`CLAUDE.md` §8). A person typing past the bound is told; they are not
 // prevented mid-word by a counter that disagrees with the server.
 //
 // --- submitting does not reload ---------------------------------------------
@@ -34,12 +34,12 @@
 // The root is a real `<form>`, so the platform's own behaviour is inherited —
 // Enter submits, a required field is announced, the control is in the tab order
 // — and the default navigation is the one thing replaced. A component that
-// replaced the element instead would owe all of that back (`ENGINEERING_RULES.md` §9).
+// replaced the element instead would owe all of that back (`CLAUDE.md` §9).
 
 import type { ClassNames } from "../core/tables.js";
 import { codePointLength } from "../core/text.js";
 
-import type { FieldDefinition, FieldValue, Form, FormState } from "../state/forms.js";
+import type { FieldDefinition, FieldValue, Form, FormState, InputPurpose } from "../state/forms.js";
 
 import { Closers, bind, detach, documentOf, elementIn, setUserText, uniqueId } from "./mount.js";
 import type { Mounted } from "./mount.js";
@@ -60,7 +60,7 @@ export type FormPart =
 
 // Every word this renderer puts on a screen. Each is the application's, and the
 // two that carry a number are functions because a plural rule and a digit shape
-// belong to the locale rather than to the count (`ENGINEERING_RULES.md` §8).
+// belong to the locale rather than to the count (`CLAUDE.md` §8).
 export type FormCopy = {
     // Marks a field that must be answered. It is read out, so it is a word and
     // not a punctuation mark the application happens to style as one.
@@ -123,6 +123,21 @@ function textOf(value: FieldValue): string {
     return typeof value === "string" ? value : String(value);
 }
 
+// What a person reads for one stored option value.
+//
+// The value itself when the definition offers no label for it, which is the
+// ordinary case for a section field: the descriptor carries a section's
+// `choices` as bare values and has nowhere to put a word. A blank option would
+// be worse than an unlocalised one — a picker with empty rows is a picker
+// nobody can use at all.
+//
+// Set as `textContent` by both call sites, never as markup: an option label
+// arrives from a server and the only insertion site in this library is the
+// section renderer (`docs/01-seams.md` §19).
+function labelOf(definition: FieldDefinition, choice: string): string {
+    return definition.choiceLabels?.[choice] ?? choice;
+}
+
 // Which control a field type draws.
 //
 // Read off the descriptor's named flags, in the order that makes each decision
@@ -153,7 +168,7 @@ function controlFor(
         for (const choice of definition.choices ?? []) {
             const option = elementIn(doc, "option");
             option.value = choice;
-            option.textContent = choice;
+            option.textContent = labelOf(definition, choice);
             control.append(option);
         }
         return control;
@@ -170,7 +185,48 @@ function controlFor(
     } else {
         control.type = "text";
     }
+    if (definition.purpose !== undefined) {
+        applyPurpose(control, definition.purpose);
+    }
     return control;
+}
+
+// The platform's type and `autocomplete` token for a field whose purpose it
+// needs to know. Set as properties, never as markup (`CLAUDE.md` §5).
+function applyPurpose(control: HTMLInputElement, purpose: InputPurpose): void {
+    control.autocomplete = purpose;
+    switch (purpose) {
+        case "current-password":
+        case "new-password":
+            // Masked, so a password is not on the screen of everybody behind
+            // the person typing it — and never corrected or capitalised, which
+            // would change what they typed into something they did not.
+            control.type = "password";
+            control.spellcheck = false;
+            control.autocapitalize = "none";
+            return;
+        case "email":
+            control.type = "email";
+            control.spellcheck = false;
+            control.autocapitalize = "none";
+            return;
+        case "username":
+            control.spellcheck = false;
+            control.autocapitalize = "none";
+            return;
+        case "tel":
+            control.type = "tel";
+            return;
+        case "one-time-code":
+            // Digits on a phone's keyboard, and the platform's own offer to
+            // paste the code that just arrived by message.
+            control.inputMode = "numeric";
+            control.spellcheck = false;
+            return;
+        case "given-name":
+        case "family-name":
+            return;
+    }
 }
 
 export function renderForm<Reason extends string>(
@@ -228,7 +284,7 @@ export function renderForm<Reason extends string>(
                 const tick = elementIn(doc, "input");
                 tick.type = "checkbox";
                 tick.value = choice;
-                line.append(tick, doc.createTextNode(choice));
+                line.append(tick, doc.createTextNode(labelOf(definition, choice)));
                 group.append(line);
                 boxes.push(tick);
             }

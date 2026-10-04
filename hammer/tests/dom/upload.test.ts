@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // The upload control: what it refuses before a byte moves, and the path in that
 // does not need a pointer.
@@ -7,7 +6,7 @@
 // `tools/check-source-bans.sh` is what asserts that for the whole library, and a
 // test can only speak for one module.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClassNames } from "../../src/core/tables.js";
 import type { UploadLimits } from "../../src/core/upload_bounds.js";

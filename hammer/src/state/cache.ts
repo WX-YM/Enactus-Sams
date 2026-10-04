@@ -145,7 +145,7 @@ export class Lru<K, V> {
     constructor(maxEntries: number) {
         // A ceiling below one is a cache that cannot hold the entry it was just
         // asked to hold: a configuration nobody means, and a read that always
-        // misses. It is a throw because it is programmer error (`ENGINEERING_RULES.md` §3.1).
+        // misses. It is a throw because it is programmer error (`CLAUDE.md` §3.1).
         if (!Number.isInteger(maxEntries) || maxEntries < 1) {
             throw new Error("cache ceiling must be a positive integer");
         }
@@ -215,7 +215,7 @@ export type CacheEntry<V> = {
 
 // The class a route's entries live in, and the ceiling that class gets. The
 // names are the application's: hammer has no opinion about what a resource class
-// is called, only that one exists and that it is bounded (`ENGINEERING_RULES.md` §1).
+// is called, only that one exists and that it is bounded (`CLAUDE.md` §1).
 export type CacheClasses = Readonly<Record<string, number>>;
 
 export type CacheConfig = {

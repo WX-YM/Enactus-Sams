@@ -132,7 +132,7 @@ TEST(Utf8, BoundaryBeforeLandsOnCodePointStart) {
 // --- 11: fuzz ------------------------------------------------------------
 
 TEST(Utf8, FuzzNeverCrashes) {
-    std::mt19937_64 rng{0xC0FFEE};   // test-only; never for security (ENGINEERING_RULES.md §5)
+    std::mt19937_64 rng{0xC0FFEE};   // test-only; never for security (CLAUDE.md §5)
     std::uniform_int_distribution<int> byte_dist{0, 255};
     std::uniform_int_distribution<std::size_t> len_dist{0, 64};
 

@@ -27,7 +27,7 @@
 //
 // Which topics deserve a badge, what "read" means in this product, and the word
 // for "notifications" in any language. All three are the application's
-// (`ENGINEERING_RULES.md` §9). What arrives here is an event with an id and a payload whose
+// (`CLAUDE.md` §9). What arrives here is an event with an id and a payload whose
 // shape the application decodes, and what leaves is a count and a list.
 
 import type { ApiTypes, CallableRoute, Client } from "../wire/client.js";
@@ -94,7 +94,7 @@ export type InboxConfig<A extends ApiTypes, T> = {
     readonly decode: (event: StreamEvent) => T | null;
 
     // Whether an arrival counts toward the badge. The application's, because
-    // which topics deserve one is (`ENGINEERING_RULES.md` §9).
+    // which topics deserve one is (`CLAUDE.md` §9).
     readonly counts?: (body: T) => boolean;
 
     readonly ringSlots?: number;
@@ -232,7 +232,7 @@ export class Inbox<A extends ApiTypes, T> {
 
             if (this.seen.get(event.id) !== undefined) {
                 // A reconnect replayed it. Normal operation, and the reason
-                // every handler here is idempotent (`ENGINEERING_RULES.md` §6).
+                // every handler here is idempotent (`CLAUDE.md` §6).
                 this.countSink("duplicate-event");
                 return;
             }

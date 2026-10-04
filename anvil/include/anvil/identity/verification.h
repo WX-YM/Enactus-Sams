@@ -10,7 +10,7 @@
 //
 // --- why the entropy argument has to be made explicitly ---------------------
 //
-// A six-digit code is about twenty bits. ENGINEERING_RULES.md §5 permits a fast hash for
+// A six-digit code is about twenty bits. CLAUDE.md §5 permits a fast hash for
 // token storage because "tokens carry ≥128 bits of CSPRNG entropy", and that
 // justification DOES NOT APPLY HERE: a SHA-256 of a six-digit code is
 // exhaustible in microseconds by anyone holding both the collection and the

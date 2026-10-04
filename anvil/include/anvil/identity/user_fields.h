@@ -26,7 +26,7 @@
 //
 // The names are short for the reason every stored key is: a twelve-character
 // key is twelve bytes on every document and in every index entry that carries
-// it, to spell something the code already knows (ENGINEERING_RULES.md §2.3).
+// it, to spell something the code already knows (CLAUDE.md §2.3).
 
 #include <string_view>
 
@@ -51,6 +51,14 @@ inline constexpr std::string_view kUsernameDisplay = "und";
 // other one — and an empty string is a value every phoneless account shares,
 // which defeats the partial filter just as thoroughly.
 inline constexpr std::string_view kPhone = "ph";
+
+// The application's profile — a given name, a family name, whatever its account
+// schema declares (anvil/accounts/schema.h) — under ONE subdocument, `pf.<key>`.
+// A subdocument rather than top-level keys, because the application chooses the
+// names: a profile key it spelled `st` or `pw` would otherwise overwrite the
+// status or the password hash of every account it touched, and no table check
+// could see that coming from a key it had never heard of.
+inline constexpr std::string_view kProfile = "pf";
 
 // The argon2id encoded hash, parameters and all. Read by exactly one projection.
 inline constexpr std::string_view kPasswordHash = "pw";

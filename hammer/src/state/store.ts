@@ -18,7 +18,7 @@
 // --- nothing here is global --------------------------------------------------
 //
 // No registry, no module-level instance, no `close()` that reaches something it
-// did not create (`ENGINEERING_RULES.md` §3.3). One owner per store: whoever constructed it
+// did not create (`CLAUDE.md` §3.3). One owner per store: whoever constructed it
 // disposes it, and a subscription hands back its own unsubscribe rather than a
 // token to look up in a table.
 
@@ -32,7 +32,7 @@ export type Readable<T> = {
     readonly get: () => T;
 
     // The return value is the unsubscribe and it is not optional to keep
-    // (`ENGINEERING_RULES.md` §3.3): a listener with no way off is a leak in a tab that
+    // (`CLAUDE.md` §3.3): a listener with no way off is a leak in a tab that
     // stays open for days, and a double-subscribed listener is a double render.
     readonly subscribe: (listener: (value: T) => void) => Unsubscribe;
 };

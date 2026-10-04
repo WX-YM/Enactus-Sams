@@ -28,7 +28,7 @@
 //                      ordinary API calls that cannot use it. This is exposure
 //                      reduction and a bytes-per-request saving.
 //
-// Security decides (ENGINEERING_RULES.md, priority order). The prefix is kept and the path
+// Security decides (CLAUDE.md, priority order). The prefix is kept and the path
 // scoping is given up: `__Host-rt` with `Path=/`. The refresh token remains
 // HttpOnly and Secure, so the cost is that it accompanies requests that will
 // not use it — not that it becomes readable.
@@ -73,7 +73,7 @@ inline constexpr std::string_view kRefreshCookieSameSite = "Strict";
 //
 // Named for the MECHANISM. The old name was one application's abbreviation for
 // one of its features, in a cookie this library sets on every deployment built
-// on it (ENGINEERING_RULES.md §1). A browser holding it is no longer recognised, and the
+// on it (CLAUDE.md §1). A browser holding it is no longer recognised, and the
 // recovery is the link the holder was handed — the token travels in the URL and
 // the cookie is only what the redirect leaves behind.
 //

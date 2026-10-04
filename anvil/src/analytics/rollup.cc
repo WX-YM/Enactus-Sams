@@ -17,6 +17,7 @@ namespace {
 // the granularity — both of which are fixed for one call to roll_bucket.
 struct AggregateKey final {
     DimensionValues dimensions;
+    Uuid            entity;
     EventCode       code;
 
     [[nodiscard]] bool operator==(const AggregateKey& other) const noexcept = default;
@@ -25,10 +26,15 @@ struct AggregateKey final {
 struct AggregateKeyHash final {
     [[nodiscard]] std::size_t operator()(const AggregateKey& key) const noexcept {
         // The dimension slots are one byte each and the code is small, so a
-        // shift-and-mix over five bytes is the whole of what is needed. There is
-        // no adversary here: the key space is closed by the event table.
+        // shift-and-mix over the whole key is the whole of what is needed.
+        // There is no adversary here: the key space is closed by the event
+        // table for the enum slots, and bounded by the application's admission
+        // check for the entity one (docs/17-analytics.md §19).
         std::size_t hashed = static_cast<std::size_t>(key.code);
         for (const std::uint8_t value : key.dimensions) {
+            hashed = (hashed * 131U) + value;
+        }
+        for (const std::uint8_t value : key.entity) {
             hashed = (hashed * 131U) + value;
         }
         return hashed;
@@ -88,7 +94,8 @@ Result<BucketReport> RollupJob::roll_bucket(mongocxx::client& client, db::TimeMs
 
         for (const EventRow& row : page.value().rows) {
             ++rows_read;
-            Aggregate& into = aggregated[AggregateKey{row.event.dimensions, row.event.code}];
+            Aggregate& into = aggregated[AggregateKey{row.event.dimensions, row.event.entity,
+                                                       row.event.code}];
             // The coalescer's REPEAT COUNT, not one per row. A folded window
             // standing for four thousand page views is four thousand page views;
             // counting it as one would make every rate in the dashboard wrong by
@@ -118,7 +125,7 @@ Result<BucketReport> RollupJob::roll_bucket(mongocxx::client& client, db::TimeMs
     for (const auto& [key, aggregate] : aggregated) {
         rows.push_back(RollupRow{start, aggregate.count,
                                  static_cast<std::int64_t>(aggregate.sessions.size()),
-                                 key.dimensions, key.code, granularity_});
+                                 key.dimensions, key.code, granularity_, key.entity});
     }
 
     // $set, so a second run over the same window produces one document with

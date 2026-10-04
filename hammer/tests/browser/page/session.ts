@@ -75,6 +75,9 @@ const state: AppState = appState({
     imageWorker: () => {
         throw new Error("this run decodes no images");
     },
+    // A real dedicated worker, built from the reference consumer's own worker
+    // entry and served beside this page by the harness.
+    prehashWorker: () => new Worker(new URL("./prehash_worker.js", import.meta.url), { type: "module" }),
     beaconTo: navigator,
     count: () => undefined,
 });

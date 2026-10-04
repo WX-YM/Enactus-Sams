@@ -30,7 +30,7 @@ PiiKeys::PiiKeys(std::span<const std::uint8_t> sealing, std::span<const std::uin
         throw std::invalid_argument{"PiiKeys: both keys must be exactly 32 bytes"};
     }
     // Constant time, though neither value is attacker-supplied: the comparison
-    // exists so that a misconfiguration is caught, and ENGINEERING_RULES.md §5 admits no
+    // exists so that a misconfiguration is caught, and CLAUDE.md §5 admits no
     // exception for "this one cannot leak" — the next reader cannot tell which
     // comparisons were exempt and why.
     if (crypto::secure_equal(sealing, indexing)) {

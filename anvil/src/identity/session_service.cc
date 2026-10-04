@@ -97,13 +97,14 @@ SessionService::SessionService(std::string database, std::string_view sessions_c
                                std::string_view users_collection,
                                std::span<const std::uint8_t> pepper,
                                std::shared_ptr<const auth::TokenKeys> keys, AuthzService& authz,
-                               SessionPolicy policy)
+                               SessionPolicy policy, SessionsRevoked on_revoked)
     : database_{std::move(database)},
       sessions_{database_, sessions_collection},
       users_{database_, users_collection},
       keys_{std::move(keys)},
       authz_{authz},
       policy_{policy},
+      on_revoked_{std::move(on_revoked)},
       pepper_{} {
     if (!keys_) { throw std::invalid_argument{"SessionService: token keys must not be null"}; }
     if (pepper.size() != pepper_.size()) {
@@ -154,8 +155,10 @@ Result<IssuedSession> SessionService::create(mongocxx::client& client,
     if (static_cast<std::int32_t>(live.value().size()) >= policy_.max_concurrent_sessions) {
         // list_for_user sorts by last_seen descending, so the least recently
         // seen is last.
-        const Status evicted = sessions_.revoke(client, live.value().back().id, user.id);
+        const Uuid oldest = live.value().back().id;
+        const Status evicted = sessions_.revoke(client, oldest, user.id);
         if (!evicted) { return evicted.error(); }
+        report_sessions_revoked(on_revoked_, client, user.id, std::span{&oldest, 1});
     }
 
     const bool staff = is_staff(user.user_type);
@@ -227,6 +230,7 @@ Result<IssuedSession> SessionService::refresh(mongocxx::client& client,
         if (!revoked) { return revoked.error(); }
         const Result<std::int64_t> bumped = authz_.bump_epoch(client, session.user_id);
         if (!bumped) { return bumped.error(); }
+        report_sessions_revoked(on_revoked_, client, session.user_id, std::span{&session.id, 1});
         return fail(ErrorCode::Unauthenticated, kRefreshReplayDetected);
     }
 
@@ -239,6 +243,7 @@ Result<IssuedSession> SessionService::refresh(mongocxx::client& client,
     if (!user.value().has_value() || user.value()->status != UserStatus::Active) {
         const Status revoked = sessions_.revoke(client, session.id, session.user_id);
         if (!revoked) { return revoked.error(); }
+        report_sessions_revoked(on_revoked_, client, session.user_id, std::span{&session.id, 1});
         return fail(ErrorCode::Unauthenticated, "status");
     }
 
@@ -299,22 +304,26 @@ Status SessionService::revoke(mongocxx::client& client, const Uuid& session_id,
     if (!revoked) { return revoked.error(); }
     const Result<std::int64_t> bumped = authz_.bump_epoch(client, user_id);
     if (!bumped) { return bumped.error(); }
+    // After the bump: the access token is what stops the session being used,
+    // and nothing the hook does should stand between a sign-out and that.
+    report_sessions_revoked(on_revoked_, client, user_id, std::span{&session_id, 1});
     return ok();
 }
 
 Result<std::int64_t> SessionService::revoke_all(mongocxx::client& client, const Uuid& user_id) {
-    const Result<std::int64_t> revoked = sessions_.revoke_all(client, user_id);
+    const Result<std::vector<Uuid>> revoked = sessions_.revoke_all(client, user_id);
     if (!revoked) { return revoked.error(); }
     // ONE bump for the whole set: the epoch is per user, not per session, so N
     // increments would be N writes to say the same thing once.
     const Result<std::int64_t> bumped = authz_.bump_epoch(client, user_id);
     if (!bumped) { return bumped.error(); }
-    return revoked.value();
+    report_sessions_revoked(on_revoked_, client, user_id, revoked.value());
+    return static_cast<std::int64_t>(revoked.value().size());
 }
 
 Result<std::int64_t> SessionService::revoke_others(mongocxx::client& client, const Uuid& user_id,
                                                    const Uuid& keep_session_id) {
-    const Result<std::int64_t> revoked =
+    const Result<std::vector<Uuid>> revoked =
         sessions_.revoke_all_except(client, user_id, keep_session_id);
     if (!revoked) { return revoked.error(); }
     // The epoch bump invalidates the SURVIVING session's access token too, which
@@ -323,7 +332,8 @@ Result<std::int64_t> SessionService::revoke_others(mongocxx::client& client, con
     // different things for different sessions is not one counter any more.
     const Result<std::int64_t> bumped = authz_.bump_epoch(client, user_id);
     if (!bumped) { return bumped.error(); }
-    return revoked.value();
+    report_sessions_revoked(on_revoked_, client, user_id, revoked.value());
+    return static_cast<std::int64_t>(revoked.value().size());
 }
 
 Result<std::vector<SessionView>> SessionService::list(mongocxx::client& client,

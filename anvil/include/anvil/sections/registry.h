@@ -126,7 +126,7 @@ inline constexpr std::size_t kMaxImagesPerSection = 16;
 // One editable field.
 //
 // Ordered largest-alignment-first so the row packs: the views, then the 2-byte
-// bound, then the three single-byte members (ENGINEERING_RULES.md §2.3).
+// bound, then the three single-byte members (CLAUDE.md §2.3).
 struct FieldSpec final {
     std::string_view key;                        // 16
 
@@ -146,7 +146,7 @@ struct FieldSpec final {
     std::span<const std::string_view> choices;   // 16
 
     // CODE POINTS, never bytes. A byte limit silently halves the allowance for
-    // any non-Latin script (ENGINEERING_RULES.md §8).
+    // any non-Latin script (CLAUDE.md §8).
     std::uint16_t    max_cp;                     //  2
     FieldType        type;                       //  1
 

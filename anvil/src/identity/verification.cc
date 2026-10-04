@@ -7,6 +7,14 @@
 
 #include "anvil/identity/verification.h"
 
+#include "anvil/accounts/schema.h"
+
+// The descriptor publishes the code length from accounts/schema.h, which cannot
+// include this header's database dependencies. One number, asserted here where
+// both are visible, so a client is never told to expect a code of a length
+// this process does not mint.
+static_assert(anvil::accounts::kAccountCodeDigits == anvil::identity::kVerificationCodeDigits);
+
 #include <algorithm>
 #include <array>
 #include <stdexcept>

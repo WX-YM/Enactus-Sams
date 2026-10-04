@@ -42,9 +42,10 @@ enum class Topic : n::TopicCode {
     SessionNewDevice = 3,
     SystemAnnouncement = 4,
     StaffAssigned    = 5,
+    ChatMessage      = 6,
 };
 
-inline constexpr std::array<n::TopicSpec, 6> kTopics{{
+inline constexpr std::array<n::TopicSpec, 7> kTopics{{
     // Broadcast: ONE row whatever the audience. This is the whole reason the
     // read-merge exists, and it is why a topic's fan-out is compile-time.
     // Webhook is in the mask because an ungated broadcast is the one topic shape
@@ -93,6 +94,13 @@ inline constexpr std::array<n::TopicSpec, 6> kTopics{{
     // and not trusted from whenever the subscription was written.
     {"staff.assigned", anvil::perm_mask(Perm::StaffManage), 90, 0, 5, FanOut::Write,
      n::channels(ClientType::InApp, ClientType::Email), n::Scope::Resource, true, true},
+
+    // Chat's push nudges (anvil/chat/push.h). Nothing is ever published to it:
+    // it exists so a push says what it is to the service worker, and so a
+    // device's preferences can turn chat pushes off. WebPush only, because the
+    // chat list is chat's inbox and a nudge writes no row.
+    {"chat.message", anvil::PermSet{}, 30, 0, 6, FanOut::Write,
+     n::channels(ClientType::WebPush), n::Scope::Account, false, true},
 }};
 
 static_assert(n::topic_table_is_well_formed(kTopics),
@@ -100,7 +108,7 @@ static_assert(n::topic_table_is_well_formed(kTopics),
               "with no default channel, or a zero retention");
 static_assert(n::topics_are_dense_from_zero(kTopics),
               "the lookup is a direct index; a sparse table turns it into a scan per publish");
-static_assert(kTopics.size() == 6,
+static_assert(kTopics.size() == 7,
               "adding a topic is a deliberate act: the code is stored on every row and is a "
               "bit position in every client's preferences");
 
@@ -125,9 +133,11 @@ enum class Template : n::TemplateId {
     FormAccepted     = 2,
     SessionNewDevice = 3,
     Announcement     = 4,
+    ChatPreview      = 5,
+    ChatPlain        = 6,
 };
 
-inline constexpr std::array<n::TemplateSpec, 5> kTemplates{{
+inline constexpr std::array<n::TemplateSpec, 7> kTemplates{{
     {{{"New post", "منشور جديد"}}, {{"{t} was published", "تم نشر {t}"}}, 0, 1},
 
     // Coalesced, so the count is part of the sentence rather than an afterthought:
@@ -148,6 +158,13 @@ inline constexpr std::array<n::TemplateSpec, 5> kTemplates{{
     // anything without a deploy — and it is escaped at render like every other
     // untrusted string.
     {{{"Announcement", "إعلان"}}, {{"{b}", "{b}"}}, 4, 1},
+
+    // A chat nudge (anvil/chat/push.h). `{t}` is the group's title, or the
+    // sender's name in a direct conversation; `{b}` is the newest message's
+    // text and is bound only for a reader who keeps previews on. The plain one
+    // is what a reader who turned them off is sent, so it has no `{b}` at all.
+    {{{"{t}", "{t}"}}, {{"{s}: {b}", "{s}: {b}"}}, 5, 3},
+    {{{"{t}", "{t}"}}, {{"{n} new messages", "{n} رسائل جديدة"}}, 6, 2},
 }};
 
 static_assert(n::template_table_is_well_formed(kTemplates),
@@ -155,7 +172,7 @@ static_assert(n::template_table_is_well_formed(kTemplates),
               "same placeholders in every locale, and must carry a non-empty valid-UTF-8 "
               "string for each");
 static_assert(n::templates_are_dense_from_zero(kTemplates));
-static_assert(kTemplates.size() == 5,
+static_assert(kTemplates.size() == 7,
               "a template id is stored on rows that outlive several deploys");
 
 }  // namespace testapp

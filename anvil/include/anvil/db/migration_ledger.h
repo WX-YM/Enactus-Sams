@@ -19,7 +19,7 @@
 // --- what the lock is, and what it is not -----------------------------------
 //
 // The claim is one find_one_and_update against an expiring lease: never
-// check-then-act (ENGINEERING_RULES.md §6). It is in MongoDB and not Redis because the
+// check-then-act (CLAUDE.md §6). It is in MongoDB and not Redis because the
 // ledger is here, a lock held in a store docs/10-timer-jobs.md §1 says is not
 // the system of record can disagree with the thing it locks, and a migration
 // must still run when Redis is down — it is the tool you reach for during an

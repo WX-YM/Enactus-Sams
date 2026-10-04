@@ -7,7 +7,7 @@
 // accepted, which is the only way a rule about what a caller can EXPRESS stays
 // true.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { Capability } from "../../src/wire/capability.js";
 import { burnsOnUse, capabilityToken, mintCapability } from "../../src/wire/capability.js";

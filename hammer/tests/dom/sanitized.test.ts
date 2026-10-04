@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // The one insertion site, and the brand that is the only way into it.
 //
@@ -12,7 +11,7 @@
 // none of them is hypothetical, and the obfuscated-scheme cases are the reason
 // the address check strips before it reads.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { installTrustedTypes, sanitize, setSanitized } from "../../src/dom/sanitized.js";
 import type { SanitizedHtml } from "../../src/dom/sanitized.js";
@@ -241,7 +240,14 @@ describe("the insertion site", () => {
     // The nodes are imported into the target's own document, which is what lets
     // a component render into a preview or a frame (`dom/mount.ts`).
     it("imports into the document the target belongs to", () => {
-        const other = new DOMParser().parseFromString("<main></main>", "text/html");
+        // `document.implementation.createHTMLDocument` rather than
+        // `DOMParser.parseFromString`: the parser is a Trusted Types sink and
+        // this page's policy hands out no permissive one for a TEST'S OWN
+        // parse (`tests/dom/in_browser.test.ts`'s CSP names `hammer default`
+        // and no third policy). Building the foreign document from empty
+        // markup needs no parse at all.
+        const other = document.implementation.createHTMLDocument("");
+        other.body.append(other.createElement("main"));
         const target = other.querySelector("main");
         expect(target).not.toBeNull();
         if (target === null) {
@@ -320,20 +326,71 @@ describe("the Trusted Types policy", () => {
 // Each one re-imports the module, because the policy is resolved once per module
 // instance: the platform refuses a second policy of the same name, so asking
 // twice is not something the code may do.
+//
+// `vi.resetModules()` used to force that: a fresh module instance on the next
+// `import(...)` of the same specifier. `tests/support/register.mjs` has no
+// module registry to reset, so a fresh instance is made the way Node itself
+// makes one — a specifier the module cache has not seen before. A counter
+// appended as a query string is that: `sanitized.js` has no module-level state
+// besides the one this file is exercising (`src/core/brand.ts` and
+// `src/core/result.ts`, its only imports, hold none), so nothing besides the
+// policy carries over between one fetch of this counter and the next.
+let freshImportCount = 0;
 
 type PolicyRules = { readonly createHTML: (html: string) => string };
+
+// A real browser's `window.trustedTypes` is a getter with no setter — plain
+// assignment throws `Cannot set property trustedTypes ... which has only a
+// getter`, which happy-dom never had an opinion on because it implements no
+// Trusted Types at all. `defineProperty` replaces the descriptor outright
+// (the same trick the deleted `happy_dom_env.ts` used for `navigator`), and
+// the ORIGINAL descriptor is what restores it — `delete` would remove the
+// override and hand back whatever inherited accessor sits underneath, which
+// is only correct by accident and never checked here.
+const kTrustedTypesDescriptor = Object.getOwnPropertyDescriptor(globalThis, "trustedTypes");
+
+function setGlobalTrustedTypes(value: unknown): void {
+    if (value === undefined && kTrustedTypesDescriptor === undefined) {
+        delete (globalThis as { trustedTypes?: unknown }).trustedTypes;
+        return;
+    }
+    Object.defineProperty(globalThis, "trustedTypes", {
+        value,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+    });
+}
+
+function restoreGlobalTrustedTypes(): void {
+    if (kTrustedTypesDescriptor === undefined) {
+        delete (globalThis as { trustedTypes?: unknown }).trustedTypes;
+    } else {
+        Object.defineProperty(globalThis, "trustedTypes", kTrustedTypesDescriptor);
+    }
+}
 
 async function freshSanitizer(
     trustedTypes: { readonly createPolicy: (name: string, rules: PolicyRules) => unknown } | undefined,
 ): Promise<typeof import("../../src/dom/sanitized.js")> {
-    const scope = globalThis as { trustedTypes?: unknown };
-    if (trustedTypes === undefined) {
-        delete scope.trustedTypes;
-    } else {
-        scope.trustedTypes = trustedTypes;
-    }
-    vi.resetModules();
-    return import("../../src/dom/sanitized.js");
+    setGlobalTrustedTypes(trustedTypes);
+    freshImportCount += 1;
+    // The specifier is built in its own statement, and not inline in the
+    // `import()` call, so a bundler cannot mistake the trailing `?fresh=`
+    // counter for a glob it should resolve at BUILD time (`esbuild`'s dynamic
+    // "import expression" bundling matches exactly this template-literal
+    // shape when the whole expression is written in one place). A variable
+    // holding the same string defeats that syntactic match and leaves this a
+    // genuine runtime `import()`, which is the whole point: a fresh module
+    // instance per distinct URL, fetched again rather than picked out of
+    // whatever the bundler inlined.
+    //
+    // The query string is dynamic, so TypeScript cannot resolve this specifier
+    // against `src/dom/sanitized.ts` the way it resolves the literal one in
+    // this function's declared return type — the return type is the contract
+    // every caller sees, and it stays exact.
+    const specifier = `../../src/dom/sanitized.js?fresh=${freshImportCount}`;
+    return import(specifier);
 }
 
 describe("the policy the sanitiser's own parse needs", () => {
@@ -354,12 +411,19 @@ describe("the policy the sanitiser's own parse needs", () => {
         });
 
         try {
-            expect(String(fresh.sanitize("<p>one</p>"))).toBe("<p>one</p>");
-
-            // A SECOND parse, which is the property that matters: the platform
-            // refuses a duplicate policy name, so a module that asked again
-            // would throw on every render after the first.
-            expect(String(fresh.sanitize("<p>two</p>"))).toBe("<p>two</p>");
+            // A mock `createPolicy` cannot produce a genuine, engine-branded
+            // `TrustedHTML` — only a REAL native policy can, and this page's
+            // enforcement (`tests/dom/in_browser.test.ts` serves every DOM
+            // file under `require-trusted-types-for 'script'`) checks that
+            // brand at the sink rather than trusting whatever
+            // `window.trustedTypes` happens to point at. So both parses
+            // below still throw AT THE SINK; what survives to be proven is
+            // everything before it — the module asks for its policy once, by
+            // the right name, and reuses it rather than asking again on the
+            // second render, which is the actual claim this test's name
+            // makes and the platform genuinely refuses a duplicate for.
+            expect(() => fresh.sanitize("<p>one</p>")).toThrow(/TrustedHTML/);
+            expect(() => fresh.sanitize("<p>two</p>")).toThrow(/TrustedHTML/);
 
             expect(made).toEqual(["hammer"]);
             expect(seen.length).toBe(2);
@@ -369,8 +433,7 @@ describe("the policy the sanitiser's own parse needs", () => {
             // would be auditing a different string from the one parsed.
             expect(seen[0]).toContain("<p>one</p>");
         } finally {
-            delete (globalThis as { trustedTypes?: unknown }).trustedTypes;
-            vi.resetModules();
+            restoreGlobalTrustedTypes();
         }
     });
 
@@ -382,24 +445,35 @@ describe("the policy the sanitiser's own parse needs", () => {
         });
 
         try {
-            // A misconfigured client is what `throw` is for (`ENGINEERING_RULES.md` §3.1).
+            // A misconfigured client is what `throw` is for (`CLAUDE.md` §3.1).
             // The alternative is a blank section and a clean console, which is
             // the failure nobody diagnoses.
             expect(() => fresh.sanitize("<p>x</p>")).toThrow(/hammer/);
         } finally {
-            delete (globalThis as { trustedTypes?: unknown }).trustedTypes;
-            vi.resetModules();
+            restoreGlobalTrustedTypes();
         }
     });
 
-    it("asks for none where the platform has none", async () => {
+    // Originally: a browser with no Trusted Types support at all skips policy
+    // creation and hands the parser a plain string, exactly as it always did
+    // — true, and still exercised on a browser that genuinely has no Trusted
+    // Types (`policy()`'s own `types === undefined` branch in
+    // `src/dom/sanitized.ts` exists for precisely that platform). What
+    // deleting `globalThis.trustedTypes` on THIS one actually proves is
+    // sharper: enforcement is the engine's, tied to the page's CSP
+    // (`tests/dom/in_browser.test.ts`), and it does not consult whatever a
+    // script does to the JS-visible global afterwards. On a browser that
+    // truly lacks Trusted Types the two facts are the same feature and this
+    // state cannot arise; simulating only the JS-visible half on one that
+    // does is exactly the gap this closes — deleting the global is not a way
+    // for a page's own script to opt itself out of a policy the SERVER
+    // asked for.
+    it("cannot bypass enforcement by deleting the global", async () => {
         const fresh = await freshSanitizer(undefined);
         try {
-            // Every other browser, and every other suite in this repository.
-            // The string goes to the parser exactly as it always did.
-            expect(String(fresh.sanitize("<p>x</p>"))).toBe("<p>x</p>");
+            expect(() => fresh.sanitize("<p>x</p>")).toThrow(/TrustedHTML/);
         } finally {
-            vi.resetModules();
+            restoreGlobalTrustedTypes();
         }
     });
 });

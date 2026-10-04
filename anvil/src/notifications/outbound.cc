@@ -66,15 +66,15 @@ const Transport* OutboundSender::transport_for(ClientType type) const noexcept {
     return nullptr;
 }
 
-Status OutboundSender::record(mongocxx::client& client, const ClientTarget& target,
-                              DeliveryVerdict verdict, db::TimeMs now,
-                              OutboundSummary& summary) const {
+Status record_verdict(const NotificationRepository& repository, mongocxx::client& client,
+                      const Uuid& endpoint, DeliveryVerdict verdict, db::TimeMs now,
+                      OutboundSummary& summary) {
     switch (verdict) {
         case DeliveryVerdict::Delivered:
             ++summary.delivered;
             // The streak resets. A transient failure that recovers must not
             // accumulate across weeks into a disable nobody can account for.
-            return repository_.clear_delivery_failures(client, target.id, now);
+            return repository.clear_delivery_failures(client, endpoint, now);
 
         case DeliveryVerdict::Gone:
         case DeliveryVerdict::Rejected:
@@ -82,18 +82,18 @@ Status OutboundSender::record(mongocxx::client& client, const ClientTarget& targ
             // produce a request at all. Neither has anything to retry into, so a
             // streak would only delay believing it.
             ++summary.disabled;
-            return repository_.disable_client(client, target.id, now, verdict);
+            return repository.disable_client(client, endpoint, now, verdict);
 
         case DeliveryVerdict::Transient: {
             const Result<std::int32_t> streak =
-                repository_.record_delivery_failure(client, target.id, verdict, now);
+                repository.record_delivery_failure(client, endpoint, verdict, now);
             if (!streak) { return streak.error(); }
             if (streak.value() < kMaxSoftFailures) { return ok(); }
             // A permanently broken webhook that retries forever is a
             // self-inflicted outbound flood aimed at somebody else's
             // infrastructure.
             ++summary.disabled;
-            return repository_.disable_client(client, target.id, now, verdict);
+            return repository.disable_client(client, endpoint, now, verdict);
         }
     }
     return fail(ErrorCode::Internal, f::kLastVerdict);
@@ -148,7 +148,8 @@ Result<bool> OutboundSender::attempt(mongocxx::client& client, const Notificatio
     // not start working on a retry either.
     const DeliveryVerdict outcome = verdict ? verdict.value() : DeliveryVerdict::Rejected;
 
-    if (const Status recorded = record(client, target, outcome, now, summary); !recorded) {
+    if (const Status recorded = record_verdict(repository_, client, target.id, outcome, now, summary);
+        !recorded) {
         return recorded.error();
     }
     return true;

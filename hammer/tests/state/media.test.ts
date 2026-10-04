@@ -3,7 +3,7 @@
 // The widths are the reference application's generated table, so what is
 // asserted is the ladder anvil published rather than one this file invented.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { imageSource, imageSources, uploadImage } from "../../src/state/media.js";
 import type { MediaConfig } from "../../src/state/media.js";

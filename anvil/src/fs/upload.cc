@@ -71,6 +71,7 @@ UploadSink::UploadSink(const Storage& storage, const UploadLimits& limits, Ns ns
       ns_{ns},
       aborted_{false},
       finished_{false},
+      accepted_{false},
       published_{false} {}
 
 // Written out rather than defaulted: a defaulted move leaves the source still
@@ -88,6 +89,7 @@ UploadSink::UploadSink(UploadSink&& other) noexcept
       ns_{other.ns_},
       aborted_{other.aborted_},
       finished_{other.finished_},
+      accepted_{other.accepted_},
       published_{other.published_} {
     other.storage_ = nullptr;
     other.published_ = true;
@@ -107,6 +109,7 @@ UploadSink& UploadSink::operator=(UploadSink&& other) noexcept {
         ns_ = other.ns_;
         aborted_ = other.aborted_;
         finished_ = other.finished_;
+        accepted_ = other.accepted_;
         published_ = other.published_;
         other.storage_ = nullptr;
         other.published_ = true;
@@ -181,17 +184,24 @@ Status UploadSink::write(std::span<const std::uint8_t> chunk) noexcept {
     return ok();
 }
 
-Result<UploadResult> UploadSink::finish(std::string_view claimed_content_type) {
+Status UploadSink::make_durable() noexcept {
     if (aborted_) { return fail(ErrorCode::PayloadTooLarge, kRejectOversize); }
     if (finished_ || !file_.valid()) { return fail(ErrorCode::Internal); }
     if (bytes_ == 0) { return fail(ErrorCode::ValidationFailed, kRejectEmpty); }
 
     // Durability first, validation second: the file must be on disk before the
-    // rename that publishes it, and the fsync is the slowest thing in this
-    // function whether or not the validation is going to reject it.
+    // rename that publishes it, and the fsync is the slowest thing in a finish
+    // whether or not the validation is going to reject it.
     if (!fsync_retry(file_.get())) { return fail(ErrorCode::Internal); }
     if (!fsync_retry(storage_->tmp_fd())) { return fail(ErrorCode::Internal); }
     finished_ = true;
+    return ok();
+}
+
+Result<UploadResult> UploadSink::finish(std::string_view claimed_content_type) {
+    // Before anything else, because nothing below may run on ciphertext.
+    if (ns_.sealed()) { return fail(ErrorCode::Internal); }
+    if (const Status durable = make_durable(); !durable) { return durable.error(); }
 
     const std::span<const std::uint8_t> head{head_.data(), head_size_};
 
@@ -232,11 +242,41 @@ Result<UploadResult> UploadSink::finish(std::string_view claimed_content_type) {
         return fail(ErrorCode::Internal);
     }
 
+    accepted_ = true;
     return UploadResult{digest, bytes_, id_, sniffed};
 }
 
+Result<UploadResult> UploadSink::finish_sealed(const crypto::Digest256& declared_sha256) {
+    if (!ns_.sealed()) { return fail(ErrorCode::Internal); }
+    if (const Status durable = make_durable(); !durable) { return durable.error(); }
+
+    crypto::Digest256 digest{};
+    try {
+        digest = digest_.finish();
+    } catch (...) {
+        return fail(ErrorCode::Internal);
+    }
+
+    // A plain comparison, not CRYPTO_memcmp: neither side is a secret. The
+    // declared digest is the client's own, and the computed one is of bytes
+    // the same client just sent, so a timing difference tells it nothing it
+    // did not already hold.
+    //
+    // The recipient checks the ciphertext hash again before decrypting
+    // (docs/22-chat.md §7.7), and that is the integrity control. This one
+    // exists so a stream truncated or altered on the way in fails for its
+    // sender now, rather than as an undecryptable attachment for every
+    // recipient later.
+    if (digest != declared_sha256) {
+        return fail(ErrorCode::ValidationFailed, kRejectSealedHash);
+    }
+
+    accepted_ = true;
+    return UploadResult{digest, bytes_, id_, Mime::Sealed};
+}
+
 Status UploadSink::publish() {
-    if (!finished_ || published_ || !file_.valid()) { return fail(ErrorCode::Internal); }
+    if (!accepted_ || published_ || !file_.valid()) { return fail(ErrorCode::Internal); }
 
     const Status renamed =
         publish_temp_file(*storage_, temp_relative_path(id_), ns_, id_, kMasterVariant);

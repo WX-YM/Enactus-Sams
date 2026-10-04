@@ -1,7 +1,7 @@
 // A read, held for as long as something is looking at it.
 //
 // The whole of this module is three rules from `docs/00-architecture.md` §7 and
-// one from `ENGINEERING_RULES.md` §7, and every one of them is a rule about what this layer
+// one from `CLAUDE.md` §7, and every one of them is a rule about what this layer
 // must NOT decide:
 //
 //   FRESHNESS IS THE SERVER'S. A response is served without asking again only
@@ -21,7 +21,7 @@
 //
 //   NOTHING OUTLIVES WHAT CREATED IT. An entry with no watchers has its request
 //   aborted and its store closed. A screen that unmounts stops paying for the
-//   read it started (`ENGINEERING_RULES.md` §3.3).
+//   read it started (`CLAUDE.md` §3.3).
 //
 // --- what a failure does to a value that is already on screen ---------------
 //
@@ -105,7 +105,7 @@ export const kResourceLoading: ResourceState<never, never> = {
 // What goes in the cache: the body, when it was stored, and what the server said
 // about storing it. The timestamp is MONOTONIC — an elapsed time this device
 // measured on both ends — and never a wall-clock instant compared against a
-// server one (`ENGINEERING_RULES.md` §6).
+// server one (`CLAUDE.md` §6).
 type Stored = {
     readonly body: unknown;
     readonly storedAtMs: number;
@@ -128,7 +128,7 @@ export type Resource<T, E> = {
     // without this each of them writes its own subscribe-and-unsubscribe dance —
     // which is where a listener gets left attached.
     //
-    // Takes a signal like every other async function here (`ENGINEERING_RULES.md` §3.1). An
+    // Takes a signal like every other async function here (`CLAUDE.md` §3.1). An
     // abort resolves with whatever the entry holds NOW rather than rejecting: the
     // caller is abandoning the wait, not discovering an error, and a rejection
     // would be an exception thrown for an expected condition.
@@ -147,7 +147,7 @@ export type Resource<T, E> = {
 
     // A value the server has NOT confirmed (`state/optimistic.ts`). It reaches
     // the store and never the cache, and it is marked stale, which is what makes
-    // `ENGINEERING_RULES.md` §6's rule mechanical rather than remembered: an unconfirmed
+    // `CLAUDE.md` §6's rule mechanical rather than remembered: an unconfirmed
     // value cannot be inherited by a second reader of this address, and nothing
     // downstream can mistake it for a confirmation.
     readonly provisional: (value: T) => void;
@@ -166,7 +166,7 @@ export type Resource<T, E> = {
     // does (`state/optimistic.ts`).
     readonly forget: () => void;
 
-    // Required, and required of every caller (`ENGINEERING_RULES.md` §3.3). The entry's
+    // Required, and required of every caller (`CLAUDE.md` §3.3). The entry's
     // request is aborted and its store closed when the last watcher lets go; a
     // handle nobody releases is a request that outlives the screen that wanted
     // it and a store nothing will ever close.
@@ -215,7 +215,7 @@ export type ResourceStoreConfig<A extends ApiTypes> = {
     readonly cache: CacheConfig;
 
     // Injected rather than read, so a test drives freshness deterministically
-    // instead of sleeping (`ENGINEERING_RULES.md` §3.3). Monotonic: the number is only ever
+    // instead of sleeping (`CLAUDE.md` §3.3). Monotonic: the number is only ever
     // subtracted from another reading of itself.
     readonly now?: MonotonicClock;
 
@@ -300,7 +300,7 @@ export class ResourceStore<A extends ApiTypes> {
         }
     }
 
-    // Every entry, held and live. What a logout fans out to (`ENGINEERING_RULES.md` §4).
+    // Every entry, held and live. What a logout fans out to (`CLAUDE.md` §4).
     clear(): void {
         this.cache.clear();
         for (const entry of this.live.values()) {

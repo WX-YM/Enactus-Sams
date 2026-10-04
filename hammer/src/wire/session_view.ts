@@ -47,7 +47,7 @@
 //
 // So the names are mapped back to bits HERE, through a table the application
 // supplies from its generated module, and what this library holds is still the
-// 16 bytes `ENGINEERING_RULES.md` §2.3 asks for. The alternative — keeping the names and
+// 16 bytes `CLAUDE.md` §2.3 asks for. The alternative — keeping the names and
 // comparing strings on every check — is the thing that rule exists to prevent.
 //
 // The table is the application's and not hammer's for the usual reason, and it
@@ -151,7 +151,7 @@ export type SessionDecodeError =
 // generated module. Every name the server can send is a key.
 //
 // A plain object rather than a `Map`, because the generated module is an object
-// literal with no call in it (`ENGINEERING_RULES.md` §2.1) and a `Map` needs a `new` at
+// literal with no call in it (`CLAUDE.md` §2.1) and a `Map` needs a `new` at
 // module scope. The keys are read with `Object.hasOwn` rather than by lookup:
 // the names come off the wire, and `bits["toString"]` on a plain object answers
 // a function nobody put there.

@@ -27,10 +27,20 @@ constexpr int kMasterAvifQuality = 80;
         case fs::Mime::Png:  return ".png";
         case fs::Mime::Webp: return ".webp";
         case fs::Mime::Avif: return ".avif";
+        // The file and sealed classes are never decoded, so they never have a
+        // container here.
+        case fs::Mime::Mp4:
+        case fs::Mime::Webm:
+        case fs::Mime::OggOpus:
+        case fs::Mime::M4a:
+        case fs::Mime::Pdf:
+        case fs::Mime::Sealed:
         case fs::Mime::Unknown: break;
     }
     return nullptr;
 }
+
+}  // namespace
 
 // One saver call per container. The four take different option NAMES for the
 // same two decisions — quality and chroma — and libvips ignores an unknown
@@ -45,7 +55,9 @@ constexpr int kMasterAvifQuality = 80;
 //
 // PNG is lossless: it takes neither option, which is the split the previous
 // quality-or-not branch already drew.
-[[nodiscard]] int save_master(VipsImage* image, VipsTarget* target, fs::Mime mime) {
+namespace detail {
+
+int save_master(VipsImage* image, VipsTarget* target, fs::Mime mime) {
     switch (mime) {
         case fs::Mime::Jpeg:
             return vips_image_write_to_target(image, ".jpg", target, "Q", kMasterJpegQuality,
@@ -64,6 +76,12 @@ constexpr int kMasterAvifQuality = 80;
         case fs::Mime::Png:
             return vips_image_write_to_target(image, ".png", target, ANVIL_VIPS_KEEP_NOTHING,
                                               nullptr);
+        case fs::Mime::Mp4:
+        case fs::Mime::Webm:
+        case fs::Mime::OggOpus:
+        case fs::Mime::M4a:
+        case fs::Mime::Pdf:
+        case fs::Mime::Sealed:
         case fs::Mime::Unknown: break;
     }
     // Unreachable: the caller rejects an unsupported container before it gets
@@ -73,7 +91,7 @@ constexpr int kMasterAvifQuality = 80;
     return -1;
 }
 
-}  // namespace
+}  // namespace detail
 
 Result<ImageInfo> normalise_master(int source_fd, fs::Mime mime, int output_fd) {
     if (!available()) { return fail(ErrorCode::Internal, kRejectUnreadable); }
@@ -132,7 +150,7 @@ Result<ImageInfo> normalise_master(int source_fd, fs::Mime mime, int output_fd) 
         }
     }
 
-    const int written = save_master(converted.get(), target.get(), mime);
+    const int written = detail::save_master(converted.get(), target.get(), mime);
     if (written != 0) {
         detail::clear_errors();
         return fail(ErrorCode::UnsupportedMedia,

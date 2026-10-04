@@ -3,14 +3,16 @@
 // The events are the reference application's generated `const`s, so
 // `requiresConsent` is what anvil declared rather than a flag this file set.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { AnalyticsSink } from "../../src/state/analytics.js";
 import type { ReportedEvent } from "../../src/state/analytics.js";
 import type { StateCount } from "../../src/state/counts.js";
+import { Uuid } from "../../src/core/uuid.js";
 import { beaconFrom, noBeacon } from "../../src/wire/beacon.js";
 import {
     eventPageViewed,
+    eventProjectViewed,
     eventSignupCompleted,
     eventSignupStarted,
 } from "../testapp/api/hammer.generated.js";
@@ -142,6 +144,46 @@ describe("AnalyticsSink", () => {
             code: 2,
             dimensions: { surface: "web" },
         });
+    });
+
+    it("encodes an entity dimension as the canonical Uuid string", async () => {
+        // `ProjectViewed` requires consent server-side, so it is granted here
+        // to get past the gate — what this test is actually about is what
+        // reaches the wire once it does: the `Uuid` object never does, only
+        // its 36-character canonical form.
+        const { sink: held, delivered } = sink({ flushAt: 1 });
+        held.setConsent("granted");
+        const id = Uuid.random();
+
+        held.report(eventProjectViewed, { project: id });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(delivered[0]?.[0]).toEqual({
+            name: "ProjectViewed",
+            code: 3,
+            dimensions: { project: id.format() },
+        });
+    });
+
+    it("omits an entity dimension that was never given a value", async () => {
+        // Not an empty string and not a null: the row anvil ingests has no
+        // column for an id the caller did not have yet.
+        const { sink: held, delivered } = sink({ flushAt: 1 });
+        held.setConsent("granted");
+
+        held.report(eventProjectViewed, {});
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(delivered[0]?.[0]).toEqual({
+            name: "ProjectViewed",
+            code: 3,
+            dimensions: {},
+        });
+        expect(Object.keys(delivered[0]?.[0]?.dimensions ?? { project: "" })).not.toContain(
+            "project",
+        );
     });
 
     it("puts a batch back when delivery was refused", async () => {

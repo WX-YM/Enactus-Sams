@@ -45,6 +45,9 @@ export function parts(): ScreenParts {
         setConsent: () => undefined,
         upload: async () => undefined,
         signIn: async () => ({ ok: true, value: undefined }),
+        signUp: async () => ({ ok: true, value: undefined }),
+        sendAccount: async () => ({ ok: true, value: undefined }),
+        prepare: async (body) => ({ ok: true, value: body }),
     };
 }
 

@@ -319,7 +319,7 @@ void me_handler(const drogon::HttpRequestPtr& req,
 
     // Bit order, not table order, and on the stack: the catalogue cannot hand
     // back more names than it holds, so the ceiling is a compile-time constant
-    // and the p99 case is three or four (ENGINEERING_RULES.md §2.1).
+    // and the p99 case is three or four (CLAUDE.md §2.1).
     std::array<std::string_view, testapp::kPerms.size()> held{};
     std::size_t count = 0;
     testapp::kPerms.for_each_name(ctx->permissions,

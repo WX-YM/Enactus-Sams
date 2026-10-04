@@ -102,7 +102,7 @@ struct IndexSpec final {
     // accident worth discovering in production.
     //
     // APPENDED LAST, after the three bytes above rather than in
-    // largest-alignment-first order (ENGINEERING_RULES.md §2.3), because every existing
+    // largest-alignment-first order (CLAUDE.md §2.3), because every existing
     // indexes.h aggregate-initialises this table positionally and a field
     // inserted in the middle would silently reinterpret every entry. `hidden`
     // fits in the padding the flags already leave, so the table grows by this

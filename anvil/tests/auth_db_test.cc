@@ -9,11 +9,19 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <optional>
+#include <utility>
 #include <string>
 #include <vector>
 
+#include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/builder/basic/kvp.hpp>
+
+#include "anvil/core/locale.h"
 #include "anvil/core/uuid.h"
+#include "anvil/db/codec.h"
 #include "anvil/crypto/random.h"
 #include "anvil/identity/sessions.h"
 #include "anvil/identity/users.h"
@@ -123,6 +131,72 @@ TEST_F(AuthDb, TheLoginProjectionCarriesTheHashAndTheAuthorityAndNothingElse) {
     EXPECT_EQ(record.perm_epoch, 1);
     EXPECT_EQ(record.failure_count, 0);
     EXPECT_FALSE(record.lock_until.has_value());
+}
+
+// An account schema may make the username optional (anvil/accounts/schema.h).
+// Written as an empty string it would be a value every such account shares
+// under the username's unique index; it has to be ABSENT, and every read that
+// decodes an account has to survive its absence.
+TEST_F(AuthDb, AnIdentifierTheAccountDoesNotHaveIsWrittenAbsent) {
+    const Uuid id = anvil::uuid::generate_v7();
+    const std::array<std::pair<std::string_view, std::string_view>, 2> profile{{
+        {"given_name", "ليلى"},
+        {"family_name", "Haddad"},
+    }};
+    ASSERT_TRUE(users()
+                    .insert(db(), NewUser{.id = id,
+                                          .email_normalised = "nousername@example.test",
+                                          .email_display = "NoUsername@Example.test",
+                                          .username_normalised = {},
+                                          .username_display = {},
+                                          .password_hash = "$argon2id$stand-in",
+                                          .phone_e164 = {},
+                                          .locale = anvil::Locale{},
+                                          .status = UserStatus::Active,
+                                          .profile = profile})
+                    .ok());
+
+    const auto raw = db()[std::string{scratch_names().for_collection(kUsers)}][std::string{kUsers}]
+                         .find_one(bsoncxx::builder::basic::make_document(
+                             bsoncxx::builder::basic::kvp("_id", anvil::db::codec::uuid_bin(id))));
+    ASSERT_TRUE(raw.has_value());
+    const bsoncxx::document::view doc = raw->view();
+    EXPECT_FALSE(doc["un"]) << "an absent username must not be stored as an empty string";
+    EXPECT_FALSE(doc["und"]);
+    EXPECT_FALSE(doc["ph"]);
+    EXPECT_EQ(doc["pf"]["given_name"].get_string().value, "ليلى");
+    EXPECT_EQ(doc["pf"]["family_name"].get_string().value, "Haddad");
+
+    const auto account = users().find_account(db(), id);
+    ASSERT_TRUE(account.ok());
+    ASSERT_TRUE(account.value().has_value());
+    EXPECT_EQ(account.value()->username, "");
+    EXPECT_EQ(account.value()->email, "NoUsername@Example.test");
+
+    const std::array<Uuid, 1> ids{id};
+    const auto names = users().names_of(db(), ids);
+    ASSERT_TRUE(names.ok());
+    ASSERT_EQ(names.value().size(), 1U);
+    EXPECT_EQ(names.value()[0].name, "");
+}
+
+TEST_F(AuthDb, TheCredentialRecordCarriesWhatAPasswordFlowNeeds) {
+    const Uuid id = create_account("carol", UserStatus::Active, "+201001234567");
+
+    const auto found = users().find_credential(db(), id);
+    ASSERT_TRUE(found.ok());
+    ASSERT_TRUE(found.value().has_value());
+    const auto& record = *found.value();
+    EXPECT_EQ(record.auth.id, id);
+    EXPECT_FALSE(record.auth.password_hash.empty());
+    EXPECT_EQ(record.email_normalised, "carol@example.test");
+    EXPECT_EQ(record.username_normalised, "carol");
+    EXPECT_EQ(record.phone_e164, "+201001234567");
+    EXPECT_GE(record.version, 1);
+
+    const auto missing = users().find_credential(db(), anvil::uuid::generate_v7());
+    ASSERT_TRUE(missing.ok());
+    EXPECT_FALSE(missing.value().has_value());
 }
 
 TEST_F(AuthDb, EachLoginIdentityResolvesThroughItsOwnField) {
@@ -517,7 +591,13 @@ TEST_F(AuthDb, RevokeOthersKeepsTheCallersOwnSession) {
 
     const auto revoked = sessions().revoke_all_except(db(), user, ids[1]);
     ASSERT_TRUE(revoked.ok());
-    EXPECT_EQ(revoked.value(), 2);
+    // Named, so whatever those sessions made can end with them; the kept one
+    // is not among them.
+    std::vector<Uuid> named = revoked.value();
+    std::sort(named.begin(), named.end());
+    std::vector<Uuid> expected{ids[0], ids[2]};
+    std::sort(expected.begin(), expected.end());
+    EXPECT_EQ(named, expected);
 
     const auto live = sessions().list_for_user(db(), user, now, 10);
     ASSERT_TRUE(live.ok());
@@ -525,6 +605,45 @@ TEST_F(AuthDb, RevokeOthersKeepsTheCallersOwnSession) {
     // Signing somebody out of the browser they are changing their password in is
     // the one outcome nobody wants from a password change.
     EXPECT_EQ(live.value()[0].id, ids[1]);
+}
+
+TEST_F(AuthDb, RevokingEverythingNamesEverySessionAcrossPages) {
+    const Uuid user = create_account("pages", UserStatus::Active);
+    const Uuid other = create_account("bystander", UserStatus::Active);
+    const anvil::db::TimeMs now = anvil::db::now_ms();
+    const auto add_session = [&](const Uuid& owner, std::uint8_t seed) {
+        const Uuid id = anvil::uuid::generate_v7();
+        EXPECT_TRUE(sessions()
+                        .insert(db(), NewSession{.id = id,
+                                                 .user_id = owner,
+                                                 .refresh_hash = some_digest(seed),
+                                                 .now = now,
+                                                 .expires_at = now + std::chrono::hours{24},
+                                                 .abs_expiry = now + std::chrono::hours{72},
+                                                 .ip = some_ip(),
+                                                 .user_agent_hash = UserAgentHash{},
+                                                 .user_type = UserType::Client})
+                        .ok());
+        return id;
+    };
+
+    // Past one page of ids, so the read-then-revoke loop has to go round.
+    std::vector<Uuid> ids;
+    for (std::uint8_t i = 0; i < 70; ++i) { ids.push_back(add_session(user, i)); }
+    const Uuid theirs = add_session(other, 0xFF);
+
+    const auto revoked = sessions().revoke_all(db(), user);
+    ASSERT_TRUE(revoked.ok());
+    std::vector<Uuid> named = revoked.value();
+    std::sort(named.begin(), named.end());
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ(named, ids);
+    EXPECT_TRUE(sessions().list_for_user(db(), user, now, 100).value().empty());
+    // Another account's session is neither revoked nor named.
+    const auto kept = sessions().list_for_user(db(), other, now, 10);
+    ASSERT_TRUE(kept.ok());
+    ASSERT_EQ(kept.value().size(), 1U);
+    EXPECT_EQ(kept.value()[0].id, theirs);
 }
 
 TEST_F(AuthDb, DeviceCountsForSeveralUsersComeBackInOneRoundTrip) {

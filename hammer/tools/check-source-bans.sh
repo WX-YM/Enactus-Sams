@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Bans that are absolute, and therefore worth enforcing mechanically rather than
-# in review (ENGINEERING_RULES.md §5, §3).
+# in review (CLAUDE.md §5, §3).
 #
 #   innerHTML &co  the markup-insertion sites. There is exactly ONE in this
 #                  library and it takes a SanitizedHtml whose constructor is
@@ -15,11 +15,11 @@
 #                  jitter that synchronises.
 #   web storage    a credential or an API response in localStorage/sessionStorage/
 #                  IndexedDB outlives the cookie that authorised it. hammer holds
-#                  no credential and persists no response (ENGINEERING_RULES.md §5, §2.3).
+#                  no credential and persists no response (CLAUDE.md §5, §2.3).
 #   document.cookie  hammer never reads a cookie. The ones that matter are
 #                  HttpOnly and the rest are the application's.
 #   blob reads     readAsArrayBuffer/readAsDataURL/createObjectURL put a whole
-#                  file in the one heap with the least room (ENGINEERING_RULES.md §2.2).
+#                  file in the one heap with the least room (CLAUDE.md §2.2).
 #   XMLHttpRequest  no cancellation, no streams, and a second transport is a
 #                  second place for the credential rules to be wrong.
 #   any/ts-ignore  a type hole is a runtime surprise with a paper trail.
@@ -80,7 +80,18 @@ check_ban "raw markup insertion" \
 check_ban "run-time code generation" \
           '(\beval\(|new Function\(|setTimeout\(["'"'"'\`]|setInterval\(["'"'"'\`])' src
 check_ban "predictable randomness" 'Math\.random' src
-check_ban "web storage"            '(localStorage|sessionStorage|indexedDB)' src
+# Web storage, and every IndexedDB type: a module that took an injected
+# `IDBFactory` would persist without ever spelling `indexedDB`, so the types are
+# banned with the global. ONE file is allowed IndexedDB, and only IndexedDB: the
+# encrypted-chat vault, which persists a device's keys and what it decrypted
+# because nothing else can hold them, and is destroyed with the session
+# (docs/05-chat.md §9.3). Everything else in the library persists nothing.
+kVaultStore="src/chat-e2ee/idb.ts"
+mapfile -t not_the_vault < <(find src \( -name '*.ts' -o -name '*.tsx' \) ! -path "$kVaultStore")
+check_ban "web storage" '(localStorage|sessionStorage|indexedDB|\bIDB[A-Z][A-Za-z]*\b)' "${not_the_vault[@]}"
+if [ -f "$kVaultStore" ]; then
+    check_ban "web storage beyond the vault's IndexedDB" '(localStorage|sessionStorage)' "$kVaultStore"
+fi
 check_ban "cookie access"          'document\.cookie' src
 check_ban "whole-file reads"       '(readAsArrayBuffer|readAsDataURL|createObjectURL)' src
 check_ban "a second transport"     'XMLHttpRequest' src

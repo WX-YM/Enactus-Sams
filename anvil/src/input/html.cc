@@ -47,7 +47,7 @@ namespace {
 // --- allow-lists ------------------------------------------------------------
 //
 // All three tables are constexpr and live in .rodata: shared across every
-// thread and every request, with no runtime construction (ENGINEERING_RULES.md §2.1).
+// thread and every request, with no runtime construction (CLAUDE.md §2.1).
 
 constexpr std::array<std::string_view, 14> kAllowedElements{
     {"p", "br", "strong", "em", "u", "ul", "ol", "li", "h2", "h3", "blockquote", "a", "figure",
@@ -194,18 +194,28 @@ struct Attribute final {
     return name.size() > 2 && starts_with_ci(name, "on");
 }
 
-[[nodiscard]] bool has_dangerous_scheme(std::string_view value) noexcept {
-    // Leading whitespace and control bytes are stripped before the compare:
-    // `java\tscript:` and ` javascript:` are both live in a browser, and a
-    // naive prefix test on the raw value misses both.
-    std::string folded;
-    folded.reserve(value.size());
+// Whitespace and control bytes are skipped during the compare: `java\tscript:`
+// and ` javascript:` are both live in a browser, and a naive prefix test on the
+// raw value misses both.
+//
+// Skipped in place rather than folded into a copy first. The copy was a heap
+// allocation inside a noexcept predicate, so an allocation failure was
+// std::terminate, and every validator that delegates its scheme decision here
+// inherited an allocation per call on its reject path.
+[[nodiscard]] bool folded_starts_with(std::string_view value, std::string_view scheme) noexcept {
+    std::size_t matched = 0;
     for (const char c : value) {
-        if (static_cast<std::uint8_t>(c) > 0x20U) { folded.push_back(lower(c)); }
+        if (matched == scheme.size()) { break; }
+        if (static_cast<std::uint8_t>(c) <= 0x20U) { continue; }
+        if (lower(c) != scheme[matched]) { return false; }
+        ++matched;
     }
-    const std::string_view text{folded};
-    return starts_with_ci(text, "javascript:") || starts_with_ci(text, "vbscript:") ||
-           starts_with_ci(text, "data:");
+    return matched == scheme.size();
+}
+
+[[nodiscard]] bool has_dangerous_scheme(std::string_view value) noexcept {
+    return folded_starts_with(value, "javascript:") || folded_starts_with(value, "vbscript:") ||
+           folded_starts_with(value, "data:");
 }
 
 [[nodiscard]] bool is_valid_lang(std::string_view value) noexcept {

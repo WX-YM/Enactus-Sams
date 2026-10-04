@@ -5,7 +5,7 @@
 // under test is the reference application's own — a table hammer populated would
 // be a table hammer had no business having.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { Invalidator } from "../../src/state/invalidate.js";
 import type { Invalidatable } from "../../src/state/invalidate.js";

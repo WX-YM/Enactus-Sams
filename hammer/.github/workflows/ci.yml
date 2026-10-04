@@ -18,7 +18,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       # `npm ci` rather than `npm install`: it installs the lockfile exactly and
@@ -27,6 +27,68 @@ jobs:
       # tests something nobody wrote.
       - run: npm ci
 
+      # `npm run test` needs a Chromium: the DOM and React suite runs in one
+      # (`tests/dom/in_browser.test.ts`, docs/15-tasks.md Phase 8 B2) and fails
+      # rather than skips with none found. GitHub's `ubuntu-latest` image ships
+      # Google Chrome at a fixed path; naming it explicitly, rather than
+      # letting `tests/browser/harness.ts` search its own candidate list,
+      # keeps the runner's install and the library's discovery independent —
+      # a future change to either does not silently stop testing the other.
+      - name: Point HAMMER_BROWSER at the runner's Chrome
+        run: |
+          set -euo pipefail
+          if command -v google-chrome >/dev/null 2>&1; then
+            binary="$(command -v google-chrome)"
+          else
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y chromium-browser
+            binary="$(command -v chromium-browser)"
+          fi
+          printf 'HAMMER_BROWSER=%s\n' "$binary" >> "$GITHUB_ENV"
+
       - run: npm run typecheck
       - run: npm run test
+      # A tolerated dependency is a WARNING here, not a failure — CLAUDE.md §12
+      # is explicit that a warning in development is not permission, only a
+      # visible debt, and tools/check-dependencies.sh prints its own
+      # `::warning::` annotation for each one when GITHUB_ACTIONS is set, so
+      # it shows up on the run and on the pull request without failing either.
+      # As of Phase 8's Part B, the tolerated tier is empty, so this run
+      # prints no such warning at all — but the check itself stays, because
+      # the tier is a policy that can gain an entry again, not a one-time fact.
       - run: npm run lint
+
+  # Nothing here reaches a user through this job passing except a tagged
+  # release, which is the one path this job exists to guard. It runs the same
+  # gate as `check` plus the production dependency policy and `npm audit`,
+  # both fail-closed (CLAUDE.md §12.3) — an unreachable registry is a failure
+  # here, never a skip, because a gate that passes when it cannot check passes
+  # whenever somebody wants it to.
+  release-gate:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # See the `check` job's identical step: `npm run check:production` runs
+      # `npm run check`, which needs a Chromium the same way.
+      - name: Point HAMMER_BROWSER at the runner's Chrome
+        run: |
+          set -euo pipefail
+          if command -v google-chrome >/dev/null 2>&1; then
+            binary="$(command -v google-chrome)"
+          else
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y chromium-browser
+            binary="$(command -v chromium-browser)"
+          fi
+          printf 'HAMMER_BROWSER=%s\n' "$binary" >> "$GITHUB_ENV"
+
+      - run: npm run check:production

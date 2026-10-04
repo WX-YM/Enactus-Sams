@@ -4,7 +4,7 @@
 // the abort plumbing rather than a duration: every delay is a handful of
 // milliseconds, and the case that would be slow is the one that never resolves.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { sleep } from "../../src/wire/schedule.js";
 

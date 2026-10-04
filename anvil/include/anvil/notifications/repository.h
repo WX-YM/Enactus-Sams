@@ -261,6 +261,15 @@ public:
         mongocxx::client& client, const TopicRef& topic, const std::optional<Uuid>& after,
         std::int32_t limit) const;
 
+    // The enabled WebPush endpoints of a page of accounts, in ONE `$in` on the
+    // owner/type index. For a sender whose audience is a list of accounts rather
+    // than a topic's subscribers — a chat nudge (chat/push.h) — so a page of a
+    // hundred recipients is one read and not a hundred. Projected as the
+    // subscriber scan is.
+    [[nodiscard]] Result<std::vector<ClientTarget>> push_targets(mongocxx::client& client,
+                                                                 std::span<const Uuid> owners,
+                                                                 std::int32_t limit) const;
+
     // The soft-failure streak, and the last attempt, in ONE write. A second write
     // beside it would double the delivery path's write volume to record when
     // something the first write already described happened.

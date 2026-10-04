@@ -6,8 +6,10 @@
 
 #include "anvil/identity/sessions.h"
 
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <bsoncxx/builder/basic/array.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
@@ -19,6 +21,9 @@
 #include <mongocxx/options/find.hpp>
 #include <mongocxx/options/update.hpp>
 #include <mongocxx/pipeline.hpp>
+#include <trantor/utils/Logger.h>
+
+#include "anvil/core/uuid.h"
 
 namespace anvil::identity {
 namespace {
@@ -84,6 +89,12 @@ namespace f = session_fields;
     return options;
 }
 
+// A bulk revocation reads and revokes this many ids at a time, for at most this
+// many pages. The cap on concurrent sessions is ten by default, so one page is
+// the ordinary case and the bound exists for the unordinary one.
+constexpr std::int64_t kRevokePage = 64;
+constexpr std::int32_t kRevokePages = 16;
+
 [[nodiscard]] bsoncxx::document::value revoke_update() {
     return make_document(kvp("$set", [](sub_document sub) {
         sub.append(kvp(codec::key_of(f::kRevoked), bsoncxx::types::b_bool{true}));
@@ -91,6 +102,19 @@ namespace f = session_fields;
 }
 
 }  // namespace
+
+void report_sessions_revoked(const SessionsRevoked& hook, mongocxx::client& client,
+                             const Uuid& user_id, std::span<const Uuid> session_ids) {
+    if (!hook || session_ids.empty()) { return; }
+    // The revocation has committed and its caller is owed its answer: what the
+    // hook ends is best effort, and a throw out of it must neither fail the
+    // sign-out nor escape a db_pool task.
+    try {
+        hook(client, user_id, session_ids);
+    } catch (...) {
+        LOG_ERROR << "session revocation hook threw for " << uuid::to_string(user_id);
+    }
+}
 
 Status SessionRepository::insert(mongocxx::client& client, const NewSession& session) const {
     return repo::guarded([&]() -> Status {
@@ -233,37 +257,72 @@ Status SessionRepository::revoke(mongocxx::client& client, const Uuid& session_i
     });
 }
 
-Result<std::int64_t> SessionRepository::revoke_all(mongocxx::client& client,
-                                                   const Uuid& user_id) const {
-    return repo::guarded([&]() -> Result<std::int64_t> {
-        bsoncxx::builder::basic::document filter;
-        codec::append_uuid(filter, f::kUserId, user_id);
-        filter.append(kvp(codec::key_of(f::kRevoked), bsoncxx::types::b_bool{false}));
-
-        mongocxx::collection sessions = bind(client);
-        // ttl-filter-exempt: same reason as revoke() — an expired row is still
-        // readable for up to a minute, and revoking it is exactly what a
-        // "sign out everywhere" must do.
-        const auto result = sessions.update_many(filter.view(), revoke_update().view());
-        return result.has_value() ? static_cast<std::int64_t>(result->modified_count()) : 0;
-    });
+Result<std::vector<Uuid>> SessionRepository::revoke_all(mongocxx::client& client,
+                                                        const Uuid& user_id) const {
+    return revoke_live(client, user_id, std::nullopt);
 }
 
-Result<std::int64_t> SessionRepository::revoke_all_except(mongocxx::client& client,
-                                                          const Uuid& user_id,
-                                                          const Uuid& keep_session_id) const {
-    return repo::guarded([&]() -> Result<std::int64_t> {
+Result<std::vector<Uuid>> SessionRepository::revoke_all_except(
+    mongocxx::client& client, const Uuid& user_id, const Uuid& keep_session_id) const {
+    return revoke_live(client, user_id, keep_session_id);
+}
+
+Result<std::vector<Uuid>> SessionRepository::revoke_live(mongocxx::client& client,
+                                                         const Uuid& user_id,
+                                                         std::optional<Uuid> keep) const {
+    return repo::guarded([&]() -> Result<std::vector<Uuid>> {
         bsoncxx::builder::basic::document filter;
         codec::append_uuid(filter, f::kUserId, user_id);
         filter.append(kvp(codec::key_of(f::kRevoked), bsoncxx::types::b_bool{false}));
-        filter.append(kvp(codec::key_of(f::kId), [&keep_session_id](sub_document sub) {
-            sub.append(kvp("$ne", codec::uuid_bin(keep_session_id)));
-        }));
+        if (keep.has_value()) {
+            filter.append(kvp(codec::key_of(f::kId), [&keep](sub_document sub) {
+                sub.append(kvp("$ne", codec::uuid_bin(*keep)));
+            }));
+        }
 
+        mongocxx::options::find options{};
+        options.projection(make_document(kvp(codec::key_of(f::kId), 1)));
+        options.limit(kRevokePage);
+
+        std::vector<Uuid> ended;
         mongocxx::collection sessions = bind(client);
-        // ttl-filter-exempt: as above.
-        const auto result = sessions.update_many(filter.view(), revoke_update().view());
-        return result.has_value() ? static_cast<std::int64_t>(result->modified_count()) : 0;
+        for (std::int32_t page = 0; page < kRevokePages; ++page) {
+            std::vector<Uuid> ids;
+            ids.reserve(static_cast<std::size_t>(kRevokePage));
+            // ttl-filter-exempt: same reason as revoke() — an expired row is
+            // still readable for up to a minute, and revoking it is exactly what
+            // a "sign out everywhere" must do.
+            for (const bsoncxx::document::view doc : sessions.find(filter.view(), options)) {
+                const Result<Uuid> id = codec::read_uuid(doc, f::kId);
+                if (!id) { return id.error(); }
+                ids.push_back(id.value());
+            }
+            if (ids.empty()) { return ended; }
+
+            // The user stays in the filter so a page can only ever revoke the
+            // rows that were read for this user, and `rev: false` so a row a
+            // concurrent revocation took is not written twice. Such a row is
+            // still reported: both revocations then name it, and ending what a
+            // session made is idempotent where it is ended.
+            bsoncxx::builder::basic::document by_id;
+            codec::append_uuid(by_id, f::kUserId, user_id);
+            by_id.append(kvp(codec::key_of(f::kRevoked), bsoncxx::types::b_bool{false}));
+            by_id.append(kvp(codec::key_of(f::kId), [&ids](sub_document sub) {
+                sub.append(kvp("$in", [&ids](sub_array values) {
+                    for (const Uuid& id : ids) { values.append(codec::uuid_bin(id)); }
+                }));
+            }));
+            sessions.update_many(by_id.view(), revoke_update().view());
+            ended.insert(ended.end(), ids.begin(), ids.end());
+        }
+
+        // Past kRevokePages pages somebody is signing in faster than this can
+        // name sessions, which the concurrent-session cap makes impossible for
+        // one account in ordinary use. The rest are revoked unnamed rather than
+        // left live: a sign-out that stops early is the worse failure, and what
+        // a session made is ended durably elsewhere (SessionsRevoked).
+        sessions.update_many(filter.view(), revoke_update().view());
+        return ended;
     });
 }
 

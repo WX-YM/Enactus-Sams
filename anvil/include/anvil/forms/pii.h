@@ -87,7 +87,7 @@ public:
     PiiKeys& operator=(const PiiKeys&) = delete;
 
 private:
-    // Declaration order is initialisation order (ENGINEERING_RULES.md §3.2).
+    // Declaration order is initialisation order (CLAUDE.md §3.2).
     crypto::SecretBuffer<kPiiKeyBytes> sealing_;
     crypto::SecretBuffer<kPiiKeyBytes> indexing_;
 };

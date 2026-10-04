@@ -1,10 +1,9 @@
-// @vitest-environment happy-dom
 //
 // The inbox list, and the part of it that is not a list of divs: one tab stop
 // for the whole thing, arrows inside it, and read state that is said rather than
 // only shown.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClassNames } from "../../src/core/tables.js";
 import { renderInbox } from "../../src/dom/inbox.js";

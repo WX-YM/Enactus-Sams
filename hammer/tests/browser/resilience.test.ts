@@ -7,7 +7,7 @@
 // FREEZE is not a timer that stops. It is the browser taking the tab's event
 // loop away and giving it back later, with its promises, its timers and its
 // streams in whatever state they were in — and the claim being tested is that
-// nothing hammer scheduled was load-bearing when that happened (`ENGINEERING_RULES.md` §6:
+// nothing hammer scheduled was load-bearing when that happened (`CLAUDE.md` §6:
 // nothing scheduled in a tab is durable). A fake clock cannot produce it,
 // because a fake clock is the thing that would have kept running. Chromium's
 // `Page.setWebLifecycleState` is the real event.
@@ -19,10 +19,9 @@
 // concurrent streams without complaint, which is how a list view fires a hundred
 // requests and the one the user is waiting for arrives last.
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "../support/test.js";
 
-import type { Browser, CDPSession, Page } from "playwright-core";
-
+import type { Browser, CDPSession, Page } from "./cdp.js";
 import type { Tabs } from "./harness.js";
 import { launch, liveTabs } from "./harness.js";
 
@@ -44,7 +43,7 @@ beforeAll(async () => {
     }
     await page.evaluate((it) => window.hammerTab.login(it.email, it.password), { email, password });
     await page.evaluate(() => window.hammerTab.loadSession());
-}, 120_000);
+}, { timeout: 120_000 });
 
 afterAll(async () => {
     await tabs?.close();
@@ -62,7 +61,7 @@ describe("a tab the browser takes away", () => {
     // naming it that would be the kind of green that costs more than a red.
     //
     // What IS asserted is the claim underneath it: nothing hammer scheduled was
-    // load-bearing when the browser took the event loop away (`ENGINEERING_RULES.md` §6).
+    // load-bearing when the browser took the event loop away (`CLAUDE.md` §6).
     it("resumes a request that was really in flight, with one outcome", async () => {
         // Slowed first, so the freeze lands while the request is on the wire
         // rather than after it came back. Against a loopback server a 404
@@ -202,7 +201,7 @@ describe("a tab on a congested network", () => {
             if (limited === undefined) return;
             // A client that invents its own backoff against a server that named
             // one retries straight back into the outage it was told to wait out
-            // (`ENGINEERING_RULES.md` §6).
+            // (`CLAUDE.md` §6).
             const count = Number(limited);
             const started = Date.now();
             await page.evaluate(async (many: number) => {

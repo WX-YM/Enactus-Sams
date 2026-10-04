@@ -68,7 +68,7 @@ struct Batch final {
 //
 // Never skip(n): it is O(n) server-side, so the last batch of a large collection
 // costs the most at exactly the point the run is most likely to be interrupted
-// (ENGINEERING_RULES.md §7). The whole document is read rather than a projection, because
+// (CLAUDE.md §7). The whole document is read rather than a projection, because
 // the transform is the step's and anvil cannot know which fields it needs.
 [[nodiscard]] bool read_batch(mongocxx::client& client, std::string_view database,
                               const MigrationStep& step,

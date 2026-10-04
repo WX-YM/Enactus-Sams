@@ -1,6 +1,6 @@
 // A section's published document and its draft, which must never share a key.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { ResourceStore } from "../../src/state/resource.js";
 import { Sections, labelAt } from "../../src/state/sections.js";

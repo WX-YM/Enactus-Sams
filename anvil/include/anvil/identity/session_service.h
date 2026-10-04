@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -120,10 +121,16 @@ public:
     // dump. Throws std::invalid_argument on a wrong-sized pepper or null keys —
     // a process that starts with a misconfigured signing story is worse than one
     // that does not start.
+    //
+    // `on_revoked` is told every session this service revokes, by whichever
+    // path: a sign-out, a bulk revocation, an eviction past the cap, a replay,
+    // and a refresh that finds its account no longer active. An application
+    // with chat devices forwards each to ChatService::session_ended, or "sign
+    // out everywhere" leaves the devices those sessions registered linked.
     SessionService(std::string database, std::string_view sessions_collection,
                    std::string_view users_collection, std::span<const std::uint8_t> pepper,
                    std::shared_ptr<const auth::TokenKeys> keys, AuthzService& authz,
-                   SessionPolicy policy = {});
+                   SessionPolicy policy = {}, SessionsRevoked on_revoked = {});
 
     // Creates a session and mints both tokens. Enforces the concurrent-session
     // cap FIRST, so an eviction is visible in the same request that caused it
@@ -183,6 +190,7 @@ private:
     std::shared_ptr<const auth::TokenKeys> keys_;
     AuthzService&                          authz_;
     const SessionPolicy                    policy_;
+    const SessionsRevoked                  on_revoked_;
     crypto::SecretBuffer<32>               pepper_;
 };
 

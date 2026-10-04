@@ -4,7 +4,7 @@
 // about colour, and the part of it that is load-bearing is a linear map from one
 // interval to another plus a routine for choosing round numbers. Both are below,
 // and the zero-dependency rule has no exception for convenience
-// (`ENGINEERING_RULES.md` §9).
+// (`CLAUDE.md` §9).
 
 export type Interval = {
     readonly from: number;
@@ -36,7 +36,7 @@ export function extent(values: Iterable<number>): Interval | null {
 
     // One pass, no intermediate arrays: a chart of ten thousand points would
     // otherwise allocate three of them for a minimum and a maximum
-    // (`ENGINEERING_RULES.md` §2.2).
+    // (`CLAUDE.md` §2.2).
     for (const value of values) {
         if (!Number.isFinite(value)) {
             continue;

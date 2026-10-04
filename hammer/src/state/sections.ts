@@ -47,7 +47,7 @@ export type SectionsConfig<A extends ApiTypes, R extends CallableRoute & { reado
 
     // How the stage and the section key reach the request. The names are the
     // server's vocabulary, so the application shapes the query and hammer names
-    // nothing (`ENGINEERING_RULES.md` §1) — the same seam the pager takes for its limit and
+    // nothing (`CLAUDE.md` §1) — the same seam the pager takes for its limit and
     // its cursor.
     readonly query: (where: { readonly key: string; readonly stage: SectionStage }) => RouteQuery;
 

@@ -471,7 +471,7 @@ ten thousand frames a second has consumed exactly one rate-limit event.
 | | Value | Why |
 |---|---|---|
 | `kMaxFramesPerWindow` / `kFrameWindow` | 120 per 10 s | Twelve a second sustained is far above any interface and far below a loop. Per connection, because the cost it bounds is paid per connection |
-| `kMaxFrameBytes` | 64 KiB | ENGINEERING_RULES.md §2.4: a frame is neither streamable nor worth 256 KB of inbound buffer per connection. Over it is a close, never a truncation — a truncated frame hands a handler a message that is not the one that was sent |
+| `kMaxFrameBytes` | 64 KiB | CLAUDE.md §2.4: a frame is neither streamable nor worth 256 KB of inbound buffer per connection. Over it is a close, never a truncation — a truncated frame hands a handler a message that is not the one that was sent |
 | `kRecheckPeriod` | `auth::kDefaultEpochTtl` | Faster cannot produce a different answer; slower makes a connection a way to outlive a revocation |
 
 Exceeding a budget **closes** rather than answering `429`. There is nobody to
@@ -493,6 +493,20 @@ deliver into it. A WebSocket carries the application's own messages and anvil ha
 no producer, so a ring here would be a container with no writer in this library —
 twenty lines an application can write, permanently part of the ABI, and one more
 thing to keep correct under concurrency.
+
+**Chat reverses this, and only chat.** The refusal's reason was that anvil had no
+producer. Chat is one: every send publishes wakes, and the subscriber that
+receives them has to hand them to a socket. So
+[`chat/hub.h`](../include/anvil/chat/hub.h) ships a registry and a per-socket
+ring under SSE's policy — a full ring drops the connection — with its slots out
+of `kUpgradeShare` and one socket per device. Which half of the refusal still
+stands: **the generic one.** There is still no registry or ring for an
+application's own WebSocket, because for those anvil still has no producer, and
+the reasoning above applies to them unchanged. An application's socket gets the
+budget, the re-check and the descriptor share, and nothing else; the chat hub is
+not a general-purpose connection registry and is not shaped to become one — its
+ring holds chat frames, its key is a device, and its only writer is the wake
+subscriber.
 
 What is genuinely anvil's is the **descriptor budget**, because it is one
 process-wide number that two subsystems would otherwise each spend in full.

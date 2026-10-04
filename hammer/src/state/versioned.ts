@@ -3,7 +3,7 @@
 // anvil's optimistic concurrency answers `VERSION_MISMATCH` when the document
 // moved under a writer. The client's job is to RECONCILE — re-read, re-apply,
 // re-present — and never to retry the same body, which converts a detected
-// conflict into a silent overwrite with extra steps (`ENGINEERING_RULES.md` §6). That is
+// conflict into a silent overwrite with extra steps (`CLAUDE.md` §6). That is
 // the whole of this module, and the shape is what enforces it: this function
 // returns, and there is no loop in it to hide a second attempt in.
 //

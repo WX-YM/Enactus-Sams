@@ -10,6 +10,7 @@
 #include <string_view>
 #include <vector>
 
+#include <bsoncxx/document/view.hpp>
 #include <mongocxx/client.hpp>
 #include <mongocxx/client_session.hpp>
 
@@ -29,6 +30,19 @@ public:
     // a 500 waiting for the first reader.
     [[nodiscard]] Status insert(mongocxx::client& client, const NewMedia& media) const;
 
+    // An edit's row, and the reference it holds on its source, in the caller's
+    // transaction (docs/21-image-edits.md §3.2). A detached edit carries no
+    // source and is inserted alone. A duplicate {ns, src, esha} is Conflict: the
+    // same edit of the same source already exists and the caller answers with
+    // that one.
+    [[nodiscard]] Status insert_edit(mongocxx::client& client, mongocxx::client_session& session,
+                                     const NewMedia& media) const;
+
+    // The object this exact recipe already produced from this source, if any.
+    [[nodiscard]] Result<std::optional<MediaRecord>> find_edit(
+        mongocxx::client& client, fs::Ns ns, const Uuid& source,
+        const crypto::Digest256& edit_sha) const;
+
     // nullopt when no row matches BOTH the id and the namespace. The caller maps
     // that to a stealth 404 and never distinguishes "wrong namespace" from "does
     // not exist" — the two must be indistinguishable to a client, or the pair of
@@ -39,8 +53,19 @@ public:
     // Deduplication: identical bytes are stored once and shared. Scoped to a
     // namespace, because sharing a FILE across namespaces would let an upload
     // into one resolve through a handler for another.
+    //
+    // An edit's row is never an answer. Its master's bytes can equal an upload's
+    // — a rotated photograph uploaded again, already rotated — and resolving that
+    // upload to the edit would hand a fresh upload a source it never had.
+    //
+    // The namespace's dedupe scope is applied HERE, in the filter, rather than by
+    // the caller: an `Owner` namespace matches only `owner`'s own rows, and a
+    // `None` namespace answers nullopt without asking the database. A caller
+    // that forgot to narrow would reopen the confirmation-of-file oracle
+    // fs::Dedupe exists to close, and nothing would fail.
     [[nodiscard]] Result<std::optional<MediaRecord>> find_by_hash(
-        mongocxx::client& client, fs::Ns ns, const crypto::Digest256& sha256) const;
+        mongocxx::client& client, fs::Ns ns, const Uuid& owner,
+        const crypto::Digest256& sha256) const;
 
     // $inc by `delta`, inside the caller's transaction. `session` is the OWNING
     // document's session, which is what makes the count and the reference it
@@ -52,6 +77,10 @@ public:
     // atomic operation: a concurrent attach that lands first leaves the filter
     // matching nothing, and the caller learns it must not unlink. nullopt means
     // "not claimed", never "deleted anyway".
+    //
+    // A row that is an edit releases its source IN THE SAME TRANSACTION as the
+    // claim. Released afterwards, a crash between the two leaks the source for
+    // good: a count no sweep can tell from a live reference.
     [[nodiscard]] Result<std::optional<MediaRecord>> delete_if_unreferenced(
         mongocxx::client& client, fs::Ns ns, const Uuid& id) const;
 
@@ -97,7 +126,7 @@ public:
 
     // Every row, in `_id` order, for the sweeper's second direction: rows whose
     // file is missing. Paginated by cursor — never skip(n), which is O(n)
-    // server-side (ENGINEERING_RULES.md §7).
+    // server-side (CLAUDE.md §7).
     [[nodiscard]] Result<std::vector<MediaRecord>> scan_after(mongocxx::client& client,
                                                               const std::optional<Uuid>& after,
                                                               std::int32_t limit) const;
@@ -114,6 +143,14 @@ public:
     // so the mismatch is the interlock.
     [[nodiscard]] Result<bool> clear_refs_if(mongocxx::client& client, fs::Ns ns, const Uuid& id,
                                              std::int32_t expected) const;
+
+private:
+    // The claim both deletes make, and the release an edit's claim carries.
+    // `corrupt` is set when the claimed row did not decode. The claim still
+    // commits — a corrupt row is not something a retry fixes — and the sweeper
+    // counts it as the failure it is.
+    [[nodiscard]] Result<std::optional<MediaRecord>> claim_releasing_source(
+        mongocxx::client& client, const bsoncxx::document::view& filter, bool& corrupt) const;
 };
 
 }  // namespace anvil::media

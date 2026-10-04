@@ -4,7 +4,7 @@
 // what is being asserted is how many things are running at once, which a delay
 // would only approximate.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { RequestQueue, kDefaultQueue } from "../../src/wire/queue.js";
 

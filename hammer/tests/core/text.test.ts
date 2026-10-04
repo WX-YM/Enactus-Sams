@@ -6,7 +6,7 @@
 // with no error rendered on the field because the client believed it had
 // already checked.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import {
     GraphemeMeter,

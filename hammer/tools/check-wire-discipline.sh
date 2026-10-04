@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The wire rules (ENGINEERING_RULES.md §6, §7), enforced where they are cheap to check.
+# The wire rules (CLAUDE.md §6, §7), enforced where they are cheap to check.
 #
 #   one transport      `fetch` and `EventSource` appear in src/wire/ and nowhere
 #                      else. A second call site is a second place for the

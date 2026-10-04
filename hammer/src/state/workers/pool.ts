@@ -27,7 +27,7 @@
 // this library has no bundler and takes no dependency on one. The application
 // hands over a factory — two lines in its own worker entry — and a test hands
 // over an object, which is the only reason any of this is testable at all
-// (`ENGINEERING_RULES.md` §3.3).
+// (`CLAUDE.md` §3.3).
 //
 // --- nothing posted to a pool captures a DOM node ----------------------------
 //
@@ -41,9 +41,15 @@ import type { CountSink } from "../counts.js";
 import { kNoCounts } from "../counts.js";
 
 // The slice of `Worker` this library uses, as a type it can be handed. A test
-// supplies its own; the platform's `Worker` satisfies it structurally.
+// supplies its own; the platform's `Worker` satisfies it structurally, and
+// `tests/testapp/app/workers.ts` is what keeps that sentence true.
+//
+// The transfer list is a mutable array and always passed, because that is how
+// the platform declares it. Declared `readonly` and optional, this type was one
+// a real `Worker` did NOT satisfy — every application would have needed a cast
+// to hand one over, and nothing noticed, because nothing had ever tried.
 export type WorkerLike = {
-    readonly postMessage: (message: unknown, transfer?: readonly Transferable[]) => void;
+    readonly postMessage: (message: unknown, transfer: Transferable[]) => void;
     readonly addEventListener: (type: string, handler: (event: Event) => void) => void;
     readonly removeEventListener: (type: string, handler: (event: Event) => void) => void;
     readonly terminate: () => void;
@@ -60,7 +66,7 @@ export type PoolError = {
         | "queue-full"
         // The worker reported a failure, or died. The reason is not carried: a
         // worker's error message is a string this library would have to render,
-        // and the words belong to the application (`ENGINEERING_RULES.md` §1).
+        // and the words belong to the application (`CLAUDE.md` §1).
         | "task-failed"
         // The caller asked for something this pool will not attempt. Refused on
         // the main thread, before a worker is spawned for a task that was going
@@ -156,7 +162,7 @@ export class WorkerPool {
 
     // Runs a task, or says why it will not.
     //
-    // Failure is in the return type (`ENGINEERING_RULES.md` §3.1): a rejection here is a
+    // Failure is in the return type (`CLAUDE.md` §3.1): a rejection here is a
     // certainty rather than an exception — it is what the pool DOES when it is
     // full — and a caller that has to write a `catch` for the expected case is a
     // caller that will not.
@@ -300,7 +306,7 @@ export class WorkerPool {
 
             const request: Request = { tag: kTag, id, task: held.task };
             try {
-                worker.postMessage(request, held.transfer);
+                worker.postMessage(request, [...held.transfer]);
             } catch {
                 // A message that will not clone — a function, a DOM node, a
                 // value with a cycle. Programmer error, but thrown from inside
@@ -376,12 +382,14 @@ function decodeReply(message: unknown): Reply | null {
 // lines and the envelope is spelled in exactly one place.
 //
 // It is a function rather than a module with a top-level listener because this
-// library has no top-level side effects (`ENGINEERING_RULES.md` §2.1): a module that
+// library has no top-level side effects (`CLAUDE.md` §2.1): a module that
 // registered a handler on import is a module a bundler cannot drop and a
 // promise `"sideEffects": false` stops keeping.
 export type WorkerScope = {
     readonly addEventListener: (type: string, handler: (event: Event) => void) => void;
-    readonly postMessage: (message: unknown, transfer?: readonly Transferable[]) => void;
+    // The same shape as `WorkerLike`'s, for the same reason: it is what a
+    // dedicated worker's global scope declares.
+    readonly postMessage: (message: unknown, transfer: Transferable[]) => void;
 };
 
 export function servePool(
@@ -404,10 +412,10 @@ export function servePool(
         // other side is never settled at all.
         void handle(data.task).then(
             (answer) => {
-                scope.postMessage({ tag: kTag, id, ok: true, value: answer.value }, answer.transfer ?? []);
+                scope.postMessage({ tag: kTag, id, ok: true, value: answer.value }, [...(answer.transfer ?? [])]);
             },
             () => {
-                scope.postMessage({ tag: kTag, id, ok: false, value: null });
+                scope.postMessage({ tag: kTag, id, ok: false, value: null }, []);
             },
         );
     });

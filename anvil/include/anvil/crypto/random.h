@@ -3,7 +3,7 @@
 // The only source of randomness in this codebase.
 //
 // std::rand, std::mt19937 and anything time-seeded are banned for security
-// purposes (ENGINEERING_RULES.md §5). A predictable capability id, session token or IV is
+// purposes (CLAUDE.md §5). A predictable capability id, session token or IV is
 // indistinguishable from having no protection at all.
 //
 // A CSPRNG failure throws. It must never fall back to a weaker source: silent

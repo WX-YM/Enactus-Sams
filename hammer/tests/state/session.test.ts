@@ -4,7 +4,7 @@
 // assembled by hand is one no server could have sent, and every assertion built
 // on it holds for a shape that does not exist.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { fail, ok } from "../../src/core/result.js";
 import type { HammerError } from "../../src/core/errors.js";

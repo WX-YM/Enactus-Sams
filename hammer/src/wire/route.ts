@@ -2,7 +2,7 @@
 //
 // Two rules, and `tools/check-wire-discipline.sh` fails the build on either
 // being broken: every path parameter goes through `encodeURIComponent`, every
-// query value through `URLSearchParams` (`ENGINEERING_RULES.md` §5). There is no function
+// query value through `URLSearchParams` (`CLAUDE.md` §5). There is no function
 // here that takes a URL and no `fetch(url)` anywhere in the public surface,
 // because a concatenated URL is an injection and an untyped route in one line.
 //
@@ -22,7 +22,7 @@
 //
 // It THROWS on a lone surrogate. `URIError`, from a value that is most often a
 // string somebody truncated in the middle of an emoji, on a path whose whole
-// design is that failure is in the return type (`ENGINEERING_RULES.md` §3.1). The
+// design is that failure is in the return type (`CLAUDE.md` §3.1). The
 // surrogate is found first and reported rather than thrown; the query side
 // needs the same check for the opposite reason, because `URLSearchParams` does
 // not throw there — it substitutes U+FFFD and sends a value that is not the one
@@ -32,7 +32,7 @@
 //
 // `{ limit, after }` and `{ after, limit }` are one request written twice, and
 // the address is what the in-flight dedupe and the resource cache are keyed by
-// (`ENGINEERING_RULES.md` §7). Sorting the keys costs a comparison sort over a handful of
+// (`CLAUDE.md` §7). Sorting the keys costs a comparison sort over a handful of
 // names and makes "one request per (route, params) in flight" a property of
 // this function rather than of the order somebody wrote an object literal in.
 
@@ -96,7 +96,7 @@ export type BuiltRoute = {
     // The query string with no leading `?`, empty when there is none. Separate
     // from the path because the two are separate in every place they are next
     // used: a cache key wants them apart, a log line drops the second
-    // (`ENGINEERING_RULES.md` §5), and `Request` takes them joined.
+    // (`CLAUDE.md` §5), and `Request` takes them joined.
     readonly query: string;
 };
 
@@ -113,7 +113,7 @@ function encodeSegment(value: string | number): Result<string, RouteBuildError> 
     // Normalised on the way out, not compared on the way back: two visually
     // identical strings that differ by composition are two different keys to the
     // server's index, and the one that was typed rather than pasted is the one
-    // that finds nothing (`ENGINEERING_RULES.md` §8).
+    // that finds nothing (`CLAUDE.md` §8).
     const text = toNfc(value);
     if (text.length === 0) {
         return fail("empty-parameter");

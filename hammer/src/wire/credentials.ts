@@ -192,7 +192,7 @@ export class Credentials {
     }
 
     // Releases the channel listener and the session's signal. Nothing outlives
-    // what created it (`ENGINEERING_RULES.md` §3.3).
+    // what created it (`CLAUDE.md` §3.3).
     close(): void {
         this.detach();
         this.session.abort();

@@ -51,7 +51,7 @@ struct FieldError final {
 
 // Bounds are in CODE POINTS, never bytes. Arabic is two bytes per character in
 // UTF-8, so a byte limit silently gives Arabic users half the allowance and a
-// CJK script a third of it (ENGINEERING_RULES.md §8).
+// CJK script a third of it (CLAUDE.md §8).
 struct TextRules final {
     std::size_t     min_code_points;
     std::size_t     max_code_points;

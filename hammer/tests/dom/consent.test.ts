@@ -1,11 +1,10 @@
-// @vitest-environment happy-dom
 //
 // The consent gate. Driven against a real `AnalyticsSink` rather than a stand-in
 // store, because the property worth asserting from here is the one that spans
 // both: pressing the control changes what the sink will accept, and nothing
 // requiring consent is queued before it has been pressed.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClassNames } from "../../src/core/tables.js";
 import { renderConsent } from "../../src/dom/consent.js";

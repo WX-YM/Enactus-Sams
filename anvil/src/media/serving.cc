@@ -4,6 +4,8 @@
 
 #include <drogon/HttpTypes.h>
 
+#include "anvil/accesscontrol/stealth.h"
+
 namespace anvil::media {
 
 std::string encode_accel_path(std::string_view path) {
@@ -100,8 +102,37 @@ fs::VariantKey resolve_role(const std::vector<images::VariantRecord>& variants,
     return fs::kMasterVariant;
 }
 
+namespace {
+
+[[nodiscard]] drogon::HttpResponsePtr redirect_to(fs::Ns ns, const Uuid& id, fs::VariantKey key,
+                                                  fs::Mime mime);
+
+}  // namespace
+
 drogon::HttpResponsePtr accel_redirect_response(fs::Ns ns, const Uuid& id, fs::VariantKey key,
                                                 fs::Mime mime) {
+    // Byte-identical to a missing object, because to a caller holding only an
+    // id that is exactly what a private object is.
+    if (ns.visibility() == fs::Visibility::Private) { return accesscontrol::not_found_response(); }
+    return redirect_to(ns, id, key, mime);
+}
+
+drogon::HttpResponsePtr accel_redirect_response(const MediaGrant& grant, fs::VariantKey key,
+                                                fs::Mime mime) {
+    return redirect_to(grant.ns(), grant.id(), key, mime);
+}
+
+namespace {
+
+drogon::HttpResponsePtr redirect_to(fs::Ns ns, const Uuid& id, fs::VariantKey requested_key,
+                                    fs::Mime stored_mime) {
+    // Forced rather than trusted for a sealed namespace (serving.h): the bytes
+    // there are attacker-chosen by definition, so the response is decided by
+    // the namespace and not by a row that could be wrong.
+    const bool sealed = ns.sealed();
+    const fs::Mime mime = sealed ? fs::Mime::Sealed : stored_mime;
+    const fs::VariantKey key = sealed ? fs::kMasterVariant : requested_key;
+
     // Resolved against what the row says was WRITTEN, so the redirect can only
     // ever name a file Nginx will find. A redirect into a path that does not
     // exist turns a clean 404 into a failure inside the proxy.
@@ -126,11 +157,29 @@ drogon::HttpResponsePtr accel_redirect_response(fs::Ns ns, const Uuid& id, fs::V
     // response is most likely to be reachable without a session in front of it.
     response->addHeader("X-Content-Type-Options", "nosniff");
     response->addHeader("Cache-Control", std::string{kMediaCacheControl});
-    // The body depends on the request's Accept and on nothing else a cache can
-    // see. Without this a shared cache would serve one client's AVIF to the
-    // next, which may not decode one.
-    response->addHeader("Vary", "Accept");
+    if (fs::mime_class(mime) == fs::MimeClass::Image) {
+        // The body depends on the request's Accept and on nothing else a cache
+        // can see. Without this a shared cache would serve one client's AVIF to
+        // the next, which may not decode one.
+        response->addHeader("Vary", "Accept");
+        return response;
+    }
+    // A stored file is the bytes a user sent, not pixels this process wrote, so
+    // the response is what makes it safe to serve. The sandbox gives a document
+    // opened from this URL no script, no origin and no forms, whatever the bytes
+    // turn out to be; the disposition keeps a PDF out of the browser's own
+    // viewer entirely (fs/sniff.h). Nothing varies with Accept: a file has one
+    // representation. A sealed blob drops even `media-src`: nothing plays it.
+    response->addHeader("Content-Security-Policy",
+                        std::string{fs::mime_class(mime) == fs::MimeClass::Sealed
+                                        ? kSealedContentSecurityPolicy
+                                        : kFileContentSecurityPolicy});
+    response->addHeader("Content-Disposition",
+                        fs::disposition(mime) == fs::Disposition::Attachment ? "attachment"
+                                                                             : "inline");
     return response;
 }
+
+}  // namespace
 
 }  // namespace anvil::media

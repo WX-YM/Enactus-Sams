@@ -7,7 +7,7 @@
 // defect where a control accepts what the transport then refuses, and the person
 // watches a file disappear with no reason attached to it.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { checkUpload } from "../../src/core/upload_bounds.js";
 

@@ -17,10 +17,14 @@ add_library(anvil_foundation STATIC
     core/descriptor_budget.cc
 
     crypto/aead.cc
+    crypto/argon2.cc
     crypto/base64url.cc
     crypto/digest.cc
+    crypto/ed25519.cc
     crypto/fast_hash.cc
     crypto/random.cc
+    crypto/siv.cc
+    crypto/x25519.cc
 
     i18n/utf8.cc
     i18n/digits.cc
@@ -37,6 +41,11 @@ add_library(anvil_foundation STATIC
 
     auth/token.cc
     auth/password.cc
+    auth/prehash.cc
+
+    # The account layer's pure half: canonical identifiers. The flows, which
+    # need the database and Drogon, are in anvil_app below.
+    accounts/identifier.cc
     auth/epoch_cache.cc
 
     # The two halves of the forms subsystem that need no driver. They are HERE
@@ -49,6 +58,23 @@ add_library(anvil_foundation STATIC
     # Pure CPU, so it sits beside the seam it serves rather than with the
     # repository that stores what it renders.
     notifications/render.cc
+
+    # The image edit's pure half: the recipe codec and the stroke rasteriser.
+    # No libvips, so a build without the image subsystem still validates a
+    # recipe, and the foundation suite tests both without a decoder.
+    images/recipe.cc
+    images/stroke_raster.cc
+
+    # Chat's message validators: text, mentions, link previews and reactions.
+    # Pure CPU over ICU and the input/ predicates, so the foundation suite
+    # tests every rule without a database or a socket.
+    chat/text.cc
+
+    # The chat socket's frame codec. Pure bytes with no drogon in it, so the
+    # grammar is tested and fuzzed without a socket, and the hub that owns
+    # the socket sits above it.
+    chat/frames.cc
+    chat/hub.cc
 
     # The metrics half of the analytics subsystem. Pure CPU — atomics, a
     # constexpr table and a string buffer — and it belongs HERE rather than in
@@ -195,7 +221,7 @@ if(ANVIL_WITH_VIPS)
         images/probe.cc
         images/strip.cc
         images/variants.cc
-        images/crop.cc
+        images/edit.cc
     )
     target_link_libraries(anvil_platform PUBLIC PkgConfig::VIPS)
     target_compile_definitions(anvil_platform PUBLIC ANVIL_HAS_VIPS=1)
@@ -220,9 +246,13 @@ add_library(anvil_app STATIC
     identity/session_service.cc
     identity/authz.cc
     identity/password_service.cc
+    identity/prehash_service.cc
     identity/capabilities.cc
     identity/verification.cc
     identity/staff.cc
+
+    accounts/service.cc
+    accounts/routes.cc
 
     audit/buffer.cc
     audit/repository.cc
@@ -237,14 +267,35 @@ add_library(anvil_app STATIC
     analytics/rollup.cc
     analytics/query.cc
 
+    media/grant.cc
     media/repository.cc
     media/service.cc
     media/serving.cc
+    media/grant_route.cc
 
     sections/payload.cc
     sections/repository.cc
     sections/service.cc
     sections/bootstrap.cc
+
+    entries/payload.cc
+    entries/repository.cc
+    entries/service.cc
+
+    chat/repository.cc
+    chat/service.cc
+    chat/routes.cc
+    chat/render.cc
+    chat/live.cc
+    chat/socket.cc
+    chat/presence.cc
+    chat/activity_gate.cc
+    chat/wakes.cc
+    chat/member_cache.cc
+    chat/devices.cc
+    chat/prekeys.cc
+    chat/device_queue.cc
+    chat/push.cc
 
     forms/repository.cc
     forms/service.cc
@@ -276,6 +327,7 @@ target_link_libraries(anvil_app PUBLIC anvil::platform)
 if(ANVIL_WITH_VIPS)
     target_sources(anvil_app PRIVATE
         media/pipeline.cc
+        media/edit_routes.cc
         sections/default_images.cc
     )
 endif()

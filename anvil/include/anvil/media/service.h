@@ -42,7 +42,9 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <span>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include <mongocxx/client.hpp>
@@ -53,6 +55,8 @@
 #include "anvil/fs/namespace.h"
 #include "anvil/fs/paths.h"
 #include "anvil/fs/sniff.h"
+#include "anvil/fs/upload.h"
+#include "anvil/images/recipe.h"
 #include "anvil/images/variants.h"
 #include "anvil/media/record.h"
 #include "anvil/media/repository.h"
@@ -67,6 +71,68 @@ struct ProcessedMedia final {
     std::uint32_t                      width;
     std::uint32_t                      height;
     fs::Mime                           mime;
+};
+
+// The stage a stored FILE takes instead of media::process (fs/sniff.h): there
+// is nothing to probe, normalise or derive, so the bytes that arrived are
+// published as the master unchanged and the row records no size and no
+// variants. Width and height are zero rather than guessed — what a player needs
+// to know about a file travels as content beside it, from the client that had
+// it (docs/22-chat.md §6.2).
+//
+// Refuses an IMAGE with Internal: an image stored this way would skip the
+// normalisation that strips its metadata, and serving the original EXIF is
+// exactly what the image path exists to prevent. Blocking (fsync and rename),
+// so it runs on a worker pool, never on a loop thread.
+[[nodiscard]] Result<ProcessedMedia> store_file(fs::UploadSink& sink,
+                                                const fs::UploadResult& upload);
+
+// The stage a SEALED upload takes (fs/sniff.h): the ciphertext that arrived is
+// published as the master, with no variants and a size of zero, exactly as
+// store_file publishes a file. A separate function rather than store_file
+// taking both classes, so that each refuses the other's input: store_file
+// refuses Sealed and this refuses everything else, with Internal, and
+// media::process refuses both. `upload` comes from UploadSink::finish_sealed,
+// which already compared the client's declared hash.
+//
+// The per-account byte budget is not enforced here; see
+// UploadSink::finish_sealed for where it lives and why. Blocking (rename and
+// fsync), so it runs on a worker pool, never on a loop thread.
+[[nodiscard]] Result<ProcessedMedia> store_sealed(fs::UploadSink& sink,
+                                                  const fs::UploadResult& upload);
+
+// --- edits (docs/21-image-edits.md) ------------------------------------------
+//
+// Three stages on three pools, for the reason the upload is three methods: the
+// render is seconds of libvips and must not hold a database client, and the
+// lookups must not run on cpu_pool.
+//
+//   db_pool  : prepare_edit()    decode, find the source, plan, find an existing edit
+//   cpu_pool : media::render()   orient, crop, resize, draw, derive variants
+//   db_pool  : record_edit()     insert the row and the source's reference, LAST
+
+// An edit whose recipe decoded, whose source exists and is a source, and whose
+// plan fits. Everything the render needs, and nothing it would have to look up.
+struct PreparedEdit final {
+    images::Recipe            recipe;
+    std::vector<std::uint8_t> canonical;
+    crypto::Digest256         edit_sha;
+    images::EditPlan          plan;
+    Uuid                      source;
+    fs::Mime                  mime;
+    // Stored with no source, recipe or key: it cannot be reopened, it holds no
+    // reference, and it is what lets the source be collected (§7).
+    bool                      detach;
+};
+
+// The object an edit resolved to. `created` is false when the same edit of the
+// same source already existed, which is a success like any other: a retry after
+// a lost response is supposed to land here.
+struct EditedMedia final {
+    Uuid          id;
+    std::uint32_t width;
+    std::uint32_t height;
+    bool          created;
 };
 
 // How many rows ONE purge request takes. Bounded because the alternative is a
@@ -102,8 +168,12 @@ public:
     // Called BEFORE any image work. Identical bytes have already been probed,
     // normalised and transcoded once; doing it again is seconds of cpu_pool
     // spent to produce a file that already exists.
+    //
+    // `owner` is who is uploading. It narrows the answer only in a namespace
+    // whose dedupe scope is `Owner` (anvil/fs/namespace_spec.h).
     [[nodiscard]] Result<std::optional<MediaRecord>> find_duplicate(
-        mongocxx::client& client, fs::Ns ns, const crypto::Digest256& sha256) const;
+        mongocxx::client& client, fs::Ns ns, const Uuid& owner,
+        const crypto::Digest256& sha256) const;
 
     // Inserts the row, LAST, after every file is in place. On failure the files
     // are unlinked, so a failed insert leaves nothing rather than an orphan.
@@ -127,6 +197,31 @@ public:
 
     [[nodiscard]] Result<std::optional<MediaRecord>> find(mongocxx::client& client, fs::Ns ns,
                                                           const Uuid& id) const;
+
+    // The first stage of an edit. db_pool.
+    //
+    // Refuses a recipe that does not decode or does not fit its source, with the
+    // fault in Failure::field (images::field_error maps it for the wire). A
+    // source that does not exist, or exists in another namespace, is NotFound —
+    // the stealth answer, because it is the same filter. A source that is itself
+    // an edit is refused: re-editing sends the whole recipe against the
+    // ORIGINAL, which is what keeps every edit one lossy generation from its
+    // master and means no two recipes ever have to be composed.
+    //
+    // Answers an EditedMedia when this exact recipe already produced an object
+    // from this source, and a PreparedEdit for the render otherwise.
+    [[nodiscard]] Result<std::variant<EditedMedia, PreparedEdit>> prepare_edit(
+        mongocxx::client& client, fs::Ns ns, const Uuid& source,
+        std::span<const std::uint8_t> recipe, bool detach) const;
+
+    // The last stage: the row and the source's reference, in one transaction.
+    // db_pool. Losing a race to an identical edit is not a failure: this
+    // attempt's files — all under its own fresh id, so nothing else can be
+    // touched — are removed and the winner is the answer.
+    [[nodiscard]] Result<EditedMedia> record_edit(mongocxx::client& client, fs::Ns ns,
+                                                  const Uuid& owner, const PreparedEdit& edit,
+                                                  const ProcessedMedia& rendered,
+                                                  const crypto::Digest256& sha256) const;
 
     // One namespace, newest first, bounded.
     //

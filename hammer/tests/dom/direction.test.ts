@@ -1,17 +1,16 @@
-// @vitest-environment happy-dom
 //
 // Every component under `dir="rtl"`, enumerated.
 //
 // Direction is not a stylesheet concern. It is a property of the document AND of
 // every element holding text, and a component that assumes left is wrong for a
-// whole audience rather than slightly off for everybody (`ENGINEERING_RULES.md` §8).
+// whole audience rather than slightly off for everybody (`CLAUDE.md` §8).
 //
 // The words are the reference consumer's real Arabic table, not a stand-in:
 // `tests/testapp/app/component_copy.ts` carries both locales because the
 // application has to, and rendering the real ones is what makes this a test of
 // the components rather than of a fixture.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "../support/test.js";
 
 import { components, mountEach } from "./registry.js";
 

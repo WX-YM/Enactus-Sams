@@ -2,7 +2,7 @@
 //
 // `skip(n)` is O(n) server-side: the database walks and discards n documents to
 // answer page five hundred, and it does that for every reader on every refresh.
-// anvil has no route that accepts one (anvil `ENGINEERING_RULES.md` §7), so the only thing
+// anvil has no route that accepts one (anvil `CLAUDE.md` §7), so the only thing
 // left to decide is whether a client can ASK for one — and the answer here is
 // that it cannot spell one. There is no `offset` field on any type in this
 // module and no function that takes a number as a position.

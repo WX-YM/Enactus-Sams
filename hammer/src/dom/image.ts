@@ -8,7 +8,7 @@
 // anvil serves image bytes with `sendfile()` precisely so they never enter ITS
 // heap; decoding them into a JS `Blob` to display them would put the whole file
 // in the one heap with the least room, on the device least able to spare it, and
-// lose the CDN cache besides (`ENGINEERING_RULES.md` §2.2).
+// lose the CDN cache besides (`CLAUDE.md` §2.2).
 //
 // So this module sets attributes. That is the entire implementation, and the
 // fact that it is short is the design rather than an absence of one.
@@ -49,7 +49,7 @@ export type ImageOptions = {
     // The words. Required, and an empty string is a real answer: it marks an
     // image that carries no information a reader would otherwise miss. What is
     // not available is leaving it out, because an unlabelled image is a defect
-    // and one shipped from here ships to every consumer at once (`ENGINEERING_RULES.md` §9).
+    // and one shipped from here ships to every consumer at once (`CLAUDE.md` §9).
     readonly alt: string;
 
     // CSS pixels, both of them. See above.
@@ -91,7 +91,7 @@ export function renderImage(mount: Element, options: ImageOptions): Mounted {
     // Isolated, and the reason is the case people forget: when the image does
     // not load, the browser renders this text INLINE in the page flow. That is
     // user-authored text interpolated into a sentence, which is precisely what
-    // `ENGINEERING_RULES.md` §8 says must carry its own direction — an RTL caption without
+    // `CLAUDE.md` §8 says must carry its own direction — an RTL caption without
     // it reorders the Latin words around it, changing which words the sentence
     // appears to contain. An attribute cannot hold `dir`, so the isolate travels
     // in the value.

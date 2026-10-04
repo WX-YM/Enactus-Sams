@@ -3,7 +3,7 @@
 // The explain contract: every query an application issues is covered by an index
 // it declares, and a query that is not fails the build rather than production.
 //
-// Adding a query without adding its index is not allowed (ENGINEERING_RULES.md §7), and
+// Adding a query without adding its index is not allowed (CLAUDE.md §7), and
 // that rule is unenforceable by inspection — a COLLSCAN on a collection with
 // four hundred rows in a developer's database is indistinguishable from an index
 // scan, and stays that way until the collection has four hundred thousand.

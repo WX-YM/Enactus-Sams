@@ -22,7 +22,7 @@
 //      `<script`, `<iframe` or an `on*` handler is not a formatting mistake to
 //      be cleaned up quietly — it is a staff account doing something no editor
 //      produces, and it earns a rejection and an audit row.
-//   4. NO REGEX. std::regex is banned on every request path (ENGINEERING_RULES.md §5), and
+//   4. NO REGEX. std::regex is banned on every request path (CLAUDE.md §5), and
 //      an HTML sanitiser built on backtracking patterns is both the classic
 //      ReDoS target and the classic bypass target. This is a single linear pass
 //      with an explicit element stack.

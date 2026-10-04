@@ -8,7 +8,7 @@
 // `descriptor/route_description.h` carries a span of these per route and is
 // included by every table an application declares, while the writer is included
 // only by the handlers that write one. A table should not pay for a template it
-// never instantiates (ENGINEERING_RULES.md §8).
+// never instantiates (CLAUDE.md §8).
 //
 // Read response_writer.h for the argument this vocabulary exists to serve: that
 // a described body can only be produced by walking its declaration in order, so

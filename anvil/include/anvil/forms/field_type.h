@@ -11,7 +11,7 @@
 // way: silently, by reinterpreting rows that are already written.
 //
 // A table of eleven field types is one application's vocabulary. `FieldTypeSpec`
-// is machinery. That split is the whole of ENGINEERING_RULES.md §1, and it is why this
+// is machinery. That split is the whole of CLAUDE.md §1, and it is why this
 // arrives as a `std::span` handed to the service rather than through the
 // configuration header: a field-type table is only ever LOOKED UP and dimensions
 // nothing anvil compiles (docs/01-seams.md §5).

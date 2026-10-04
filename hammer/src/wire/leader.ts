@@ -5,7 +5,7 @@
 //
 //   THE REFRESH. anvil rotates the refresh token as a compare-and-swap, so two
 //   tabs refreshing concurrently is a rotation race whose loser is logged out —
-//   with a valid session, in the tab somebody was using (`ENGINEERING_RULES.md` §4).
+//   with a valid session, in the tab somebody was using (`CLAUDE.md` §4).
 //
 //   THE STREAM. A person with twelve tabs is twelve SSE connections, against a
 //   ceiling anvil derives from `RLIMIT_NOFILE`. The twelfth is not free; it is
@@ -19,7 +19,7 @@
 // --- injected, not read ------------------------------------------------------
 //
 // `navigator.locks` and `BroadcastChannel` are global singletons the platform
-// imposes, so they arrive as parameters (`ENGINEERING_RULES.md` §3.3). Two tabs in one test
+// imposes, so they arrive as parameters (`CLAUDE.md` §3.3). Two tabs in one test
 // process are then two of these with one fake between them, which is the only
 // way the refresh race is deterministic (docs/16-test-plan.md).
 //
@@ -112,7 +112,7 @@ export function leadership(locks: ExclusiveLocks | null): Leadership {
 // --- the fan-out -------------------------------------------------------------
 
 // A message crossing tabs, and the unsubscribe that comes with listening
-// (`ENGINEERING_RULES.md` §3.3): a listener with no way off is a leak and a double-handled
+// (`CLAUDE.md` §3.3): a listener with no way off is a leak and a double-handled
 // message.
 export type FanOut = {
     readonly post: (message: unknown) => void;

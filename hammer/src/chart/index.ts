@@ -7,7 +7,7 @@
 // put the form renderer and the bell in every bundle that draws a graph.
 //
 // No charting dependency. A linear scale and a path string are arithmetic, and
-// the zero-dependency rule has no exception for convenience (`ENGINEERING_RULES.md` §9).
+// the zero-dependency rule has no exception for convenience (`CLAUDE.md` §9).
 
 export type { Mounted } from "./mount.js";
 

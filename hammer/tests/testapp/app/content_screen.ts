@@ -2,7 +2,7 @@
 //
 // Every seam is exercised by type-checking it, and a seam that cannot be
 // satisfied from outside the library fails HERE — which is the only place it can
-// fail cheaply (`ENGINEERING_RULES.md` §1). Nothing in this file renders: the form renderer,
+// fail cheaply (`CLAUDE.md` §1). Nothing in this file renders: the form renderer,
 // the section editor, the image element and the event sink are later phases.
 // What is being proved is narrower and is the half that has to be right first —
 // that the generated tables carry what those will need, and that a consumer can

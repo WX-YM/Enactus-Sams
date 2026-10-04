@@ -1,7 +1,7 @@
 // Phase 8 — the property the rollup's correctness rests on.
 //
 // A rollup that $incs is not re-runnable. Every queue in this system is
-// at-least-once (ENGINEERING_RULES.md §6), so a rollup that added to what it found would
+// at-least-once (CLAUDE.md §6), so a rollup that added to what it found would
 // double-count the first time a worker was reclaimed after a lease expiry — and
 // the resulting number is wrong in a way nothing reports and nobody can
 // reconstruct. Running it twice and asserting ONE document with IDENTICAL values

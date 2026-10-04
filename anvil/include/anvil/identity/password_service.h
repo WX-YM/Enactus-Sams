@@ -7,7 +7,7 @@
 //
 //   1. It NEVER runs on a Trantor event-loop thread. One Argon2id call blocks
 //      for ~100 ms; on a loop thread that is every connection that loop owns
-//      stalled for a tenth of a second (ENGINEERING_RULES.md §4).
+//      stalled for a tenth of a second (CLAUDE.md §4).
 //   2. It SHEDS. hash_pool's size IS the memory cap — size × the per-hash memory
 //      budget is the worst-case RSS one attacker can pin by opening concurrent
 //      logins — and its queue is bounded. When the queue is full the answer is

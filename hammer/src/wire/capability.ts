@@ -30,7 +30,7 @@
 // is a deliberate one-shot, and everything about it says why a URL is the wrong
 // place for the general case: a URL is in the address bar, the history, the
 // `Referer` and every analytics payload ever built from `location.href`
-// (`ENGINEERING_RULES.md` §5). A header is in none of them, and it is dropped by the
+// (`CLAUDE.md` §5). A header is in none of them, and it is dropped by the
 // redacting logger along with every other header.
 //
 // The name carries no `X-` prefix, per RFC 6648: the prefix was deprecated

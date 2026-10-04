@@ -249,7 +249,7 @@ int migrate_run(mongocxx::client& client, const MigrationDeps& deps, const Migra
     // A NAMED local, because RunOptions::label is a view and this call outlives
     // the full expression that builds the options. ASan caught the temporary as
     // a heap-use-after-free the first time this ran, which is the failure mode
-    // ENGINEERING_RULES.md §2.2 names as the single most likely crash in code built on this
+    // CLAUDE.md §2.2 names as the single most likely crash in code built on this
     // library.
     const std::string label = runner_label();
     const RunOptions options{args.only, label, kDefaultLeaseSeconds, uuid::generate_v4(),

@@ -1180,6 +1180,35 @@ Result<std::vector<ClientTarget>> NotificationRepository::subscribers(
     });
 }
 
+Result<std::vector<ClientTarget>> NotificationRepository::push_targets(
+    mongocxx::client& client, std::span<const Uuid> owners, std::int32_t limit) const {
+    return repo::guarded([&]() -> Result<std::vector<ClientTarget>> {
+        std::vector<ClientTarget> targets;
+        if (owners.empty()) { return targets; }
+        bsoncxx::builder::basic::document filter;
+        filter.append(kvp(codec::key_of(f::kOwner), [owners](sub_document sub) {
+            sub.append(kvp("$in", [owners](bsoncxx::builder::basic::sub_array ids) {
+                for (const Uuid& owner : owners) { ids.append(codec::uuid_bin(owner)); }
+            }));
+        }));
+        codec::append_enum(filter, f::kType, ClientType::WebPush);
+        filter.append(kvp(codec::key_of(f::kDisabledAt), bsoncxx::types::b_null{}));
+
+        mongocxx::options::find options{};
+        options.limit(limit);
+        options.projection(target_projection());
+
+        targets.reserve(owners.size());
+        for (const bsoncxx::document::view& doc :
+             bind_clients(client).find(filter.view(), options)) {
+            Result<ClientTarget> target = read_target(doc);
+            if (!target) { return target.error(); }
+            targets.push_back(std::move(target).value());
+        }
+        return targets;
+    });
+}
+
 Result<std::int32_t> NotificationRepository::record_delivery_failure(
     mongocxx::client& client, const Uuid& id, DeliveryVerdict verdict, db::TimeMs at) const {
     return repo::guarded([&]() -> Result<std::int32_t> {

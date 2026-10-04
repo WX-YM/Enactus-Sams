@@ -74,7 +74,7 @@ import type { Sleep } from "./schedule.js";
 import { sleep as platformSleep } from "./schedule.js";
 
 // The part of a generated route `const` a call reads. Structural, so no table
-// from any application reaches this layer (`ENGINEERING_RULES.md` §1).
+// from any application reaches this layer (`CLAUDE.md` §1).
 export type CallableRoute = {
     readonly id: string;
     readonly visibility: "public" | "holder";
@@ -136,7 +136,7 @@ export type CapabilityOption<R extends CallableRoute> = R["capability"] extends 
 type CommonOptions = {
     readonly query?: RouteQuery;
 
-    // Required, on every call, with no default (`ENGINEERING_RULES.md` §3.1). A request
+    // Required, on every call, with no default (`CLAUDE.md` §3.1). A request
     // nothing can cancel is a request that outlives the screen that wanted it,
     // and a default would be the thing every call site quietly accepted.
     readonly signal: AbortSignal;
@@ -183,7 +183,7 @@ export type RequestBody = () => BodyInit;
 // The one-shot case is EXCLUDED from the direct form rather than warned about in
 // a comment. A `ReadableStream` passed by value is a call that retries itself
 // into its own attempt cap, and the compiler is the cheap place to find that
-// (`ENGINEERING_RULES.md` §1). Everything else a `BodyInit` can be — a `File`, a `Blob`,
+// (`CLAUDE.md` §1). Everything else a `BodyInit` can be — a `File`, a `Blob`,
 // bytes, a string, `FormData`, `URLSearchParams` — is re-readable, so it is
 // passed as itself and sent again as itself.
 export type SendBody = Exclude<BodyInit, ReadableStream> | RequestBody;
@@ -192,7 +192,7 @@ export type SendOptions<A extends ApiTypes, R extends CallableRoute> = CommonOpt
     // A body the caller has already shaped: a `File` for an upload, bytes for
     // anything else. It is passed to `fetch` as it arrives and is never read
     // here — a `File` is a handle, not bytes, until something reads it
-    // (`ENGINEERING_RULES.md` §2.2).
+    // (`CLAUDE.md` §2.2).
     readonly body: SendBody | null;
     readonly contentType: string | null;
 } & ParamsOption<A, R> &
@@ -256,7 +256,7 @@ export type ApiTables<A extends ApiTypes> = {
     readonly reasons: Readonly<Record<string, number>>;
 
     // Values, not names — nothing at this layer knows what a bucket or a scope
-    // is called (`ENGINEERING_RULES.md` §1).
+    // is called (`CLAUDE.md` §1).
     readonly rateLimits: RateLimitTable;
     readonly singleUse: Readonly<Record<string, boolean>>;
     readonly bodyMaxBytes: number;
@@ -298,7 +298,7 @@ export type ClientConfig<A extends ApiTypes> = {
     readonly retry?: RetryPolicy;
     readonly breaker?: BreakerConfig;
 
-    // Platform singletons, injected (`ENGINEERING_RULES.md` §3.3). Null for the lock
+    // Platform singletons, injected (`CLAUDE.md` §3.3). Null for the lock
     // manager means "this platform has none", which is a degraded election
     // rather than an error.
     readonly locks?: ExclusiveLocks | null;
@@ -426,7 +426,7 @@ export class Client<A extends ApiTypes> {
     readonly origin: ApiOrigin;
 
     constructor(config: ClientConfig<A>) {
-        // A misconfigured client is the one thing a throw is for (`ENGINEERING_RULES.md`
+        // A misconfigured client is the one thing a throw is for (`CLAUDE.md`
         // §3.1). The alternative is not a degraded client: `SameSite=Lax`
         // cookies are not sent on a cross-site subresource request, so every
         // call would be anonymous, the first would 401, the refresh would 401
@@ -676,7 +676,7 @@ export class Client<A extends ApiTypes> {
         //    merging them would be this client deciding one of them did not
         //    happen. What protects a mutation from its own duplicate is the
         //    idempotency key, which is a different mechanism for a different
-        //    problem (`ENGINEERING_RULES.md` §7).
+        //    problem (`CLAUDE.md` §7).
         const shareable = route.idempotent && body === null;
         const address = built.value.method + " " + url;
 
@@ -999,7 +999,7 @@ export class Client<A extends ApiTypes> {
         // The freshness the SERVER granted, handed to whoever is going to store
         // the body. Read here because this is the one place a `Response` exists
         // — a layer above would have to be given the header, and a header given
-        // to a layer above is a header that gets logged (`ENGINEERING_RULES.md` §5).
+        // to a layer above is a header that gets logged (`CLAUDE.md` §5).
         if (decoded.ok && request.onFreshness !== null) {
             request.onFreshness(parseCacheControl(response.headers.get("Cache-Control")));
         }

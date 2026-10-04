@@ -2,7 +2,7 @@
 // that contains invisible characters is a test whose input nobody can read, and
 // a reviewer who cannot see the input cannot see the bug.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import {
     checkBidi,
@@ -45,7 +45,7 @@ const kControls = [
 // They are PUBLISHED and used nowhere in the library: `isolate()` reaches for
 // FSI and PDI, and the other five exist because an application has positions an
 // `isolate()` cannot reach — a `title`, a label built from parts, a value beside
-// a punctuation mark that would otherwise take the wrong side (`ENGINEERING_RULES.md` §8).
+// a punctuation mark that would otherwise take the wrong side (`CLAUDE.md` §8).
 // So nothing here would notice one of them being the wrong code point, and the
 // first thing that would is an Arabic name reordering a sentence in production.
 //

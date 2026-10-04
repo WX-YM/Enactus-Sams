@@ -26,7 +26,7 @@ with the type system available to enforce the one rule that matters (§3).
 
 **And a mechanism with no state has no failure modes to document.** No files on disk, no boot
 parse, no cached program, no invalidation. That is also what dissolves the tension the earlier
-draft spent a section arguing: ENGINEERING_RULES.md §1 wants what an application supplies to fail at
+draft spent a section arguing: CLAUDE.md §1 wants what an application supplies to fail at
 configure or compile time, and with nothing supplied at run time there is nothing to relax.
 
 Corroboration rather than justification: an application built on this library server-renders
@@ -216,12 +216,12 @@ No fragments, no per-field `std::string`, no `operator+`.
 There is no chunked sink and no streaming render here. The writers append; **what bounds a page
 is the handler's own limits on what it puts in one**, and every field these writers are designed
 around already carries a code-point cap from `input/`. A page that can exceed the 256 KB line
-ENGINEERING_RULES.md §2.4 draws is streamed or rejected like any other payload that size — that is §2.4's
+CLAUDE.md §2.4 draws is streamed or rejected like any other payload that size — that is §2.4's
 rule, not an exception to it, and it is a change to a handler rather than to this mechanism.
 Shipping a chunked renderer before a page needs one would be the same mistake §1 describes.
 
 Values are borrowed. **A `string_view` into `req->body()` is valid only while the
-`HttpRequestPtr` is alive** — ENGINEERING_RULES.md §2.2 names this as the single most likely crash in code
+`HttpRequestPtr` is alive** — CLAUDE.md §2.2 names this as the single most likely crash in code
 built on this library, and a render that borrows from a request and a document at the same time
 is a place it is easy to arrange. Compose on the thread that holds the values; a composition is
 pure CPU and bounded, so there is rarely a reason not to.
@@ -321,7 +321,7 @@ the history of this file. What would bring it back is not a consumer asking, but
 half proving insufficient: markup that composition in C++ genuinely cannot express readably, or
 a second escaping context that has to exist. At that point the argument has to be re-made rather
 than assumed, including whether markup living in files and parsed at boot is worth relaxing
-ENGINEERING_RULES.md §1's "fails at configure or compile time" for. It is not relaxed today, and that is
+CLAUDE.md §1's "fails at configure or compile time" for. It is not relaxed today, and that is
 the quiet benefit of the smaller mechanism.
 
 **A page cache.** The three-tier shape `sections/service.h` uses is proven and reusable, and

@@ -112,7 +112,7 @@ struct TokenResult final {
 
 // Signing keys. Immutable after construction and cheap to share as a
 // shared_ptr<const TokenKeys>, swapped atomically on rotation so readers never
-// take a lock (ENGINEERING_RULES.md §4).
+// take a lock (CLAUDE.md §4).
 //
 // Two keys at a time is the whole rotation story: mint with CURRENT, accept
 // CURRENT or PREVIOUS. Sessions survive a rotation because they are anchored in

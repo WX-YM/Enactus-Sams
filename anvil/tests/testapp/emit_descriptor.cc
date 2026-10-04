@@ -16,7 +16,9 @@
 
 #include "anvil/descriptor/descriptor.h"
 
+#include "accounts.h"
 #include "capabilities.h"
+#include "chat_kinds.h"
 #include "events.h"
 #include "field_types.h"
 #include "perms.h"
@@ -25,6 +27,14 @@
 #include "routes.h"
 #include "sections.h"
 #include "topics.h"
+
+// Deployment numbers. They are the application's because they are decisions
+// about a deployment, not facts about the library.
+constexpr anvil::descriptor::Limits kLimits{.upload_max_bytes = 26214400,
+                                            .body_max_bytes = 262144,
+                                            .page_limit_max = 100};
+static_assert(anvil::descriptor::page_ceiling_covers(testapp::kRouteDescriptions, kLimits),
+              "a route pages past the descriptor's own ceiling");
 
 int main() {
     const anvil::descriptor::DescriptorInput input{
@@ -39,11 +49,9 @@ int main() {
         .sections = testapp::kSections,
         .topics = testapp::kTopics,
         .events = testapp::kEvents,
-        // Deployment numbers. They are the application's because they are
-        // decisions about a deployment, not facts about the library.
-        .limits = anvil::descriptor::Limits{.upload_max_bytes = 26214400,
-                                            .body_max_bytes = 262144,
-                                            .page_limit_max = 100},
+        .accounts = &testapp::kAccounts,
+        .chat_kinds = testapp::kChatKinds,
+        .limits = kLimits,
     };
 
     const std::string doc = anvil::descriptor::emit_descriptor(input);

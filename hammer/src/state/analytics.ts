@@ -29,10 +29,11 @@
 // was taken rather than assuming.
 //
 // Nothing here schedules anything durable. A timer is a hint about the UI and
-// never a guarantee about the work (`ENGINEERING_RULES.md` §6): a frozen or discarded tab
+// never a guarantee about the work (`CLAUDE.md` §6): a frozen or discarded tab
 // loses whatever was still batched, which is why an event that MUST be recorded
 // is recorded by the server on the request that caused it.
 
+import { Uuid } from "../core/uuid.js";
 import type { Beacon } from "../wire/beacon.js";
 import type { Sleep } from "../wire/schedule.js";
 
@@ -41,27 +42,43 @@ import { kNoCounts } from "./counts.js";
 import type { Readable } from "./store.js";
 import { Store } from "./store.js";
 
+// The marker a generated entity dimension carries instead of a values array.
+// It names a foreign id rather than a member of a closed set, so there is no
+// index for the server to store and no union for this side to narrow to
+// (`docs/01-seams.md` §10).
+export type EntityDimension = { readonly kind: "entity" };
+
 // The part of a generated event `const` this reads. Structural, so no table from
-// any application reaches this layer (`ENGINEERING_RULES.md` §1).
+// any application reaches this layer (`CLAUDE.md` §1).
 export type EventSpec = {
     readonly name: string;
     readonly code: number;
     readonly requiresConsent: boolean;
 
-    // Each dimension's CLOSED set of values, as the descriptor emits it. The
-    // server stores an index into that set, so a value outside it is a row the
-    // ingest path drops — and a dropped row is the analytics defect nobody
-    // notices for a quarter (`docs/01-seams.md` §10).
-    readonly dimensions: Readonly<Record<string, readonly string[]>>;
+    // Each dimension is either the descriptor's CLOSED set of values, as an
+    // `as const` array — the server stores an index into it, so a value
+    // outside it is a row the ingest path drops, and a dropped row is the
+    // analytics defect nobody notices for a quarter — or the marker for a
+    // dimension whose value is a foreign id rather than a member of a set at
+    // all (`docs/01-seams.md` §10).
+    readonly dimensions: Readonly<Record<string, readonly string[] | EntityDimension>>;
 };
 
-// The dimensions of one event, as a type. Against an `as const` generated table
-// each value narrows to the union the server will accept, so a typo is a compile
-// error rather than a row that silently vanishes.
+// The dimensions of one event, as a type. An enum dimension narrows to the
+// union of values the generated table holds, as before, so a typo is a compile
+// error rather than a row that silently vanishes. An entity dimension is an
+// OPTIONAL `Uuid` — optional because the row it names may not exist yet at the
+// moment the event fires — and a `Uuid` rather than a string because the wire
+// form is produced once, at the encoding boundary, and not spelled at every
+// call site that reports one.
 export type Dimensions<E extends EventSpec> = {
-    readonly [K in keyof E["dimensions"]]: E["dimensions"][K] extends readonly (infer V)[]
-        ? V
-        : never;
+    readonly [K in keyof E["dimensions"] as E["dimensions"][K] extends EntityDimension
+        ? never
+        : K]: E["dimensions"][K] extends readonly (infer V)[] ? V : never;
+} & {
+    readonly [K in keyof E["dimensions"] as E["dimensions"][K] extends EntityDimension
+        ? K
+        : never]?: Uuid;
 };
 
 // What leaves this module. The wire shape is the application's — anvil's ingest
@@ -77,7 +94,7 @@ export type ReportedEvent = {
 // It is internal rather than part of `ReportedEvent` because the flag is this
 // sink's bookkeeping and not something the ingest route was ever told about —
 // putting it on the wire would be inventing a field the server has no column
-// for (`ENGINEERING_RULES.md` §1).
+// for (`CLAUDE.md` §1).
 type Queued = ReportedEvent & { readonly requiresConsent: boolean };
 
 // Three states, not a boolean. "Not yet asked" and "asked and refused" are
@@ -210,7 +227,9 @@ export class AnalyticsSink {
             // Copied rather than held. The caller's object may be reused for the
             // next report, and a batch of aliases is a batch of whatever the last
             // one said.
-            dimensions: { ...(dimensions as Readonly<Record<string, string>>) },
+            dimensions: encodeDimensions(
+                dimensions as Readonly<Record<string, string | Uuid | undefined>>,
+            ),
         });
 
         if (this.batch.length >= this.config.flushAt) {
@@ -270,7 +289,7 @@ export class AnalyticsSink {
     // Starts the periodic flush. Separate from the constructor because it is the
     // one thing here that runs on its own, and a store that began a loop the
     // moment it was built would be a module with a side effect
-    // (`ENGINEERING_RULES.md` §2.1).
+    // (`CLAUDE.md` §2.1).
     start(): void {
         const everyMs = this.config.flushEveryMs ?? 0;
         const sleep = this.config.sleep;
@@ -353,6 +372,25 @@ export class AnalyticsSink {
             }
         }
     }
+}
+
+// Key by key rather than a spread, because an entity dimension's value is a
+// `Uuid` and never the wire's — it is encoded to the canonical 36-character
+// form exactly here, once, rather than at every call site that reports one.
+// An absent entity is OMITTED rather than sent as an empty string or a null:
+// the row anvil ingests has no column for an id the caller did not have yet
+// (`docs/01-seams.md` §10).
+function encodeDimensions(
+    dimensions: Readonly<Record<string, string | Uuid | undefined>>,
+): Readonly<Record<string, string>> {
+    const out: Record<string, string> = {};
+    for (const [name, value] of Object.entries(dimensions)) {
+        if (value === undefined) {
+            continue;
+        }
+        out[name] = value instanceof Uuid ? value.format() : value;
+    }
+    return out;
 }
 
 // The bookkeeping flag off, because it was never part of what an ingest route

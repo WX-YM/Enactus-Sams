@@ -4,7 +4,7 @@
 // under test are anvil's numbers rather than this file's — which is the entire
 // point of generating both sides from one descriptor.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { Form, definitionsFrom } from "../../src/state/forms.js";
 import type { FieldDefinition, FormReasons } from "../../src/state/forms.js";

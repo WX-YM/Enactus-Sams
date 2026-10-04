@@ -167,7 +167,7 @@ crypto::Digest256 CapabilityService::hash_token(std::string_view token) const {
     // A fast hash is CORRECT here, not a shortcut: the token carries 256 bits of
     // CSPRNG entropy, so there is nothing to brute-force, and a slow KDF on a
     // lookup path is a denial-of-service vector rather than a defence
-    // (ENGINEERING_RULES.md §5).
+    // (CLAUDE.md §5).
     return crypto::sha256_with_pepper(token, pepper_.span());
 }
 

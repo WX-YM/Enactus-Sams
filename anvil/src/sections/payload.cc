@@ -369,7 +369,7 @@ SerializedSection serialize(const SectionSpec& spec, const SectionContent& conte
     std::string json;
     // One allocation for the whole document. Sections are a few hundred bytes,
     // and a growth reallocation is an O(n) copy plus fragmentation
-    // (ENGINEERING_RULES.md §2.2).
+    // (CLAUDE.md §2.2).
     json.reserve(1024);
 
     json.push_back('{');
@@ -483,6 +483,64 @@ std::string serialize_image_specs(const SectionSpec& spec) {
     return json;
 }
 
+void append_shape_json(std::string& out, const SectionSpec& spec) {
+    out.push_back('{');
+    http::append_json_key(out, "key");
+    http::append_json_string(out, spec.key);
+    out.push_back(',');
+    http::append_json_key(out, "path");
+    http::append_json_string(out, spec.site_path);
+    out.append(",\"fields\":[");
+
+    bool first_field = true;
+    for (const FieldSpec& field : spec.fields) {
+        if (!first_field) { out.push_back(','); }
+        first_field = false;
+        out.push_back('{');
+        http::append_json_key(out, "key");
+        http::append_json_string(out, field.key);
+        out.append(",\"label\":{");
+        bool first_label = true;
+        for (const Locale locale : kAllLocales) {
+            if (!first_label) { out.push_back(','); }
+            first_label = false;
+            http::append_json_key(out, locale.tag());
+            http::append_json_string(out, field.label.get(locale));
+        }
+        out.append("},\"type\":");
+        http::append_json_string(out, field_type_name(field.type));
+        out.append(",\"max_cp\":");
+        http::append_json_int(out, field.max_cp);
+        out.append(field.localized ? ",\"localized\":true" : ",\"localized\":false");
+        out.append(field.required ? ",\"required\":true" : ",\"required\":false");
+        // The choices travel WITH the field, so an editor renders a picker
+        // without holding a second copy of the allow-list. A copy there
+        // would drift the first time a value is added here, and the failure
+        // would be a staff member choosing a value the server refuses —
+        // exactly the class of bug the registry endpoint exists to remove.
+        if (field.type == FieldType::Choice) {
+            out.append(",\"options\":[");
+            bool first_option = true;
+            for (const std::string_view option : field.choices) {
+                if (!first_option) { out.push_back(','); }
+                first_option = false;
+                http::append_json_string(out, option);
+            }
+            out.push_back(']');
+        }
+        out.push_back('}');
+    }
+    out.append("],\"images\":[");
+
+    bool first_image = true;
+    for (const ImageSpec& image : spec.images) {
+        if (!first_image) { out.push_back(','); }
+        first_image = false;
+        append_image_spec(out, image);
+    }
+    out.append("]}");
+}
+
 std::string serialize_registry(std::span<const SectionSpec> registry) {
     std::string json;
     // Reserved from the registry's own size rather than from a literal, so
@@ -494,61 +552,7 @@ std::string serialize_registry(std::span<const SectionSpec> registry) {
     for (const SectionSpec& spec : registry) {
         if (!first_section) { json.push_back(','); }
         first_section = false;
-        json.push_back('{');
-        http::append_json_key(json, "key");
-        http::append_json_string(json, spec.key);
-        json.push_back(',');
-        http::append_json_key(json, "path");
-        http::append_json_string(json, spec.site_path);
-        json.append(",\"fields\":[");
-
-        bool first_field = true;
-        for (const FieldSpec& field : spec.fields) {
-            if (!first_field) { json.push_back(','); }
-            first_field = false;
-            json.push_back('{');
-            http::append_json_key(json, "key");
-            http::append_json_string(json, field.key);
-            json.append(",\"label\":{");
-            bool first_label = true;
-            for (const Locale locale : kAllLocales) {
-                if (!first_label) { json.push_back(','); }
-                first_label = false;
-                http::append_json_key(json, locale.tag());
-                http::append_json_string(json, field.label.get(locale));
-            }
-            json.append("},\"type\":");
-            http::append_json_string(json, field_type_name(field.type));
-            json.append(",\"max_cp\":");
-            http::append_json_int(json, field.max_cp);
-            json.append(field.localized ? ",\"localized\":true" : ",\"localized\":false");
-            json.append(field.required ? ",\"required\":true" : ",\"required\":false");
-            // The choices travel WITH the field, so an editor renders a picker
-            // without holding a second copy of the allow-list. A copy there
-            // would drift the first time a value is added here, and the failure
-            // would be a staff member choosing a value the server refuses —
-            // exactly the class of bug the registry endpoint exists to remove.
-            if (field.type == FieldType::Choice) {
-                json.append(",\"options\":[");
-                bool first_option = true;
-                for (const std::string_view option : field.choices) {
-                    if (!first_option) { json.push_back(','); }
-                    first_option = false;
-                    http::append_json_string(json, option);
-                }
-                json.push_back(']');
-            }
-            json.push_back('}');
-        }
-        json.append("],\"images\":[");
-
-        bool first_image = true;
-        for (const ImageSpec& image : spec.images) {
-            if (!first_image) { json.push_back(','); }
-            first_image = false;
-            append_image_spec(json, image);
-        }
-        json.append("]}");
+        append_shape_json(json, spec);
     }
     json.append("]}");
     return json;

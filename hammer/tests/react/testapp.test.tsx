@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // The reference consumer's React screens, driven through the package specifiers
 // a real application would use.
@@ -13,7 +12,7 @@
 // It is the adapter's half of the proof `tests/dom/testapp.test.ts` makes for
 // the components.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { ChannelBus } from "../support/fake_channel.js";
 import { FakeServer } from "../support/fake_fetch.js";
@@ -42,6 +41,7 @@ function app(server: FakeServer) {
         pageOrigin: "https://app.example.com",
         apiOrigin: "https://app.example.com",
         imageWorker: new WorkerRoom().create,
+        prehashWorker: new WorkerRoom().create,
         beaconTo: { sendBeacon: () => true },
         count: () => undefined,
     });

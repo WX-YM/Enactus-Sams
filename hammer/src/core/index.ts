@@ -10,9 +10,11 @@ export type { Brand } from "./brand.js";
 export type { Ok, Fail, Result } from "./result.js";
 export { ok, fail, isOk, isFail, expect } from "./result.js";
 export type {
+    AccountError,
     ClientError,
     HammerError,
     HammerResult,
+    PrehashError,
     ServerError,
     StaleClientError,
     TransportError,

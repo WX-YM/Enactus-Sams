@@ -2,8 +2,12 @@
 
 #include <array>
 #include <cstddef>
+#include <stdexcept>
 #include <utility>
 
+#include "anvil/accounts/identifier.h"
+#include "anvil/auth/password.h"
+#include "anvil/chat/text.h"
 #include "anvil/core/locale.h"
 #include "anvil/core/types.h"
 #include "anvil/core/version.h"
@@ -13,6 +17,7 @@
 #include "anvil/http/errors.h"
 #include "anvil/http/json_writer.h"
 #include "anvil/http/response_spec.h"
+#include "anvil/images/edit.h"
 #include "anvil/input/fields.h"
 
 namespace anvil::descriptor {
@@ -331,7 +336,122 @@ void append_rate_limits(std::string& out, std::span<const http::RateLimitRule> r
     out += ']';
 }
 
-void append_limits(std::string& out, const Limits& limits) {
+// Chat's bounds and kinds (docs/22-chat.md §9), or null for an application
+// without chat. Every enum as its name and every right by name, for the reason
+// the field-type flags are an object below: a client handed the stored byte
+// would need a copy of anvil's enum to read it.
+void append_chat(std::string& out, std::span<const chat::ConversationKindSpec> kinds,
+                 const PermCatalogue& catalogue) {
+    http::append_json_key(out, "chat");
+    if (kinds.empty()) {
+        out += "null";
+        return;
+    }
+    const auto number = [&out](std::string_view key, std::int64_t value) {
+        http::append_json_key(out, key);
+        http::append_json_int(out, value);
+        out += ',';
+    };
+    out += '{';
+    // anvil's own, the same for every kind (§2.4); a kind may lower the text
+    // bound, which it publishes below.
+    number("text_max_code_points", chat::kMaxMessageCodePoints);
+    number("title_max_code_points", chat::kMaxTitleCodePoints);
+    number("description_max_code_points", chat::kMaxDescriptionCodePoints);
+    number("attachments_max", static_cast<std::int64_t>(chat::kMaxAttachments));
+    number("attachment_name_max_code_points", chat::kMaxAttachmentNameCodePoints);
+    number("mentions_max", static_cast<std::int64_t>(chat::kMaxMentions));
+    number("reaction_max_code_points", chat::kMaxReactionCodePoints);
+    number("preview_url_max_bytes", static_cast<std::int64_t>(chat::kMaxPreviewUrlBytes));
+    number("preview_title_max_code_points", chat::kMaxPreviewTitleCodePoints);
+    number("preview_description_max_code_points", chat::kMaxPreviewDescriptionCodePoints);
+    number("ciphertext_max_bytes", static_cast<std::int64_t>(chat::kMaxCiphertextBytes));
+    number("device_ciphertexts_max", static_cast<std::int64_t>(chat::kMaxDeviceCiphertexts));
+
+    constexpr std::array<std::string_view, 3> kShapes{{"direct", "group", "channel"}};
+    constexpr std::array<std::string_view, 3> kEncryption{{"never", "optional", "required"}};
+    constexpr std::array<std::string_view, 2> kHistory{{"from_join", "full"}};
+    constexpr std::array<std::string_view, 3> kReceipts{{"off", "delivered", "read"}};
+    const auto rights = [&out](std::string_view key, chat::RightMask mask) {
+        http::append_json_key(out, key);
+        out += '[';
+        bool first = true;
+        for (std::size_t bit = 0; bit < chat::kRightNames.size(); ++bit) {
+            if ((mask & (1U << bit)) == 0) { continue; }
+            if (!first) { out += ','; }
+            first = false;
+            http::append_json_string(out, chat::kRightNames[bit]);
+        }
+        out += ']';
+    };
+
+    http::append_json_key(out, "kinds");
+    out += '[';
+    for (std::size_t i = 0; i < kinds.size(); ++i) {
+        const chat::ConversationKindSpec& kind = kinds[i];
+        if (i != 0) { out += ','; }
+        out += '{';
+        http::append_json_key(out, "key");
+        http::append_json_string(out, kind.key);
+        out += ',';
+        http::append_json_key(out, "shape");
+        http::append_json_string(out, kShapes[static_cast<std::size_t>(kind.shape)]);
+        out += ',';
+        http::append_json_key(out, "encryption");
+        http::append_json_string(out, kEncryption[static_cast<std::size_t>(kind.e2ee)]);
+        out += ',';
+        http::append_json_key(out, "history");
+        http::append_json_string(out, kHistory[static_cast<std::size_t>(kind.history)]);
+        out += ',';
+        http::append_json_key(out, "receipts");
+        http::append_json_string(out, kReceipts[static_cast<std::size_t>(kind.receipts)]);
+        out += ',';
+        number("max_members", kind.max_members);
+        number("text_max_code_points", kind.max_text_code_points);
+        number("edit_window_s", kind.edit_window_s);
+        number("revoke_window_s", kind.revoke_window_s);
+        number("retention_days", kind.retention_days);
+        http::append_json_key(out, "timers_s");
+        out += '[';
+        for (std::size_t t = 0; t < kind.timers_s.size(); ++t) {
+            if (t != 0) { out += ','; }
+            http::append_json_int(out, kind.timers_s[t]);
+        }
+        out += "],";
+        http::append_json_key(out, "create_requires");
+        out += '[';
+        bool first = true;
+        catalogue.for_each_name(kind.create_requires, [&](std::string_view name) {
+            if (!first) { out += ','; }
+            first = false;
+            http::append_json_string(out, name);
+        });
+        out += "],";
+        // Whether a message of this kind may carry plaintext attachments; the
+        // namespace itself is storage, and a client is told nothing of it.
+        http::append_json_key(out, "attachments");
+        out += kind.media_ns.has_value() ? "true" : "false";
+        out += ',';
+        // Published, so a client can tell its person that staff may read and
+        // members may report in a conversation of this kind.
+        http::append_json_key(out, "reviewable");
+        out += kind.reviewable ? "true" : "false";
+        out += ',';
+        http::append_json_key(out, "rights");
+        out += '{';
+        rights("member", kind.rights.member);
+        out += ',';
+        rights("admin", kind.rights.admin);
+        out += ',';
+        rights("owner", kind.rights.owner);
+        out += "}}";
+    }
+    out += "]}";
+}
+
+void append_limits(std::string& out, const Limits& limits,
+                   std::span<const chat::ConversationKindSpec> chat_kinds,
+                   const PermCatalogue& catalogue) {
     http::append_json_key(out, "limits");
     out += '{';
     http::append_json_key(out, "upload_max_bytes");
@@ -342,6 +462,29 @@ void append_limits(std::string& out, const Limits& limits) {
     out += ',';
     http::append_json_key(out, "page_limit_max");
     http::append_json_int(out, limits.page_limit_max);
+    out += ',';
+    // The bounds an image edit's recipe is checked against, so a client refuses
+    // exactly what this server does (docs/21-image-edits.md §5). Not the
+    // application's to set: two are the recipe codec's own caps and two are the
+    // ladder's widest and narrowest rungs, read from the table the variants are
+    // written from. Publishing a rung width is the distinction docs/08 §4
+    // draws — a number is not an address, and nothing here names a path.
+    const images::EditLimits edit = images::kEditLimits;
+    http::append_json_key(out, "edit");
+    out += '{';
+    http::append_json_key(out, "max_strokes");
+    http::append_json_int(out, edit.max_strokes);
+    out += ',';
+    http::append_json_key(out, "max_points");
+    http::append_json_int(out, edit.max_points);
+    out += ',';
+    http::append_json_key(out, "max_edge_px");
+    http::append_json_int(out, edit.max_edge_px);
+    out += ',';
+    http::append_json_key(out, "min_edge_px");
+    http::append_json_int(out, edit.min_edge_px);
+    out += "},";
+    append_chat(out, chat_kinds, catalogue);
     out += '}';
 }
 
@@ -420,7 +563,7 @@ void append_field_types(std::string& out, std::span<const forms::FieldTypeSpec> 
         out += ',';
         // CODE POINTS, and the name says so: a client enforcing it in UTF-16 code
         // units refuses text the server would have accepted, which for any
-        // non-Latin script is most of it (ENGINEERING_RULES.md §8).
+        // non-Latin script is most of it (CLAUDE.md §8).
         http::append_json_key(out, "default_code_points");
         http::append_json_int(out, spec.default_code_points);
         out += ',';
@@ -649,6 +792,13 @@ void append_events(std::string& out, std::span<const analytics::EventSpec> event
         // sending a value that is not here sends one the ingest path drops, and a
         // dimension whose values came from a request is the cardinality explosion
         // the closed set exists to refuse (docs/17-analytics.md §6).
+        //
+        // An "entity" dimension carries no such set — `values` is always empty
+        // for one, enforced by event_table_is_well_formed — because its value
+        // space is an application id bounded by the ingest-time admission check
+        // rather than a table a client could enumerate (docs/17-analytics.md
+        // §19). `values` stays present and empty rather than omitted, so a
+        // client need not special-case the field's absence, only its length.
         http::append_json_key(out, "dimensions");
         out += '[';
         for (std::size_t d = 0; d < event.dimensions.size(); ++d) {
@@ -657,6 +807,11 @@ void append_events(std::string& out, std::span<const analytics::EventSpec> event
             out += '{';
             http::append_json_key(out, "name");
             http::append_json_string(out, dimension.name);
+            out += ',';
+            http::append_json_key(out, "kind");
+            http::append_json_string(out, dimension.kind == analytics::DimensionKind::Entity
+                                              ? "entity"
+                                              : "enum");
             out += ',';
             http::append_json_key(out, "values");
             out += '[';
@@ -758,6 +913,115 @@ void append_media(std::string& out) {
     out += '}';
 }
 
+// The account flows' contract, as a client needs it to render and to call them
+// without writing either (docs/01-seams.md §16). The secret bounds are anvil's
+// own (input/fields.h, auth/password.h), published so a client that hashes can
+// refuse a too-short password before a worker spends seconds on it: under
+// client hashing the server never sees the password and cannot refuse it.
+void append_accounts(std::string& out, const accounts::AccountDescription* description) {
+    http::append_json_key(out, "accounts");
+    if (description == nullptr) {
+        out += "null";
+        return;
+    }
+    const accounts::AccountSchema& schema = *description->schema;
+    out += '{';
+    http::append_json_key(out, "hashing");
+    http::append_json_string(out,
+                             description->hashing == accounts::Hashing::Client ? "client" : "server");
+    out += ',';
+    http::append_json_key(out, "activation");
+    http::append_json_string(
+        out, schema.activation == accounts::Activation::AfterVerification ? "verify" : "immediate");
+    out += ',';
+    http::append_json_key(out, "contact");
+    http::append_json_string(out, accounts::identifier_name(schema.contact));
+    out += ',';
+
+    http::append_json_key(out, "identifiers");
+    out += '[';
+    for (std::size_t i = 0; i < schema.identifiers.size(); ++i) {
+        const accounts::IdentifierSpec& spec = schema.identifiers[i];
+        if (i != 0) { out += ','; }
+        out += '{';
+        http::append_json_key(out, "kind");
+        http::append_json_string(out, accounts::identifier_name(spec.kind));
+        out += ',';
+        http::append_json_key(out, "required");
+        out += spec.required ? "true" : "false";
+        out += ',';
+        http::append_json_key(out, "sign_in");
+        out += spec.sign_in ? "true" : "false";
+        out += '}';
+    }
+    out += ']';
+    out += ',';
+
+    http::append_json_key(out, "profile");
+    out += '[';
+    for (std::size_t i = 0; i < schema.profile.size(); ++i) {
+        const accounts::ProfileFieldSpec& field = schema.profile[i];
+        if (i != 0) { out += ','; }
+        out += '{';
+        http::append_json_key(out, "key");
+        http::append_json_string(out, field.key);
+        out += ',';
+        http::append_json_key(out, "required");
+        out += field.required ? "true" : "false";
+        out += ',';
+        // Code points, named in the key (CLAUDE.md §8).
+        http::append_json_key(out, "min_code_points");
+        http::append_json_int(out, static_cast<std::int64_t>(field.rules.min_code_points));
+        out += ',';
+        http::append_json_key(out, "max_code_points");
+        http::append_json_int(out, static_cast<std::int64_t>(field.rules.max_code_points));
+        out += ',';
+        http::append_json_key(out, "text");
+        http::append_json_string(
+            out, field.rules.text_class == i18n::TextClass::Identifier ? "identifier" : "prose");
+        out += ',';
+        http::append_json_key(out, "line_breaks");
+        out += field.rules.allow_line_breaks ? "true" : "false";
+        out += '}';
+    }
+    out += ']';
+    out += ',';
+
+    http::append_json_key(out, "secret");
+    out += '{';
+    http::append_json_key(out, "min_code_points");
+    http::append_json_int(out, static_cast<std::int64_t>(input::kPasswordMinCodePoints));
+    out += ',';
+    http::append_json_key(out, "max_code_points");
+    http::append_json_int(out, static_cast<std::int64_t>(input::kPasswordMaxCodePoints));
+    out += ',';
+    http::append_json_key(out, "max_bytes");
+    http::append_json_int(out, static_cast<std::int64_t>(auth::kMaxPasswordBytes));
+    out += '}';
+    out += ',';
+
+    http::append_json_key(out, "code_digits");
+    http::append_json_int(out, static_cast<std::int64_t>(accounts::kAccountCodeDigits));
+    out += ',';
+
+    // Role → route id, in role order, and only the roles the application has.
+    http::append_json_key(out, "routes");
+    out += '{';
+    bool first = true;
+    for (std::size_t r = 0; r < accounts::kAccountRoleCount; ++r) {
+        const auto role = static_cast<accounts::AccountRole>(r);
+        for (const accounts::AccountRoute& route : description->routes) {
+            if (route.role != role) { continue; }
+            if (!first) { out += ','; }
+            first = false;
+            http::append_json_key(out, accounts::role_name(role));
+            http::append_json_string(out, route.route_id);
+        }
+    }
+    out += '}';
+    out += '}';
+}
+
 void append_tables(std::string& out, const DescriptorInput& input) {
     const PermCatalogue catalogue{input.permissions};
 
@@ -776,7 +1040,7 @@ void append_tables(std::string& out, const DescriptorInput& input) {
     out += ',';
     append_rate_limits(out, input.rate_limits);
     out += ',';
-    append_limits(out, input.limits);
+    append_limits(out, input.limits, input.chat_kinds, catalogue);
     out += ',';
     append_field_types(out, input.field_types);
     out += ',';
@@ -785,6 +1049,8 @@ void append_tables(std::string& out, const DescriptorInput& input) {
     append_topics(out, input.topics, catalogue);
     out += ',';
     append_events(out, input.events);
+    out += ',';
+    append_accounts(out, input.accounts);
     out += ',';
     append_media(out);
     out += '}';
@@ -842,6 +1108,10 @@ void append_descriptor(std::string& out, const DescriptorInput& input) {
 }
 
 std::string emit_descriptor(const DescriptorInput& input) {
+    if (!page_ceiling_covers(input.route_descriptions, input.limits)) {
+        throw std::invalid_argument{
+            "descriptor: a route declares a page limit above limits.page_limit_max"};
+    }
     std::string out;
     append_descriptor(out, input);
     return out;

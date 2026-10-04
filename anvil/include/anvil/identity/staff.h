@@ -70,7 +70,7 @@ public:
     // two updates of it do — which is the whole point of touching it.
     StaffService(std::string database, std::string_view users_collection,
                  std::string_view sessions_collection, std::string_view guard_collection,
-                 AuthzService& authz);
+                 AuthzService& authz, SessionsRevoked on_revoked = {});
 
     // A permission change. Versioned, because two administrators with the grid
     // open on the same person is the normal case for a small team, and a
@@ -117,6 +117,7 @@ public:
     // Without the revoke, a disabled account keeps refreshing; without the bump,
     // its outstanding access token keeps working until it expires. Doing only
     // one of the two is the shape of a disable that looks like it worked.
+    // The sessions it revoked are told to `on_revoked` after the bump.
     [[nodiscard]] Result<UserStatus> set_status(mongocxx::client& client, const Uuid& user_id,
                                                 UserStatus status, UserType protected_type,
                                                 db::TimeMs now);
@@ -138,6 +139,9 @@ private:
     UserRepository    users_;
     SessionRepository sessions_;
     AuthzService&     authz_;
+    // Disabling an account revokes its sessions, and SessionService's hook
+    // would never hear of them: the same seam, given here too.
+    const SessionsRevoked on_revoked_;
 };
 
 }  // namespace anvil::identity

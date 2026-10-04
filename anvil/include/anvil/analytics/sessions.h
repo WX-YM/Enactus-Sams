@@ -28,7 +28,7 @@
 //     single visitor and deflates it instead.
 //   * A SESSION IS A (visitor, day) UPSERT, and the unique index IS the
 //     sessionisation — there is no read-then-write, so N instances converge with
-//     no coordination at all (ENGINEERING_RULES.md §6).
+//     no coordination at all (CLAUDE.md §6).
 //
 // PackedAddress comes from anvil/http/client_address.h, which already resolves
 // the true client behind the trusted proxy set. Analytics does not re-do that

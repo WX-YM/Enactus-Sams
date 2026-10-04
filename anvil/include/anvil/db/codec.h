@@ -191,7 +191,7 @@ template <typename Builder>
 
 // The returned view points into `doc`'s underlying buffer. It is valid exactly
 // as long as that buffer is — copy it before it crosses a thread-pool boundary
-// (ENGINEERING_RULES.md §2.2). The bytes are validated against the full UTF-8 policy:
+// (CLAUDE.md §2.2). The bytes are validated against the full UTF-8 policy:
 // stored text that is malformed is rejected, never repaired.
 [[nodiscard]] Result<std::string_view> read_text(const bsoncxx::document::view& doc,
                                                  std::string_view field);

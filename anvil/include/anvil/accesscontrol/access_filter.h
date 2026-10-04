@@ -76,7 +76,7 @@ protected:
 struct AccessControlDeps final {
     // shared_ptr<const>: rotation swaps the whole key set atomically, so a
     // request that started with the old set finishes with it rather than seeing
-    // a half-updated one (ENGINEERING_RULES.md §4).
+    // a half-updated one (CLAUDE.md §4).
     std::shared_ptr<const auth::TokenKeys> keys;
     EpochResolver*                         epochs;
     DenialSink*                            denials;

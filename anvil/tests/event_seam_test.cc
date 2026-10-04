@@ -26,6 +26,16 @@ inline constexpr std::array<DimensionSpec, 1> kEmptyDimension{{{"which", kNone}}
 inline constexpr std::array<DimensionSpec, 2> kDuplicateDimension{{{"which", kTwo},
                                                                   {"which", kTwo}}};
 
+inline constexpr std::array<DimensionSpec, 1> kEntityDimension{
+    {{"which", kNone, DimensionKind::Entity}}};
+// An Entity dimension declaring a closed set anyway — the value space and the
+// kind now disagree, which is exactly the state well_formed() exists to
+// refuse rather than pick a side of silently.
+inline constexpr std::array<DimensionSpec, 1> kEntityWithValues{
+    {{"which", kTwo, DimensionKind::Entity}}};
+inline constexpr std::array<DimensionSpec, 2> kTwoEntityDimensions{
+    {{"first", kNone, DimensionKind::Entity}, {"second", kNone, DimensionKind::Entity}}};
+
 inline constexpr std::array<EventSpec, 1> kEmptyName{
     {{"", kOneDimension, 0, EventClass::Behaviour, true}}};
 static_assert(!event_table_is_well_formed(kEmptyName));
@@ -48,6 +58,33 @@ static_assert(!event_table_is_well_formed(kEmptyValues));
 inline constexpr std::array<EventSpec, 1> kDuplicateName{
     {{"Thing", kDuplicateDimension, 0, EventClass::Behaviour, true}}};
 static_assert(!event_table_is_well_formed(kDuplicateName));
+
+// An Entity dimension is accepted with an EMPTY value space — that is the
+// point of the kind — and refused the moment it declares one anyway.
+inline constexpr std::array<EventSpec, 1> kEntityOk{
+    {{"Thing", kEntityDimension, 0, EventClass::Behaviour, true}}};
+static_assert(event_table_is_well_formed(kEntityOk));
+
+inline constexpr std::array<EventSpec, 1> kEntityDeclaringValues{
+    {{"Thing", kEntityWithValues, 0, EventClass::Behaviour, true}}};
+static_assert(!event_table_is_well_formed(kEntityDeclaringValues));
+
+// Event carries exactly one entity slot (anvil/analytics/event.h), so a second
+// Entity-kind dimension on one event has nowhere of its own to be stored.
+inline constexpr std::array<EventSpec, 1> kTwoEntities{
+    {{"Thing", kTwoEntityDimensions, 0, EventClass::Behaviour, true}}};
+static_assert(!event_table_is_well_formed(kTwoEntities));
+
+TEST(EventTable, EntityDimensionOfFindsTheOneEntitySlotAndNothingElse) {
+    const EventSpec entity_event{"Thing", kEntityDimension, 0, EventClass::Behaviour, true};
+    const DimensionSpec* found = entity_dimension_of(entity_event);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->name, "which");
+    EXPECT_EQ(found->kind, DimensionKind::Entity);
+
+    const EventSpec enum_event{"Thing", kOneDimension, 0, EventClass::Behaviour, true};
+    EXPECT_EQ(entity_dimension_of(enum_event), nullptr);
+}
 
 // Sparse codes turn the lookup from an index into a scan, on a path that runs
 // once per request.

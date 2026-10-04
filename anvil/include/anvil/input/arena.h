@@ -7,7 +7,7 @@
 // a node here, a vector growth there — and each one is a lock, a potential
 // cache miss, and a free() later. A monotonic_buffer_resource over a stack
 // array turns all of them into pointer arithmetic, and turns cleanup into
-// letting the object go out of scope (ENGINEERING_RULES.md §2.1).
+// letting the object go out of scope (CLAUDE.md §2.1).
 //
 // The inline buffer is sized for the p99 body. Past it the resource spills to
 // the upstream heap resource rather than failing, so a legitimate large-but-

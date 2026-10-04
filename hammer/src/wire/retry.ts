@@ -1,6 +1,6 @@
 // Whether to try again, decided once, here.
 //
-// Retry policy belongs to the library and never to a call site (`ENGINEERING_RULES.md`
+// Retry policy belongs to the library and never to a call site (`CLAUDE.md`
 // §6): a call site that decides for itself is a call site that will retry a
 // payment, invent a backoff against a server that named one, or loop on a 403
 // until the account is locked. This module is a pure function of what happened,

@@ -248,7 +248,7 @@ Result<SubmissionAccepted> SubmissionService::submit(mongocxx::client& client,
 
     if (record.media.empty()) {
         // No attachment means one document and one write, which the server
-        // already applies atomically — the first of the two options ENGINEERING_RULES.md §6
+        // already applies atomically — the first of the two options CLAUDE.md §6
         // allows, and there is no second document for a transaction to bind it
         // to.
         //

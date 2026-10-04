@@ -38,7 +38,7 @@ namespace sec = anvil::sections;
 //
 // This list is the APPLICATION'S vocabulary. anvil ships FieldType::Choice and
 // the binary search; a table of icon names would be one product's furniture
-// compiled into a library (ENGINEERING_RULES.md §1).
+// compiled into a library (CLAUDE.md §1).
 inline constexpr std::array<std::string_view, 4> kIcons{{
     "calendar", "coffee", "map-pin", "star",
 }};

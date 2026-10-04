@@ -85,6 +85,21 @@ a 32-bit input space. Without a key the derivation is enumerable by anybody hold
 a dump, so a zero-key deployment is one that stores addresses in a form it believes
 to be anonymous. Boot fails rather than degrade.
 
+**In client-prehash mode (`05-auth-sessions.md` §12) both of its keys are required.**
+The pepper keys the stage every record is stored under: without it the stage is a plain hash
+of `k`, and a dump alone is enough to start guessing. The salt key keys the salt a missing
+account is answered with: without it that salt is computable by anybody, which turns the salt
+route into a test for whether an account exists. Named, for example,
+
+| Variable | Holds |
+|---|---|
+| `PREHASH_PEPPER` | 32 bytes, the current stage pepper |
+| `PREHASH_PEPPER_ID` | its id, 1–16 characters of `[a-z0-9]`, stored in every record |
+| `PREHASH_SALT_KEY` | 32 bytes, the missing-account salt key |
+
+and the names are the application's to choose. A retired pepper is a second pair under a
+name of your choosing, kept for as long as a record names its id.
+
 ## 4. Shape checks
 
 **`require_origin_shape`** — an origin is compared byte-for-byte against the

@@ -1,6 +1,6 @@
 // The descriptor, narrowed exactly once.
 //
-// Everything an application supplies arrives through this file (`ENGINEERING_RULES.md` §1),
+// Everything an application supplies arrives through this file (`CLAUDE.md` §1),
 // so every guarantee downstream of it rests on what is checked here. The checks
 // are the ones anvil's own `well_formed()` makes — a duplicate bit, a duplicate
 // name, an empty name, a bit out of range, a route naming a permission, a scope
@@ -160,6 +160,18 @@ export type LimitsSpec = {
     readonly upload_max_bytes: number;
     readonly body_max_bytes: number;
     readonly page_limit_max: number;
+    // The image edit recipe's bounds (anvil `docs/21-image-edits.md` §5). Null for
+    // a descriptor that predates them, and then no `kEditLimits` is emitted — so
+    // an application that mounts an editor against such a server fails to
+    // type-check rather than validating recipes against numbers nobody sent.
+    readonly edit: EditLimitsSpec | null;
+};
+
+export type EditLimitsSpec = {
+    readonly max_strokes: number;
+    readonly max_points: number;
+    readonly max_edge_px: number;
+    readonly min_edge_px: number;
 };
 
 // --- the content tables -----------------------------------------------------
@@ -172,7 +184,7 @@ export type LimitsSpec = {
 // `answer`, a section field's `type`, an event's `class`, a namespace's roles —
 // each is a closed set server-side, and hammer could carry a copy of each and
 // check against it. It does not, because a copy of an enum is the thing this
-// whole seam exists to remove (`ENGINEERING_RULES.md` §1): the second copy is the one
+// whole seam exists to remove (`CLAUDE.md` §1): the second copy is the one
 // nobody updates, and it would turn a member anvil appends into a generation
 // failure in every application on the day the server started sending it. They
 // are read as strings, checked for what a string reaching the emitted file must
@@ -256,8 +268,17 @@ export type TopicSpec = {
     readonly visibility: TopicVisibility;
 };
 
+// "enum" is a closed set the server stores an INDEX into; "entity" is a
+// foreign id and stores none — the row names another document rather than
+// naming a member of anything. Absent server-side before anvil grew the
+// distinction, so a descriptor with no `kind` at all reads as "enum": the
+// format did not move, only what a client may now be told about a value
+// already there.
+export type DimensionKind = "enum" | "entity";
+
 export type DimensionSpec = {
     readonly name: string;
+    readonly kind: DimensionKind;
     readonly values: readonly string[];
 };
 
@@ -297,6 +318,84 @@ export type ErrorCodeTable = {
     readonly codes: readonly ErrorCodeSpec[];
 };
 
+// --- accounts ---------------------------------------------------------------
+//
+// Absent entirely, or `null`, for an application that declares none — anvil's
+// built-in account flows are opt-in, and most of the reference descriptors this
+// generator has ever read predate the table existing at all. Both cases carry
+// the identical meaning, so the reader treats them the same way it treats a
+// dimension with no `kind` (`docs/01-seams.md` §10): a table added to the
+// format is not a table every descriptor now owes an opinion on.
+
+export type AccountsHashing = "client" | "server";
+export type AccountsActivation = "verify" | "immediate";
+export type AccountsContact = "email" | "phone";
+export type AccountsIdentifierKind = "email" | "username" | "phone";
+
+export type AccountsIdentifierSpec = {
+    readonly kind: AccountsIdentifierKind;
+    readonly required: boolean;
+    readonly sign_in: boolean;
+};
+
+// `"identifier"` is anvil's word for a profile value that is itself looked up
+// by — a handle, say — rather than free text a person wrote: the two need
+// different validation (an identifier is compared for uniqueness; prose is
+// only bounded), which is the whole reason a client needs the distinction at
+// all rather than a single "text" kind.
+export type AccountsProfileText = "prose" | "identifier";
+
+export type AccountsProfileFieldSpec = {
+    readonly key: string;
+    readonly required: boolean;
+    readonly min_code_points: number;
+    readonly max_code_points: number;
+    readonly text: AccountsProfileText;
+    readonly line_breaks: boolean;
+};
+
+export type AccountsSecretSpec = {
+    readonly min_code_points: number;
+    readonly max_code_points: number;
+    readonly max_bytes: number;
+};
+
+// The roles a route can play in the account lifecycle, in the one order the
+// descriptor and the emitted table both use. `sign_in` is the one role every
+// accounts table carries — an application with none of the others still has to
+// let somebody in — and `salt` is present exactly when `hashing` is `"client"`:
+// a server hashing its own passwords has no salt to hand out, and a client
+// asked to prehash with none has nowhere to fetch one from.
+export type AccountsRouteRole =
+    | "salt"
+    | "register"
+    | "verify"
+    | "resend"
+    | "sign_in"
+    | "reset_request"
+    | "reset_confirm"
+    | "change"
+    | "refresh"
+    | "sign_out";
+
+// A route ID per role the application actually has — never every role, because
+// most applications do not offer all ten. The value is the ROUTE'S ID and not
+// its path: the emitter turns it into a reference to that route's own `const`,
+// so a route anvil retires is a compile error at the reference rather than a
+// call that 404s at run time.
+export type AccountsRoutes = { readonly [role in AccountsRouteRole]?: string };
+
+export type AccountsSpec = {
+    readonly hashing: AccountsHashing;
+    readonly activation: AccountsActivation;
+    readonly contact: AccountsContact;
+    readonly identifiers: readonly AccountsIdentifierSpec[];
+    readonly profile: readonly AccountsProfileFieldSpec[];
+    readonly secret: AccountsSecretSpec;
+    readonly code_digits: number;
+    readonly routes: AccountsRoutes;
+};
+
 // The keys are the descriptor's, unchanged. A reader that renamed them would be
 // a second spelling of the format, and a reader is the one place where the file
 // on disk and the type in the source have to be readable against each other.
@@ -313,6 +412,7 @@ export type Tables = {
     readonly sections: readonly SectionSpec[];
     readonly topics: readonly TopicSpec[];
     readonly events: readonly EventSpec[];
+    readonly accounts: AccountsSpec | null;
     readonly media: MediaTable;
 };
 
@@ -357,7 +457,15 @@ export type DescriptorIssue =
     | "duplicate-field"
     | "visibility-contradicts-perms"
     | "no-route-requires-it"
-    | "no-route-names-it";
+    | "no-route-names-it"
+    | "not-empty"
+    | "duplicate-entity-dimension"
+    | "unknown-identifier"
+    | "unknown-route"
+    | "no-sign-in-identifier"
+    | "not-a-profile-key"
+    | "reserved-word"
+    | "missing-role";
 
 // The key is a path into the file, so the CLI can name it and a person can open
 // the file and look at it. It is not a sentence: this is a build-time tool, and
@@ -799,7 +907,22 @@ function readLimits(collector: Collector, raw: unknown): LimitsSpec | null {
     if (upload === null || body === null || page === null) {
         return null;
     }
-    return { upload_max_bytes: upload, body_max_bytes: body, page_limit_max: page };
+    let edit: EditLimitsSpec | null = null;
+    if (limits["edit"] !== undefined) {
+        const table = collector.object(limits["edit"], "tables.limits.edit");
+        if (table === null) {
+            return null;
+        }
+        const maxStrokes = collector.integer(table, "max_strokes", "tables.limits.edit.max_strokes");
+        const maxPoints = collector.integer(table, "max_points", "tables.limits.edit.max_points");
+        const maxEdge = collector.integer(table, "max_edge_px", "tables.limits.edit.max_edge_px");
+        const minEdge = collector.integer(table, "min_edge_px", "tables.limits.edit.min_edge_px");
+        if (maxStrokes === null || maxPoints === null || maxEdge === null || minEdge === null) {
+            return null;
+        }
+        edit = { max_strokes: maxStrokes, max_points: maxPoints, max_edge_px: maxEdge, min_edge_px: minEdge };
+    }
+    return { upload_max_bytes: upload, body_max_bytes: body, page_limit_max: page, edit };
 }
 
 // Six named booleans rather than the byte anvil stores, so they are read one at
@@ -1066,6 +1189,19 @@ function readTopics(collector: Collector, raw: unknown): TopicSpec[] | null {
     return out;
 }
 
+const kDimensionKinds: readonly DimensionKind[] = ["enum", "entity"];
+
+// Absent reads as "enum" — anvil's format did not move, and a descriptor from
+// before the distinction existed is not a malformed one. A `kind` that IS
+// present but is neither value goes through `member()`, the same unclosed-set
+// check every other closed-vocabulary field in this file gets.
+function readDimensionKind(collector: Collector, holder: Raw, key: string): DimensionKind | null {
+    if (holder["kind"] === undefined) {
+        return "enum";
+    }
+    return collector.member(holder, "kind", `${key}.kind`, kDimensionKinds);
+}
+
 function readDimensions(collector: Collector, raw: unknown, at: string): DimensionSpec[] | null {
     const entries = collector.array(raw, at);
     if (entries === null) {
@@ -1079,11 +1215,12 @@ function readDimensions(collector: Collector, raw: unknown, at: string): Dimensi
             continue;
         }
         const name = collector.string(entry, "name", `${key}.name`);
+        const kind = readDimensionKind(collector, entry, key);
         const values = collector.strings(entry, "values", `${key}.values`);
-        if (name === null || values === null) {
+        if (name === null || kind === null || values === null) {
             continue;
         }
-        out.push({ name, values });
+        out.push({ name, kind, values });
     }
     return out;
 }
@@ -1162,6 +1299,187 @@ function readMedia(collector: Collector, raw: unknown): MediaTable | null {
     return { default_role: defaultRole, namespaces };
 }
 
+const kAccountsHashing: readonly AccountsHashing[] = ["client", "server"];
+const kAccountsActivation: readonly AccountsActivation[] = ["verify", "immediate"];
+const kAccountsContact: readonly AccountsContact[] = ["email", "phone"];
+const kAccountsIdentifierKinds: readonly AccountsIdentifierKind[] = ["email", "username", "phone"];
+const kAccountsProfileText: readonly AccountsProfileText[] = ["prose", "identifier"];
+
+const kAccountsRouteRoles: readonly AccountsRouteRole[] = [
+    "salt",
+    "register",
+    "verify",
+    "resend",
+    "sign_in",
+    "reset_request",
+    "reset_confirm",
+    "change",
+    "refresh",
+    "sign_out",
+];
+
+function isAccountsRouteRole(value: string): value is AccountsRouteRole {
+    return (kAccountsRouteRoles as readonly string[]).includes(value);
+}
+
+function readAccountsIdentifiers(
+    collector: Collector,
+    raw: unknown,
+    at: string,
+): AccountsIdentifierSpec[] | null {
+    const entries = collector.array(raw, at);
+    if (entries === null) {
+        return null;
+    }
+    const out: AccountsIdentifierSpec[] = [];
+    for (let i = 0; i < entries.length; i += 1) {
+        const key = `${at}[${i}]`;
+        const entry = collector.object(entries[i], key);
+        if (entry === null) {
+            continue;
+        }
+        const kind = collector.member(entry, "kind", `${key}.kind`, kAccountsIdentifierKinds);
+        const required = collector.boolean(entry, "required", `${key}.required`);
+        const signIn = collector.boolean(entry, "sign_in", `${key}.sign_in`);
+        if (kind === null || required === null || signIn === null) {
+            continue;
+        }
+        out.push({ kind, required, sign_in: signIn });
+    }
+    return out;
+}
+
+function readAccountsProfile(
+    collector: Collector,
+    raw: unknown,
+    at: string,
+): AccountsProfileFieldSpec[] | null {
+    const entries = collector.array(raw, at);
+    if (entries === null) {
+        return null;
+    }
+    const out: AccountsProfileFieldSpec[] = [];
+    for (let i = 0; i < entries.length; i += 1) {
+        const key = `${at}[${i}]`;
+        const entry = collector.object(entries[i], key);
+        if (entry === null) {
+            continue;
+        }
+        const fieldKey = collector.string(entry, "key", `${key}.key`);
+        const required = collector.boolean(entry, "required", `${key}.required`);
+        const minCodePoints = collector.integer(entry, "min_code_points", `${key}.min_code_points`);
+        const maxCodePoints = collector.integer(entry, "max_code_points", `${key}.max_code_points`);
+        const text = collector.member(entry, "text", `${key}.text`, kAccountsProfileText);
+        const lineBreaks = collector.boolean(entry, "line_breaks", `${key}.line_breaks`);
+        if (
+            fieldKey === null ||
+            required === null ||
+            minCodePoints === null ||
+            maxCodePoints === null ||
+            text === null ||
+            lineBreaks === null
+        ) {
+            continue;
+        }
+        out.push({
+            key: fieldKey,
+            required,
+            min_code_points: minCodePoints,
+            max_code_points: maxCodePoints,
+            text,
+            line_breaks: lineBreaks,
+        });
+    }
+    return out;
+}
+
+function readAccountsSecret(collector: Collector, raw: unknown, at: string): AccountsSecretSpec | null {
+    const secret = collector.object(raw, at);
+    if (secret === null) {
+        return null;
+    }
+    const minCodePoints = collector.integer(secret, "min_code_points", `${at}.min_code_points`);
+    const maxCodePoints = collector.integer(secret, "max_code_points", `${at}.max_code_points`);
+    const maxBytes = collector.integer(secret, "max_bytes", `${at}.max_bytes`);
+    if (minCodePoints === null || maxCodePoints === null || maxBytes === null) {
+        return null;
+    }
+    return { min_code_points: minCodePoints, max_code_points: maxCodePoints, max_bytes: maxBytes };
+}
+
+// A role not in the fixed set is refused the way any other closed-vocabulary
+// key is — `member()` cannot be used directly because this is a field NAME
+// rather than a field VALUE, but it is the identical check.
+function readAccountsRoutes(collector: Collector, raw: unknown, at: string): AccountsRoutes | null {
+    const table = collector.object(raw, at);
+    if (table === null) {
+        return null;
+    }
+    const out: { [role in AccountsRouteRole]?: string } = {};
+    for (const field of Object.keys(table)) {
+        const fieldKey = `${at}.${field}`;
+        if (!isAccountsRouteRole(field)) {
+            collector.error(fieldKey, "unknown-member");
+            continue;
+        }
+        const value = table[field];
+        if (typeof value !== "string") {
+            collector.error(fieldKey, "not-a-string");
+            continue;
+        }
+        out[field] = value;
+    }
+    return out;
+}
+
+// `null` is a value here and not an omission, the way it is for an answer kind
+// (`readAnswerKind`) — an application that declares no accounts at all is not a
+// malformed descriptor, and neither is one written before this table existed:
+// `rawTables["accounts"]` is `undefined` on either, and both mean the same
+// thing.
+function readAccounts(collector: Collector, raw: unknown): AccountsSpec | null | undefined {
+    if (raw === null || raw === undefined) {
+        return null;
+    }
+    const at = "tables.accounts";
+    const table = collector.object(raw, at);
+    if (table === null) {
+        return undefined;
+    }
+    const hashing = collector.member(table, "hashing", `${at}.hashing`, kAccountsHashing);
+    const activation = collector.member(table, "activation", `${at}.activation`, kAccountsActivation);
+    const contact = collector.member(table, "contact", `${at}.contact`, kAccountsContact);
+    const identifiers = readAccountsIdentifiers(collector, table["identifiers"], `${at}.identifiers`);
+    const profile = readAccountsProfile(collector, table["profile"], `${at}.profile`);
+    const secret = readAccountsSecret(collector, table["secret"], `${at}.secret`);
+    const codeDigits = collector.integer(table, "code_digits", `${at}.code_digits`);
+    const routes = readAccountsRoutes(collector, table["routes"], `${at}.routes`);
+
+    if (
+        hashing === null ||
+        activation === null ||
+        contact === null ||
+        identifiers === null ||
+        profile === null ||
+        secret === null ||
+        codeDigits === null ||
+        routes === null
+    ) {
+        return undefined;
+    }
+
+    return {
+        hashing,
+        activation,
+        contact,
+        identifiers,
+        profile,
+        secret,
+        code_digits: codeDigits,
+        routes,
+    };
+}
+
 // --- what characters may reach the emitted file -----------------------------
 //
 // Every string the generator writes into the output goes through
@@ -1182,6 +1500,31 @@ const kFieldName = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
 
 // RFC 6838 restricted-name characters, lowercase, one solidus, no parameters.
 const kMediaType = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
+
+// A profile key is an object key in the emitted table and never an identifier
+// of its own — there is no `const` per profile field, the way there is none
+// per label or choice — so it is held to the descriptor's own grammar for one
+// rather than to `isSpellable()`: lowercase, digits and underscore only, one to
+// thirty-two characters.
+const kAccountsProfileKey = /^[a-z0-9_]{1,32}$/;
+
+// Every one of hammer's own words for a profile field, refused as a KEY for
+// one: `email` collides with the generated identifier table, `password` and
+// `credential` with the secret and the prehash wire body, and the rest with a
+// name this format itself already uses. A profile field called any of these
+// is not a typo to catch later — it is a field a consumer cannot address
+// without colliding with something hammer already emits under that name.
+const kAccountsReservedProfileKeys = new Set([
+    "email",
+    "username",
+    "phone",
+    "password",
+    "credential",
+    "locale",
+    "code",
+    "identifier",
+    "profile",
+]);
 
 // A label and a choice are the two descriptor strings that cannot have a class
 // of their own: they are words in whatever language the application is written
@@ -1402,6 +1745,30 @@ function checkLimits(collector: Collector, limits: LimitsSpec): void {
     }
     if (limits.page_limit_max <= 0) {
         collector.error("tables.limits.page_limit_max", "not-positive");
+    }
+    if (limits.edit !== null) {
+        const edit = limits.edit;
+        for (const [field, value] of [
+            ["max_strokes", edit.max_strokes],
+            ["max_points", edit.max_points],
+            ["max_edge_px", edit.max_edge_px],
+            ["min_edge_px", edit.min_edge_px],
+        ] as const) {
+            if (value <= 0) {
+                collector.error(`tables.limits.edit.${field}`, "not-positive");
+            }
+        }
+        // The recipe encodes a stroke count in one byte and every count and edge
+        // in sixteen bits; a bound past either is a bound the wire cannot carry.
+        if (edit.max_strokes > 255) {
+            collector.error("tables.limits.edit.max_strokes", "out-of-range");
+        }
+        if (edit.max_points > 65535 || edit.max_edge_px > 65535) {
+            collector.error("tables.limits.edit.max_points", "out-of-range");
+        }
+        if (edit.min_edge_px > edit.max_edge_px) {
+            collector.error("tables.limits.edit.min_edge_px", "out-of-range");
+        }
     }
 }
 
@@ -1649,6 +2016,7 @@ function checkEvents(collector: Collector, events: readonly EventSpec[]): void {
         }
 
         const names = new Set<string>();
+        let entities = 0;
         for (let d = 0; d < event.dimensions.length; d += 1) {
             const dimension = event.dimensions[d];
             if (dimension === undefined) {
@@ -1660,6 +2028,24 @@ function checkEvents(collector: Collector, events: readonly EventSpec[]): void {
                 collector.error(`${at}.name`, "duplicate-name");
             } else {
                 names.add(dimension.name);
+            }
+
+            if (dimension.kind === "entity") {
+                entities += 1;
+                // An entity dimension names a foreign id, not a member of a
+                // closed set, and the server stores no index for one — so a
+                // value here is a column nothing reads rather than a row the
+                // ingest path drops.
+                if (dimension.values.length !== 0) {
+                    collector.error(`${at}.values`, "not-empty");
+                }
+                continue;
+            }
+
+            // An enum with no values is a closed set with nothing in it: an
+            // event no application could ever report a member of.
+            if (dimension.values.length === 0) {
+                collector.error(`${at}.values`, "empty");
             }
 
             // The row stores the INDEX into this set, so a duplicate is two
@@ -1681,6 +2067,12 @@ function checkEvents(collector: Collector, events: readonly EventSpec[]): void {
                     values.add(value);
                 }
             }
+        }
+
+        // The row an event ingests has one column for a foreign id; a second
+        // entity dimension is a column the ingest path has nowhere to put.
+        if (entities > 1) {
+            collector.error(`${key}.dimensions`, "duplicate-entity-dimension");
         }
     }
 }
@@ -1875,6 +2267,110 @@ function checkRoutes(collector: Collector, tables: Tables): void {
     }
 }
 
+function checkAccounts(collector: Collector, tables: Tables): void {
+    const accounts = tables.accounts;
+    if (accounts === null) {
+        return;
+    }
+    const at = "tables.accounts";
+
+    // No kind twice, and at least one identifier a person can actually sign in
+    // with — an accounts table with none is one nobody could ever use.
+    const kinds = new Set<AccountsIdentifierKind>();
+    let hasSignIn = false;
+    for (let i = 0; i < accounts.identifiers.length; i += 1) {
+        const identifier = accounts.identifiers[i];
+        if (identifier === undefined) {
+            continue;
+        }
+        const key = `${at}.identifiers[${i}]`;
+        if (kinds.has(identifier.kind)) {
+            collector.error(`${key}.kind`, "duplicate-name");
+        } else {
+            kinds.add(identifier.kind);
+        }
+        if (identifier.sign_in) {
+            hasSignIn = true;
+        }
+    }
+    if (!hasSignIn) {
+        collector.error(`${at}.identifiers`, "no-sign-in-identifier");
+    }
+
+    // `contact` picks which identifier gets the verification and reset flows,
+    // so it has to name one that is actually there and actually required — an
+    // optional or undeclared contact channel is a reset flow with no address
+    // to send to.
+    const contactIdentifier = accounts.identifiers.find(
+        (identifier) => identifier.kind === accounts.contact && identifier.required,
+    );
+    if (contactIdentifier === undefined) {
+        collector.error(`${at}.contact`, "unknown-identifier");
+    }
+
+    const profileKeys = new Set<string>();
+    for (let i = 0; i < accounts.profile.length; i += 1) {
+        const field = accounts.profile[i];
+        if (field === undefined) {
+            continue;
+        }
+        const key = `${at}.profile[${i}]`;
+        if (!kAccountsProfileKey.test(field.key)) {
+            collector.error(`${key}.key`, "not-a-profile-key");
+        } else if (kAccountsReservedProfileKeys.has(field.key)) {
+            collector.error(`${key}.key`, "reserved-word");
+        } else if (profileKeys.has(field.key)) {
+            collector.error(`${key}.key`, "duplicate-name");
+        } else {
+            profileKeys.add(field.key);
+        }
+
+        if (field.max_code_points < 1) {
+            collector.error(`${key}.max_code_points`, "not-positive");
+        } else if (field.min_code_points > field.max_code_points) {
+            collector.error(`${key}.min_code_points`, "out-of-range");
+        }
+    }
+
+    if (accounts.secret.min_code_points < 1) {
+        collector.error(`${at}.secret.min_code_points`, "not-positive");
+    } else if (accounts.secret.min_code_points > accounts.secret.max_code_points) {
+        collector.error(`${at}.secret.min_code_points`, "out-of-range");
+    }
+    if (accounts.secret.max_code_points < 1) {
+        collector.error(`${at}.secret.max_code_points`, "not-positive");
+    }
+    if (accounts.secret.max_bytes < 1) {
+        collector.error(`${at}.secret.max_bytes`, "not-positive");
+    }
+
+    if (accounts.code_digits < 4) {
+        collector.error(`${at}.code_digits`, "out-of-range");
+    }
+
+    // Every route a role names has to be a route that exists — the emitter
+    // turns each into a reference to that route's own `const`, and a reference
+    // to a route nothing declares is a module that does not compile.
+    const routeIds = new Set(tables.routes.map((route) => route.id));
+    for (const role of kAccountsRouteRoles) {
+        const id = accounts.routes[role];
+        if (id !== undefined && !routeIds.has(id)) {
+            collector.error(`${at}.routes.${role}`, "unknown-route");
+        }
+    }
+
+    if (accounts.routes.sign_in === undefined) {
+        collector.error(`${at}.routes.sign_in`, "missing-role");
+    }
+
+    const hasSalt = accounts.routes.salt !== undefined;
+    if (accounts.hashing === "client" && !hasSalt) {
+        collector.error(`${at}.routes.salt`, "missing-role");
+    } else if (accounts.hashing === "server" && hasSalt) {
+        collector.error(`${at}.routes.salt`, "not-empty");
+    }
+}
+
 // --- the entry points -------------------------------------------------------
 
 const kSha256 = /^[0-9a-f]{64}$/;
@@ -1921,6 +2417,7 @@ export function readDescriptor(
     const sections = readSections(collector, rawTables["sections"]);
     const topics = readTopics(collector, rawTables["topics"]);
     const events = readEvents(collector, rawTables["events"]);
+    const accounts = readAccounts(collector, rawTables["accounts"]);
     const media = readMedia(collector, rawTables["media"]);
 
     if (
@@ -1941,6 +2438,7 @@ export function readDescriptor(
         sections === null ||
         topics === null ||
         events === null ||
+        accounts === undefined ||
         media === null ||
         collector.errors.length !== 0
     ) {
@@ -1960,6 +2458,7 @@ export function readDescriptor(
         sections,
         topics,
         events,
+        accounts,
         media,
     };
 
@@ -1979,6 +2478,7 @@ export function readDescriptor(
         new Set(tables.permissions.map((permission) => permission.name)),
     );
     checkEvents(collector, tables.events);
+    checkAccounts(collector, tables);
     checkMedia(collector, tables.media);
 
     if (collector.errors.length !== 0) {

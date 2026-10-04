@@ -17,7 +17,7 @@
 //
 // So the waiting list has a ceiling and the request past it is refused locally.
 // A screen that can reach the ceiling is a screen doing an N+1 over the network
-// (`ENGINEERING_RULES.md` §7), and one refused request is a better report of that than a
+// (`CLAUDE.md` §7), and one refused request is a better report of that than a
 // tab that gets slower for ninety seconds.
 //
 // --- the slot is transferred, never released and re-taken -------------------

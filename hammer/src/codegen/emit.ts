@@ -32,6 +32,8 @@
 // on key order produces a diff on every run and is ignored inside a week.
 
 import type {
+    AccountsRouteRole,
+    AccountsSpec,
     CapabilityScopeSpec,
     Descriptor,
     ErrorCodeTable,
@@ -462,6 +464,22 @@ function emitLimits(lines: Lines, tables: Tables): void {
     lines.raw(`export const kUploadMaxBytes = ${tables.limits.upload_max_bytes};`);
     lines.raw(`export const kBodyMaxBytes = ${tables.limits.body_max_bytes};`);
     lines.raw(`export const kPageLimitMax = ${tables.limits.page_limit_max};`);
+    const edit = tables.limits.edit;
+    if (edit !== null) {
+        lines.blank();
+        lines.block([
+            "The image edit recipe's bounds, as the server enforces them. `hammer/edit`",
+            "validates a recipe against exactly these, so a person hitting the stroke cap",
+            "learns it while drawing rather than after pressing save. The two edges are",
+            "the server's widest and narrowest variant widths — numbers, not addresses.",
+        ]);
+        lines.raw("export const kEditLimits = {");
+        lines.raw(`    maxStrokes: ${edit.max_strokes},`);
+        lines.raw(`    maxPoints: ${edit.max_points},`);
+        lines.raw(`    maxEdgePx: ${edit.max_edge_px},`);
+        lines.raw(`    minEdgePx: ${edit.min_edge_px},`);
+        lines.raw("} as const;");
+    }
 }
 
 // --- routes -----------------------------------------------------------------
@@ -556,7 +574,7 @@ function emitResponses(lines: Lines, routes: readonly RouteSpec[]): void {
         "a `ServerInstant` cannot be subtracted from `Date.now()`: the device clock is",
         "user-settable and is routinely minutes out, so a countdown built from the",
         "difference of two clocks is wrong by an amount nothing on the device can",
-        "measure (`ENGINEERING_RULES.md` §6).",
+        "measure (`CLAUDE.md` §6).",
     ]);
     lines.raw("export type ServerTimeText = string;");
     lines.blank();
@@ -779,7 +797,7 @@ function emitApi(lines: Lines): void {
 // and never from a vocabulary written down on this side. anvil owns the words —
 // the answer kinds, the section field types, the event classes, the media roles
 // — and a copy of an enum in a generator is the second copy nobody updates
-// (`ENGINEERING_RULES.md` §1). Deriving the union means a member anvil appends appears the
+// (`CLAUDE.md` §1). Deriving the union means a member anvil appends appears the
 // day the descriptor carries it and never a release later.
 
 // The distinct members of a column, in the table's own order. Never sorted: the
@@ -1094,6 +1112,13 @@ function emitEvents(lines: Lines, events: readonly EventSpec[]): void {
         "the `as const` is what makes a typo a compile error rather than a row the",
         "ingest path drops — and a dropped row is the analytics defect nobody notices",
         "for a quarter.",
+        "",
+        "An ENTITY dimension carries no values at all: it names a foreign id rather",
+        "than a member of a set, and the server stores no index for it. It is emitted",
+        "as `{ kind: \"entity\" }` rather than an empty array, so a consumer branching",
+        "on shape sees the two cases rather than an enum with nothing in it — and the",
+        "value it takes at a call site is a `Uuid`, encoded to the wire's 36-character",
+        "form once, rather than a member of a union with no members.",
     ]);
     for (let i = 0; i < events.length; i += 1) {
         const event = events[i];
@@ -1113,14 +1138,135 @@ function emitEvents(lines: Lines, events: readonly EventSpec[]): void {
         } else {
             lines.raw(`${kIndent}dimensions: {`);
             for (const dimension of event.dimensions) {
-                lines.raw(
-                    `${kIndent.repeat(2)}${key(dimension.name)}: ${list(dimension.values)},`,
-                );
+                const value =
+                    dimension.kind === "entity" ? `{ kind: "entity" }` : list(dimension.values);
+                lines.raw(`${kIndent.repeat(2)}${key(dimension.name)}: ${value},`);
             }
             lines.raw(`${kIndent}},`);
         }
         lines.raw("} as const;");
     }
+}
+
+// --- accounts ---------------------------------------------------------------
+//
+// The one content table that emits `null` outright rather than `never` or an
+// empty table: an application that declares no accounts has nothing here to
+// resolve at run time, and `null` is what lets a consumer write `if (kAccounts
+// !== null)` rather than reason about zero-length arrays that would otherwise
+// pass every other check in this file.
+//
+// `routes` is the reason this table is emitted after the route table and not
+// before it: every value in it is a REFERENCE to a route's own `const` — the
+// same one `emitRouteConst` already wrote — and never the bare id as a string.
+// A role naming a route anvil later retires is then a compile error at this
+// reference, the same way a holder route's shape already is, rather than a
+// call that 404s at run time.
+
+// The fixed role order the descriptor and this table share, paired with the
+// camelCase key each role is emitted under. `sign_in` becomes `signIn` and so
+// on — the wire's snake_case is never a property name in a generated module,
+// the same rule every other table here already follows.
+const kAccountsRouteKeys: readonly (readonly [AccountsRouteRole, string])[] = [
+    ["salt", "salt"],
+    ["register", "register"],
+    ["verify", "verify"],
+    ["resend", "resend"],
+    ["sign_in", "signIn"],
+    ["reset_request", "resetRequest"],
+    ["reset_confirm", "resetConfirm"],
+    ["change", "change"],
+    ["refresh", "refresh"],
+    ["sign_out", "signOut"],
+];
+
+function emitAccounts(lines: Lines, accounts: AccountsSpec | null): void {
+    lines.rule("accounts");
+    lines.blank();
+    lines.block([
+        "anvil's own account lifecycle — registration, verification, sign-in, a",
+        "password reset and a credential change — described the way every other",
+        "content table here is: `null` for an application that declares none, and a",
+        "table of what it declared otherwise. There is no client here yet; this is",
+        "the descriptor's shape and nothing that reads it.",
+        "",
+        "`routes` names only the roles the application actually has, in the fixed",
+        "order above, and each value is the route's own generated `const` — never",
+        "its id as a string — so a role naming a route anvil retires fails to",
+        "compile rather than calling a path the server no longer answers.",
+    ]);
+    if (accounts === null) {
+        lines.raw("export const kAccounts = null;");
+        lines.blank();
+        emitAccountsTableAlias(lines);
+        return;
+    }
+
+    lines.raw("export const kAccounts = {");
+    lines.raw(`${kIndent}hashing: ${quote(accounts.hashing)},`);
+    lines.raw(`${kIndent}activation: ${quote(accounts.activation)},`);
+    lines.raw(`${kIndent}contact: ${quote(accounts.contact)},`);
+
+    if (accounts.identifiers.length === 0) {
+        lines.raw(`${kIndent}identifiers: [],`);
+    } else {
+        lines.raw(`${kIndent}identifiers: [`);
+        for (const identifier of accounts.identifiers) {
+            lines.raw(
+                `${kIndent.repeat(2)}{ kind: ${quote(identifier.kind)}, required: ${String(identifier.required)}, signIn: ${String(identifier.sign_in)} },`,
+            );
+        }
+        lines.raw(`${kIndent}],`);
+    }
+
+    if (accounts.profile.length === 0) {
+        lines.raw(`${kIndent}profile: [],`);
+    } else {
+        lines.raw(`${kIndent}profile: [`);
+        for (const field of accounts.profile) {
+            lines.raw(`${kIndent.repeat(2)}{`);
+            lines.raw(`${kIndent.repeat(3)}key: ${quote(field.key)},`);
+            lines.raw(`${kIndent.repeat(3)}required: ${String(field.required)},`);
+            lines.raw(`${kIndent.repeat(3)}minCodePoints: ${field.min_code_points},`);
+            lines.raw(`${kIndent.repeat(3)}maxCodePoints: ${field.max_code_points},`);
+            lines.raw(`${kIndent.repeat(3)}text: ${quote(field.text)},`);
+            lines.raw(`${kIndent.repeat(3)}lineBreaks: ${String(field.line_breaks)},`);
+            lines.raw(`${kIndent.repeat(2)}},`);
+        }
+        lines.raw(`${kIndent}],`);
+    }
+
+    lines.raw(
+        `${kIndent}secret: { minCodePoints: ${accounts.secret.min_code_points}, maxCodePoints: ${accounts.secret.max_code_points}, maxBytes: ${accounts.secret.max_bytes} },`,
+    );
+    lines.raw(`${kIndent}codeDigits: ${accounts.code_digits},`);
+
+    const routeEntries = kAccountsRouteKeys.filter(([role]) => accounts.routes[role] !== undefined);
+    if (routeEntries.length === 0) {
+        lines.raw(`${kIndent}routes: {},`);
+    } else {
+        lines.raw(`${kIndent}routes: {`);
+        for (const [role, emittedKey] of routeEntries) {
+            const routeId = accounts.routes[role];
+            if (routeId === undefined) {
+                continue;
+            }
+            lines.raw(`${kIndent.repeat(2)}${emittedKey}: ${routeIdentifier(routeId)},`);
+        }
+        lines.raw(`${kIndent}},`);
+    }
+    lines.raw("} as const;");
+    lines.blank();
+    emitAccountsTableAlias(lines);
+}
+
+function emitAccountsTableAlias(lines: Lines): void {
+    lines.block([
+        "A name for the shape above, so a consumer holding one before it is known",
+        "whether the application declared accounts writes `AccountsTable | null`",
+        "rather than spelling out `typeof kAccounts` at every boundary.",
+    ]);
+    lines.raw("export type AccountsTable = typeof kAccounts;");
 }
 
 // --- media ------------------------------------------------------------------
@@ -1239,6 +1385,8 @@ export function emitClient(descriptor: Descriptor): string {
     emitTopics(lines, tables.topics);
     lines.blank();
     emitEvents(lines, tables.events);
+    lines.blank();
+    emitAccounts(lines, tables.accounts);
     lines.blank();
     emitMedia(lines, tables.media);
 

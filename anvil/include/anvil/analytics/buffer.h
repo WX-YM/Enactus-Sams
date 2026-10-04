@@ -60,9 +60,9 @@ namespace anvil::analytics {
 
 class EventBuffer final {
 public:
-    // 8,192 rows, which at 56 bytes each is under half a megabyte. At 512 rows
-    // per flush that is sixteen flushes of headroom in front of a sink that
-    // flushes every second.
+    // 8,192 rows, which at 72 bytes each is a little over half a megabyte. At
+    // 512 rows per flush that is sixteen flushes of headroom in front of a sink
+    // that flushes every second.
     static constexpr std::size_t kDefaultCapacityRows = 8192;
 
     enum class Admission : std::uint8_t {

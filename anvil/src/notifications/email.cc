@@ -451,7 +451,7 @@ struct AddrInfoDeleter final {
 };
 
 // One file descriptor, owned. The only place a close() happens on a normal path
-// (ENGINEERING_RULES.md §3.3).
+// (CLAUDE.md §3.3).
 class Socket final {
 public:
     explicit Socket(int fd) noexcept : fd_{fd} {}

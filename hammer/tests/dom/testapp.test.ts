@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // The reference consumer's components, driven through the package specifiers a
 // real application would use.
@@ -9,7 +8,7 @@
 // type-checking alone would let stay a fiction: `paths` is the compiler's map
 // and not the runtime's. That gap is exactly what caught phase 4 out.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { Consent, InboxState, PagerState } from "hammer/state";
 import { SessionStore } from "hammer/state";
@@ -43,6 +42,9 @@ function parts(): ScreenParts {
         setConsent: () => undefined,
         upload: async () => undefined,
         signIn: async () => ({ ok: true, value: undefined }),
+        signUp: async () => ({ ok: true, value: undefined }),
+        sendAccount: async () => ({ ok: true, value: undefined }),
+        prepare: async (body) => ({ ok: true, value: body }),
     };
 }
 

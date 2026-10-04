@@ -65,7 +65,7 @@ static_assert(std::is_trivially_copyable_v<ResourceRef>);
 
 // A parameter as STORED. Owns its text, because a row read out of BSON crosses a
 // pool boundary before it is rendered and a view into the driver's buffer would
-// dangle (ENGINEERING_RULES.md §2.2).
+// dangle (CLAUDE.md §2.2).
 struct StoredParam final {
     std::string  text;     // Text only
     std::int64_t number;   // Number only
@@ -251,7 +251,7 @@ struct ClientRow final {
 //
 // A full ClientRow carries a 64-entry subscription array; loading hundreds of
 // them to deliver one notification would be two kilobytes each of data the
-// delivery decision never looks at (ENGINEERING_RULES.md §7).
+// delivery decision never looks at (CLAUDE.md §7).
 struct ClientTarget final {
     Uuid                      id;
     std::string               addr;

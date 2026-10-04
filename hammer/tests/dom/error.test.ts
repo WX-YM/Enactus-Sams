@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // The error surface, and the two rules it exists to keep.
 //
@@ -8,7 +7,7 @@
 // which is the case a surface written against the happy path renders as the word
 // `undefined`.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { HammerError } from "../../src/core/errors.js";
 import type { ClassNames } from "../../src/core/tables.js";

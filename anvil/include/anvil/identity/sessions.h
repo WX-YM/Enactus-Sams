@@ -23,6 +23,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -104,6 +105,26 @@ struct RefreshLookup final {
     RefreshMatch  match;
 };
 
+// Told which sessions a revocation ended, after the revocation committed: the
+// seam through which a session's end reaches state the session made, such as
+// the chat device it registered (ChatService::session_ended). Called on the
+// revoking thread, which is a db_pool thread, once per revocation with every
+// session it ended; `client` is that thread's and must not leave it.
+//
+// Best effort by construction. The revocation has committed before the hook is
+// asked and is not undone by it, and a process killed between the two never
+// asks: what a hook ends must also be ended by something durable (a chat
+// device whose session is gone can no longer be touched, and the idle sweeper
+// ends it). A hook that throws is caught and ignored, because a sign-out must
+// not fail over what follows it.
+using SessionsRevoked = std::function<void(mongocxx::client& client, const Uuid& user_id,
+                                           std::span<const Uuid> session_ids)>;
+
+// Asks `hook`, if set and there is anything to say, swallowing what it throws.
+// One function so every revoking service keeps the same promise.
+void report_sessions_revoked(const SessionsRevoked& hook, mongocxx::client& client,
+                             const Uuid& user_id, std::span<const Uuid> session_ids);
+
 // One user and the number of devices they are currently signed in on.
 struct SessionCount final {
     Uuid         user_id;
@@ -147,15 +168,22 @@ public:
 
     [[nodiscard]] Status revoke(mongocxx::client& client, const Uuid& session_id,
                                 const Uuid& user_id) const;
-    [[nodiscard]] Result<std::int64_t> revoke_all(mongocxx::client& client,
-                                                  const Uuid& user_id) const;
+
+    // Every unrevoked session of a user, answered BY ID. The ids are what lets
+    // something else end with a session — a chat device a session registered
+    // is the one anvil has — and a single update_many cannot name what it
+    // matched. So the ids are read a page at a time and that page is revoked
+    // by id, until a read finds none: a session signed in while this runs is
+    // either in a page or created after the last one, never revoked unnamed.
+    [[nodiscard]] Result<std::vector<Uuid>> revoke_all(mongocxx::client& client,
+                                                       const Uuid& user_id) const;
 
     // Revokes every live session for a user EXCEPT one — the rotation a password
     // change performs, where signing the person out of the browser they are
-    // changing it in is the one outcome nobody wants.
-    [[nodiscard]] Result<std::int64_t> revoke_all_except(mongocxx::client& client,
-                                                         const Uuid& user_id,
-                                                         const Uuid& keep_session_id) const;
+    // changing it in is the one outcome nobody wants. By id, as revoke_all.
+    [[nodiscard]] Result<std::vector<Uuid>> revoke_all_except(mongocxx::client& client,
+                                                              const Uuid& user_id,
+                                                              const Uuid& keep_session_id) const;
 
     // The oldest live sessions beyond `keep`, for the concurrent-session cap.
     // Returns what should be evicted, oldest first, so the caller can revoke and
@@ -167,7 +195,7 @@ public:
                                                               std::int32_t keep) const;
 
     // Live sessions, most recently seen first. Bounded by `limit`, because an
-    // unbounded result set is an unbounded response (ENGINEERING_RULES.md §7).
+    // unbounded result set is an unbounded response (CLAUDE.md §7).
     [[nodiscard]] Result<std::vector<SessionRecord>> list_for_user(mongocxx::client& client,
                                                                    const Uuid& user_id,
                                                                    db::TimeMs now,
@@ -185,6 +213,13 @@ public:
     // row here would mean the caller could not tell "none" from "not asked".
     [[nodiscard]] Result<std::vector<SessionCount>> count_live_for_users(
         mongocxx::client& client, std::span<const Uuid> user_ids, db::TimeMs now) const;
+
+private:
+    // revoke_all and revoke_all_except, which differ only in the one session
+    // they keep.
+    [[nodiscard]] Result<std::vector<Uuid>> revoke_live(mongocxx::client& client,
+                                                        const Uuid& user_id,
+                                                        std::optional<Uuid> keep) const;
 };
 
 }  // namespace anvil::identity

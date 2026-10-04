@@ -1,7 +1,7 @@
 // The explain contract, run against a live cluster.
 //
 // This is the only check in the suite that can tell an index scan from a
-// collection scan, and it is the reason the rule in ENGINEERING_RULES.md §7 — add a query
+// collection scan, and it is the reason the rule in CLAUDE.md §7 — add a query
 // and you add its index in the same commit — is enforceable at all. On a
 // developer's database a COLLSCAN over four hundred rows is indistinguishable
 // from an index scan, and stays that way until the collection has four hundred

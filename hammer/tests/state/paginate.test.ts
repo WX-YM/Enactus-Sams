@@ -3,7 +3,7 @@
 // The route is the reference application's own list route, so the limit bound
 // under test is the descriptor's rather than a number this file chose.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { Pager } from "../../src/state/paginate.js";
 import type { Page } from "../../src/state/paginate.js";

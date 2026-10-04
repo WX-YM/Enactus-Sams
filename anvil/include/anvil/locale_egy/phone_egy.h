@@ -25,7 +25,7 @@
 // landline quietly accepted is a customer nobody can reach — and the two
 // reasons let the UI say which of them happened.
 //
-// **No std::regex.** It is banned on every request path (ENGINEERING_RULES.md §5) and this
+// **No std::regex.** It is banned on every request path (CLAUDE.md §5) and this
 // is a hand-written linear scan over a stack buffer, exactly as every other
 // validator here is.
 

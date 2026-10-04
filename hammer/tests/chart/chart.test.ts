@@ -1,10 +1,9 @@
-// @vitest-environment happy-dom
 //
 // The chart, and the ordering that makes its accessibility mechanical: the
 // drawing is hidden and the table is the reading, so there is no arrangement of
 // this component where a focusable node ends up under an `aria-hidden` one.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClassNames } from "../../src/core/tables.js";
 import { renderChart } from "../../src/chart/chart.js";

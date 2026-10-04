@@ -58,7 +58,7 @@ static_assert(kDefaultLocale < kLocales.size(), "the default locale must exist")
 //
 // The directory name is also the `{ns}` segment of a media URL, so there is one
 // string for both rather than two that can disagree.
-inline constexpr std::array<fs::NamespaceSpec, 3> kNamespaces{{
+inline constexpr std::array<fs::NamespaceSpec, 5> kNamespaces{{
     // No `accepts`, so both take everything the pipeline decodes. A namespace
     // with no opinion states none rather than restating the default.
     {"content"},
@@ -74,6 +74,24 @@ inline constexpr std::array<fs::NamespaceSpec, 3> kNamespaces{{
     // anyone on the internet can post to. A global accept list could not express
     // that, which is the whole reason the mask is per namespace.
     {"guest", fs::mime_bit(fs::Mime::Jpeg) | fs::mime_bit(fs::Mime::Png)},
+    // Conversation attachments (docs/22-chat.md §6). Deduplicated per OWNER: a
+    // namespace-wide hit answers faster than new bytes, and in a private
+    // namespace that clock says somebody else already holds the file.
+    //
+    // It also takes the FILE class — voice notes, video, documents — which no
+    // other namespace here does: a file is served as the bytes a user sent, and
+    // only a namespace that names the class can receive one.
+    //
+    // And PRIVATE: an object here is served only on a grant minted after the
+    // caller's membership was checked, never by an id alone.
+    {"chat", static_cast<fs::MimeMask>(fs::kDecodableMimes | fs::kFileMimes), fs::Dedupe::Owner,
+     fs::Visibility::Private},
+    // Encrypted blobs (docs/22-chat.md §6.4). Takes the SEALED class and
+    // nothing else: the bytes are never sniffed, only counted and hashed. Never
+    // deduplicated: every ciphertext is under a fresh key, so two uploads never
+    // share bytes, and a lookup could only ever cost a round trip. anvil refuses
+    // a sealed namespace that is anything other than this at compile time.
+    {"sealed", fs::kSealedMimes, fs::Dedupe::None, fs::Visibility::Private},
 }};
 
 static_assert(!fs::mime_accepted(kNamespaces[2].accepts, fs::Mime::Avif),
@@ -94,10 +112,12 @@ inline constexpr std::array<std::uint16_t, 5> kVariantWidths{{320, 640, 1024, 16
 // differ per namespace — a thumbnail in a list and a hero on a landing page want
 // different ladders — and changing one needs no client release, because the
 // client names a role and never a width.
-inline constexpr std::array<std::array<std::uint16_t, fs::kRoleCount>, 3> kRoleWidths{{
+inline constexpr std::array<std::array<std::uint16_t, fs::kRoleCount>, 5> kRoleWidths{{
     {{320, 1024, 1600, 2560}},  // content: the public furniture, goes full-bleed
     {{320, 640, 1024, 1600}},   // media:   illustrations inside a body of text
     {{320, 640, 1024, 1600}},   // guest:   looked at beside the row it belongs to
+    {{320, 640, 1024, 1600}},   // chat:    a bubble, then full screen on a tap
+    {{320, 640, 1024, 1600}},   // sealed:  never derived; the row exists for the table's shape
 }};
 
 static_assert(kRoleWidths.size() == kNamespaces.size(),
@@ -131,7 +151,7 @@ inline constexpr std::array<db::DatabaseSpec, 2> kDatabases{{
 // audit_log deliberately names NO field despite having a TTL index: 400 days of
 // history is a retention policy, not a lifetime, and filtering its reads on
 // `at > now` would return nothing at all.
-inline constexpr std::array<db::CollectionSpec, 17> kCollections{{
+inline constexpr std::array<db::CollectionSpec, 30> kCollections{{
     {"users",               "",           0},
     {"user_sessions",       "expires_at", 0},
     {"capability_tokens",   "expires_at", 0},
@@ -150,6 +170,9 @@ inline constexpr std::array<db::CollectionSpec, 17> kCollections{{
     // the collection carries no secondary index at all. No expiry field: a
     // section is the live content of a page and has no lifetime.
     {"sections",            "",           0},
+    // One document per entry of every repeating kind. No expiry: an entry is
+    // content and leaves when somebody removes it.
+    {"entries",             "",           0},
     // Both notification collections name an expiry field, and both mean a
     // LIFETIME: a notification past its retention must be absent from the inbox
     // and from the badge count, not merely eligible for reaping. The TTL monitor
@@ -177,6 +200,42 @@ inline constexpr std::array<db::CollectionSpec, 17> kCollections{{
     // answer the raw rows were collected to produce, and it outlives them
     // deliberately.
     {"analytics_rollups",   "",           0},
+    // Conversations (docs/22-chat.md §3.1). No lifetime on the log itself: a
+    // message leaves through revocation, its own timer or the kind's retention,
+    // and the SWEEPER removes it rather than a TTL index, because the monitor
+    // would delete a row without releasing its attachments' references (§4.7).
+    {"chat_conversations",  "",           0},
+    {"chat_members",        "",           0},
+    {"chat_messages",       "",           0},
+    {"chat_reactions",      "",           0},
+    // An invite link has a LIFETIME, enforced in the redeem filter as well as by
+    // its TTL index.
+    {"chat_invites",        "exp",        0},
+    {"chat_blocks",         "",           0},
+    // Members' reports of messages, for staff (docs/22-chat.md §9.2). No
+    // lifetime: a report is evidence, and how long the application keeps
+    // evidence is its own policy to run.
+    {"chat_reports",        "",           0},
+    // Last seen, one row per account, written only while presence is on and
+    // only for an account somebody may see (docs/22-chat.md §8.3). No lifetime:
+    // one row per account, overwritten in place and never accumulated.
+    {"chat_presence",       "",           0},
+    // --- chat devices (docs/22-chat.md §7.3) ---------------------------------
+    // One document per account. No lifetime: an idle device is unlinked by the
+    // sweeper, which bumps the version a TTL deletion never would.
+    {"chat_identities",     "",           0},
+    // One-time prekeys. No lifetime either: a key leaves by being claimed, or
+    // with its device.
+    {"chat_prekeys",        "",           0},
+    // Per-device ciphertexts (docs/22-chat.md §7.6). A LIFETIME, as a garbage
+    // collector for a device that never comes back: a row holds no media
+    // reference, so the monitor deleting one leaks nothing, and every read
+    // filters the expiry as well.
+    {"chat_device_queue",   "exp",        0},
+    // The link relay's mailbox (docs/22-chat.md §7.3.1): one pending request per
+    // session, minutes long. A LIFETIME, and every read filters it too.
+    {"chat_link_requests",  "exp",        0},
+    // --- end chat devices ----------------------------------------------------
 }};
 
 }  // namespace anvil::config

@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { readDescriptorJson } from "../../src/codegen/descriptor.js";
 import { kOutputFileName } from "../../src/codegen/emit.js";

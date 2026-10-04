@@ -6,7 +6,7 @@
 // an authority check reading the wrong bit: silent, and for the bits above 63
 // only, which is exactly the half no small test would cover.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { PermSet, kPermBits, kPermBytes } from "../../src/core/perm_set.js";
 import { Prng } from "../support/prng.js";

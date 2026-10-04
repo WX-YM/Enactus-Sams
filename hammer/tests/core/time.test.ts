@@ -2,7 +2,7 @@
 // and `Date.now()` must not be combinable, and the only way to keep that true is
 // a test that fails the build when it becomes possible.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { Countdown, ServerInstant, kHourMs, kMinuteMs, kSecondMs } from "../../src/core/time.js";
 

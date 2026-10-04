@@ -237,6 +237,35 @@ TEST(AccelResponse, SetsNosniffPrivateCachingAndVaryOnAccept) {
     EXPECT_EQ(response->getHeader("Vary"), "Accept");
 }
 
+TEST(AccelResponse, AnImageCarriesNoDispositionAndNoSandbox) {
+    // Unchanged by the file class: pictures are served exactly as before.
+    const auto response = accel_redirect_response(*Ns::from_index(0), anvil::Uuid{},
+                                                  VariantKey{320, Format::Webp},
+                                                  anvil::fs::Mime::Jpeg);
+    EXPECT_TRUE(response->getHeader("Content-Disposition").empty());
+    EXPECT_TRUE(response->getHeader("Content-Security-Policy").empty());
+}
+
+TEST(AccelResponse, AStoredFileIsSandboxedAndAPdfIsAlwaysAnAttachment) {
+    const auto pdf = accel_redirect_response(*Ns::from_index(0), anvil::Uuid{},
+                                             anvil::fs::kMasterVariant, anvil::fs::Mime::Pdf);
+    EXPECT_EQ(pdf->contentTypeString(), "application/pdf");
+    EXPECT_EQ(pdf->getHeader("Content-Disposition"), "attachment");
+    EXPECT_EQ(pdf->getHeader("Content-Security-Policy"),
+              std::string{anvil::media::kFileContentSecurityPolicy});
+    EXPECT_EQ(pdf->getHeader("X-Content-Type-Options"), "nosniff");
+    // One representation, so nothing varies with Accept.
+    EXPECT_TRUE(pdf->getHeader("Vary").empty());
+
+    // A voice note plays where it is: inline, and still sandboxed.
+    const auto voice = accel_redirect_response(*Ns::from_index(0), anvil::Uuid{},
+                                               anvil::fs::kMasterVariant,
+                                               anvil::fs::Mime::OggOpus);
+    EXPECT_EQ(voice->contentTypeString(), "audio/ogg");
+    EXPECT_EQ(voice->getHeader("Content-Disposition"), "inline");
+    EXPECT_FALSE(voice->getHeader("Content-Security-Policy").empty());
+}
+
 TEST(AccelResponse, TheRedirectPathIsTheOneThePathBuilderProduces) {
     // Asserted against fs::media_relative_path rather than against a literal, so
     // a change to the storage layout cannot leave the redirect naming a file

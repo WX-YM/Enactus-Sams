@@ -119,7 +119,7 @@ void SectionService::invalidate_local(std::string_view key) noexcept {
     // The REGISTRY's spelling of the key is what goes out, not the caller's.
     // `key` on the subscriber's path is a view into a message buffer that dies
     // with the callback; `spec->key` is a literal in .rodata that outlives the
-    // process's last request (ENGINEERING_RULES.md §2.2).
+    // process's last request (CLAUDE.md §2.2).
     if (!config_.on_invalidated) { return; }
     try {
         config_.on_invalidated(spec->key);
@@ -128,7 +128,7 @@ void SectionService::invalidate_local(std::string_view key) noexcept {
         // exception let out of here is noexcept violated and std::terminate
         // called, so one consumer's bug in a callback would take the process
         // down and stop every OTHER instance's invalidations with it
-        // (ENGINEERING_RULES.md §4).
+        // (CLAUDE.md §4).
         //
         // The key is copied for the log line rather than viewed: a registry key
         // is not NUL-terminated and this path is already the exceptional one.
@@ -207,8 +207,8 @@ Result<std::optional<SectionDocument>> SectionService::read_document(mongocxx::c
 
 // --- images -----------------------------------------------------------------
 
-Status SectionService::verify_images(mongocxx::client& client, const SectionSpec& spec,
-                                     const SectionContent& content) const {
+Status verify_images(mongocxx::client& client, const media::MediaService& media, fs::Ns ns,
+                     const SectionSpec& spec, const SectionContent& content) {
     for (const SectionImage& image : content.images) {
         const ImageSpec* slot = find_image(spec, image.slot);
         if (slot == nullptr) { return fail(ErrorCode::ValidationFailed); }
@@ -216,7 +216,7 @@ Status SectionService::verify_images(mongocxx::client& client, const SectionSpec
         // The namespace is part of the lookup, so a media id uploaded through
         // another API cannot be attached to a section slot.
         const Result<std::optional<media::MediaRecord>> found =
-            media_.find(client, config_.image_namespace, image.media_id);
+            media.find(client, ns, image.media_id);
         if (!found) { return found.error(); }
         if (!found.value().has_value()) {
             // Indistinguishable from "wrong namespace" and from "belongs to
@@ -246,6 +246,11 @@ Status SectionService::verify_images(mongocxx::client& client, const SectionSpec
         }
     }
     return ok();
+}
+
+Status SectionService::verify_images(mongocxx::client& client, const SectionSpec& spec,
+                                     const SectionContent& content) const {
+    return sections::verify_images(client, media_, config_.image_namespace, spec, content);
 }
 
 // --- write ------------------------------------------------------------------

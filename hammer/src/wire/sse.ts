@@ -117,7 +117,7 @@ function willRetry(status: number): boolean {
 
 // Bounded, evicting, and keyed by the only thing that identifies an event across
 // a reconnect. An unbounded set on a connection that is open for days is a leak
-// with a slow fuse (`ENGINEERING_RULES.md` §2.3).
+// with a slow fuse (`CLAUDE.md` §2.3).
 class SeenIds {
     private readonly slots: number;
     private readonly order: string[];

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { expect as unwrap, fail, isFail, isOk, ok } from "../../src/core/result.js";
 import { isRetryableKind, isServerError } from "../../src/core/errors.js";

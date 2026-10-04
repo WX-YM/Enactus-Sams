@@ -177,7 +177,7 @@ bool JobQueue::post_to_pool(ClaimedJob job) {
 
     // Everything the task needs is captured BY VALUE or moved. Capturing the
     // claimed job by reference would be a use-after-free the moment this function
-    // returns (ENGINEERING_RULES.md §3.3).
+    // returns (CLAUDE.md §3.3).
     //
     // `this` is captured raw, which is safe only because the queue outlives every
     // pool: main() stops the queue, then shuts the pools down, then destroys the

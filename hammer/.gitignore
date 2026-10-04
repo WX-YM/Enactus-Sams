@@ -13,7 +13,6 @@
 
 # Coverage and test scratch.
 /coverage/
-/.vitest/
 
 # Editor and tooling scratch.
 /.cache/

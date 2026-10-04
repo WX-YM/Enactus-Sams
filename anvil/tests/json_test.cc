@@ -156,7 +156,7 @@ TEST(Json, BindingEveryFieldLeavesNothingUnclaimed) {
 TEST(Json, StringsWithoutEscapesAreViewsIntoTheBody) {
     // Not a micro-optimisation: it is what keeps an 8 KB body at one arena and
     // no per-field allocation. It is also the lifetime rule — the view dies
-    // with the body (ENGINEERING_RULES.md §2.2).
+    // with the body (CLAUDE.md §2.2).
     const std::string body = R"({"t":"no escapes here"})";
     BodyArena arena;
     const JsonDocument document = parse_json(body, arena);

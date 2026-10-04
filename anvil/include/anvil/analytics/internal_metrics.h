@@ -2,7 +2,7 @@
 
 // The one metric table anvil POPULATES rather than ships.
 //
-// ENGINEERING_RULES.md §1 draws the line: a constexpr table anvil ships is machinery; a
+// CLAUDE.md §1 draws the line: a constexpr table anvil ships is machinery; a
 // constexpr table anvil populates is a bug. This is the exception, and the test
 // it passes is whether a name here would have to change if the application
 // changed. None of them would — every one names a mechanism that lives in this

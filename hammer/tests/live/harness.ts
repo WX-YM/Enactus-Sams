@@ -47,6 +47,10 @@ import type { ExclusiveLocks, FanOut, FetchLike } from "../../src/wire/index.js"
 import { noFanOut } from "../../src/wire/index.js";
 import type { AppState, Credentials } from "../testapp/app/state.js";
 import { appState } from "../testapp/app/state.js";
+import { serveArgon2Pool } from "../../src/prehash/worker.js";
+import { inProcessWorkers } from "../support/in_process_worker.js";
+import { readFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 
 // A missing origin is a FAILED run rather than a skipped one. A live suite that
 // quietly passes when there is no server is a suite whose green means nothing,
@@ -127,6 +131,14 @@ export function jarFetch(jar: CookieJar): FetchLike {
         if (cookies !== null && init.credentials !== "omit") {
             headers.set("Cookie", cookies);
         }
+        // A browser names the page's origin on every write, and anvil's CSRF
+        // control refuses one that names none. Node's fetch is not a browser and
+        // sends nothing, so the run says what the tab would have: the origin the
+        // page was served from, which here is the server's own.
+        const method = (init.method ?? "GET").toUpperCase();
+        if (method !== "GET" && method !== "HEAD" && !headers.has("Origin")) {
+            headers.set("Origin", new URL(String(url)).origin);
+        }
 
         const response = await fetch(url, { ...init, headers, redirect: init.redirect ?? "manual" });
 
@@ -181,11 +193,72 @@ export function liveRun(): LiveRun {
         imageWorker: () => {
             throw new Error("the live suite decodes no images");
         },
+        // Node has no Web Worker, so the real worker body runs in this process
+        // behind the same message protocol. The credential it derives is the
+        // one the live server verifies, which makes every live sign-in a
+        // cross-check of hammer's Argon2 against anvil's libargon2.
+        prehashWorker: inProcessWorkers(serveArgon2Pool).create,
         beaconTo: { sendBeacon: () => false },
         count: () => undefined,
     });
 
     return { state, jar, close: () => state.close() };
+}
+
+// The code the server "sent" an address, read from the line the reference
+// application prints in place of a mail (`tools/run-live.sh`, rule 3).
+//
+// Polled, because anvil delivers AFTER it answers — the answer must take the
+// same time whether or not there was anything to deliver, so a registration's
+// 202 arrives before its code does. The LAST matching line wins: a second
+// registration of a pending account issues a new code and voids the first.
+export async function deliveredCode(
+    purpose: "verify" | "reset" | "exists",
+    address: string,
+    within: AbortSignal,
+): Promise<string> {
+    const path = process.env["HAMMER_LIVE_SERVER_OUT"];
+    if (path === undefined || path === "") {
+        throw new Error("HAMMER_LIVE_SERVER_OUT is not set; run the suite through tools/run-live.sh.");
+    }
+    for (;;) {
+        within.throwIfAborted();
+        let found: string | null = null;
+        for (const line of (await readFile(path, "utf8")).split("\n")) {
+            const [word, said, to, code] = line.split(" ");
+            if (word === "code" && said === purpose && to === address && code !== undefined) {
+                found = code;
+            }
+        }
+        if (found !== null) {
+            return found;
+        }
+        await delay(50, undefined, { signal: within });
+    }
+}
+
+// How many codes of one purpose the server has printed for an address.
+export async function deliveredCount(purpose: "verify" | "reset" | "exists", address: string): Promise<number> {
+    const path = process.env["HAMMER_LIVE_SERVER_OUT"] ?? "";
+    const prefix = `code ${purpose} ${address} `;
+    return (await readFile(path, "utf8")).split("\n").filter((line) => line.startsWith(prefix)).length;
+}
+
+// The stored image the reference server seeds at boot, from the
+// `media <ns> <id>` line it prints. Null for a server built without libvips,
+// which seeds nothing and has no edit to make.
+export async function seededMedia(): Promise<{ readonly ns: string; readonly id: string } | null> {
+    const path = process.env["HAMMER_LIVE_SERVER_OUT"] ?? "";
+    if (path === "") {
+        return null;
+    }
+    for (const line of (await readFile(path, "utf8")).split("\n")) {
+        const [word, ns, id] = line.split(" ");
+        if (word === "media" && ns !== undefined && id !== undefined) {
+            return { ns, id };
+        }
+    }
+    return null;
 }
 
 export function signal(afterMs = 10_000): AbortSignal {

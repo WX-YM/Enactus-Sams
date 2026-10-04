@@ -29,13 +29,23 @@ export type { SectionFieldView, SectionOptions, SectionPart } from "./section.js
 export { renderSection } from "./section.js";
 
 export type {
+    AccountFormOptions,
     AuthPart,
     Branch,
     LoginOptions,
     PermissionGateOptions,
+    Prepare,
+    PrepareFailure,
     SessionGateOptions,
+    SignupOptions,
 } from "./auth.js";
-export { renderLogin, renderPermissionGate, renderSessionGate } from "./auth.js";
+export {
+    renderAccountForm,
+    renderLogin,
+    renderPermissionGate,
+    renderSessionGate,
+    renderSignup,
+} from "./auth.js";
 
 export type { BellCopy, BellOptions, BellPart } from "./bell.js";
 export { renderBell } from "./bell.js";

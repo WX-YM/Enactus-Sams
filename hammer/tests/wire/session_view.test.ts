@@ -3,7 +3,7 @@
 // request, so a malformed one does not merely fail — it chooses where a
 // session's cookies are sent.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import {
     decodeSessionView,
@@ -39,7 +39,7 @@ describe("the payload a server sends", () => {
 
     it("maps a permission name back to the bit anvil stores it in", () => {
         // anvil sends names in BIT order rather than a mask, so this map is what
-        // keeps the 16 bytes ENGINEERING_RULES.md §2.3 asks for. The names are the
+        // keeps the 16 bytes CLAUDE.md §2.3 asks for. The names are the
         // application's table and the bits are the descriptor's.
         const names = permNames(0, 25);
         expect(names).toEqual(["ContentRead", "AuditRead"]);

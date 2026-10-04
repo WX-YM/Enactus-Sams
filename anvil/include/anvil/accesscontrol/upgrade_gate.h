@@ -90,7 +90,7 @@
 // `registerWebSocketController` by hand — is a route with none of anvil's
 // filters on it, which `route_registration.h` calls "a public route where every
 // check reports green". Such a route is now unreachable rather than unguarded,
-// and it fails the way ENGINEERING_RULES.md §5 asks: closed, and identically to a path that
+// and it fails the way CLAUDE.md §5 asks: closed, and identically to a path that
 // was never there.
 
 #include <cstddef>
@@ -103,7 +103,7 @@ namespace anvil::accesscontrol {
 
 // How many WebSocket routes one process may register.
 //
-// A fixed array rather than a growing container (ENGINEERING_RULES.md §2.1): the registry
+// A fixed array rather than a growing container (CLAUDE.md §2.1): the registry
 // is scanned on every handshake, sixteen `string_view` compares fit in a couple
 // of cache lines, and a bound that fails at BOOT with the number in the message
 // is the shape this library uses everywhere an application supplies a table.

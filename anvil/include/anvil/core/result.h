@@ -3,7 +3,7 @@
 // A typed result for operations that fail as part of normal control flow.
 //
 // Every function that can fail returns one of these or throws a typed domain
-// exception — never a bare bool with an out-parameter, never -1 (ENGINEERING_RULES.md §8).
+// exception — never a bare bool with an out-parameter, never -1 (CLAUDE.md §8).
 //
 // Exceptions are for genuinely exceptional conditions (a broken CSPRNG, a lost
 // database connection). Result is for expected outcomes: a stale version, a
@@ -11,6 +11,7 @@
 // times a day and should not unwind the stack.
 
 #include <cassert>
+#include <cstdint>
 #include <optional>
 #include <string_view>
 #include <type_traits>
@@ -25,13 +26,19 @@ namespace anvil {
 // carries the submitted value: echoing input back is a reflected-XSS and
 // log-injection vector, and with Arabic it is an encoding hazard too — echoing input back is how a validation message becomes a reflected-XSS and log-injection vector, and with non-Latin text an encoding hazard too.
 // Members are ordered largest-alignment-first so there is no interior padding,
-// and the initialiser list matches declaration order (ENGINEERING_RULES.md §2.3, §3.2).
+// and the initialiser list matches declaration order (CLAUDE.md §2.3, §3.2).
 struct Failure final {
     std::string_view field;   // constexpr field name, or empty
     ErrorCode        code;
+    // A code-specific detail, zero when there is none. For ValidationFailed it
+    // is the input::Reason the field was refused with, so a service that knows
+    // WHY a field failed can say so without a side table of fault strings to
+    // map back. A number from a closed enum, never anything the request sent.
+    std::uint16_t    detail;
 
-    constexpr explicit Failure(ErrorCode c, std::string_view f = {}) noexcept
-        : field{f}, code{c} {}
+    constexpr explicit Failure(ErrorCode c, std::string_view f = {},
+                               std::uint16_t d = 0) noexcept
+        : field{f}, code{c}, detail{d} {}
 };
 
 template <typename T>

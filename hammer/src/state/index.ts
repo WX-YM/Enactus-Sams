@@ -48,6 +48,7 @@ export type {
     FieldValue,
     FormReasons,
     FormState,
+    InputPurpose,
 } from "./forms.js";
 export { Form, definitionsFrom } from "./forms.js";
 export type { SectionStage, SectionsConfig } from "./sections.js";
@@ -67,6 +68,7 @@ export type {
     AnalyticsConfig,
     Consent,
     Dimensions,
+    EntityDimension,
     EventSpec,
     ReportedEvent,
 } from "./analytics.js";

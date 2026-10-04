@@ -2,12 +2,14 @@
 // component and no policy violation is reported.
 //
 // This is the one row in phase 7's browser set that needs no server, and it is
-// therefore the only one with evidence behind it. What it adds over
-// `tests/dom/csp.test.ts` is the participant that suite cannot have: happy-dom
-// enforces no policy, so that suite asserts the code takes no route to a sink by
-// trapping every route. This asserts that Chromium, with the policy actually
-// served, agrees — and it asserts it over the same registry, which is the
-// reference consumer's own mounts rather than a list written for a test.
+// therefore the only one with evidence behind it. Before Phase 8 B2 this ran
+// against happy-dom, which enforced no policy at all — `tests/dom/csp.test.ts`
+// asserted the code takes no route to a sink by trapping every route, and this
+// file was the only place Chromium, with the policy actually served, was asked
+// to agree. Since B2, `tests/dom/csp.test.ts` runs under the identical policy
+// too, so this file's distinct value is narrower and still real: it asserts
+// the claim over the reference consumer's own mounts, the SAME registry an
+// application actually uses, rather than a list written for a test.
 //
 // The claim is narrow and worth stating precisely. It is NOT that hammer is
 // immune to XSS; the library's markup path goes through `DOMParser` and
@@ -16,11 +18,10 @@
 // that reached `innerHTML` next year would fail here, in the environment that
 // decides, rather than in production on the one deployment that enforces a CSP.
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
-import type { Browser } from "playwright-core";
+import { afterAll, beforeAll, describe, expect, it } from "../support/test.js";
 
 import { published } from "../dom/registry.js";
+import type { Browser } from "./cdp.js";
 import type { Origin, PageReport } from "./harness.js";
 import { launch, serveBundle } from "./harness.js";
 
@@ -42,7 +43,7 @@ beforeAll(async () => {
         await page.evaluate(() => window.hammerRun.probe());
         return page.evaluate(() => window.hammerRun.report());
     };
-}, 60_000);
+}, { timeout: 60_000 });
 
 let probed: () => Promise<PageReport>;
 

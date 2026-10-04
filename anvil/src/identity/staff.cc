@@ -10,6 +10,7 @@
 #include "anvil/identity/staff.h"
 
 #include <utility>
+#include <vector>
 
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/basic/kvp.hpp>
@@ -44,12 +45,14 @@ struct AbortTransaction final {
 
 StaffService::StaffService(std::string database, std::string_view users_collection,
                            std::string_view sessions_collection,
-                           std::string_view guard_collection, AuthzService& authz)
+                           std::string_view guard_collection, AuthzService& authz,
+                           SessionsRevoked on_revoked)
     : database_{std::move(database)},
       guard_collection_{guard_collection},
       users_{database_, users_collection},
       sessions_{database_, sessions_collection},
-      authz_{authz} {}
+      authz_{authz},
+      on_revoked_{std::move(on_revoked)} {}
 
 Status StaffService::guard_population(mongocxx::client& client,
                                       mongocxx::client_session& session) const {
@@ -215,18 +218,21 @@ Result<UserStatus> StaffService::set_status(mongocxx::client& client, const Uuid
 
     if (!previous) { return previous.error(); }
 
+    std::vector<Uuid> revoked;
     if (status != UserStatus::Active) {
         // Revoke, THEN bump. The revoke stops the refresh path from minting a
         // fresh access token; the bump kills the one already outstanding. Either
         // alone is a disable that looks like it worked and did not — and doing
         // them in the other order leaves a window in which a refresh mints a
         // token carrying the new epoch.
-        const Result<std::int64_t> revoked = sessions_.revoke_all(client, user_id);
-        if (!revoked) { return revoked.error(); }
+        Result<std::vector<Uuid>> ended = sessions_.revoke_all(client, user_id);
+        if (!ended) { return ended.error(); }
+        revoked = std::move(ended.value());
     }
 
     const Result<std::int64_t> epoch = authz_.bump_epoch(client, user_id);
     if (!epoch) { return epoch.error(); }
+    report_sessions_revoked(on_revoked_, client, user_id, revoked);
 
     // Permissions are deliberately UNTOUCHED. Turning an account back on
     // restores exactly what it had, which is what an enable/disable control

@@ -1,6 +1,6 @@
 // The key that makes at-least-once on the wire at-most-once at the server.
 //
-// A retry without one is a duplicate write (`ENGINEERING_RULES.md` §6): a second charge, a
+// A retry without one is a duplicate write (`CLAUDE.md` §6): a second charge, a
 // second message, a second row. anvil closes the gap from its side —
 // `http/idempotency.h` records the response against the key and answers a
 // repeat from the record rather than performing it again — and this is the half
@@ -81,7 +81,7 @@ export function mintIdempotencyKey(source: KeySource = platformKey): Idempotency
         // A violated precondition rather than a failure to report: the only
         // caller that can reach this passed a source that is not a UUID
         // generator, which is programmer error and is what a throw is for
-        // (`ENGINEERING_RULES.md` §3.1).
+        // (`CLAUDE.md` §3.1).
         throw new Error("an idempotency key source must return a UUID");
     }
     return brand<string, "idempotency-key">(key);

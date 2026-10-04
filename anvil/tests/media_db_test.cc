@@ -18,6 +18,7 @@
 
 #include "anvil/core/uuid.h"
 #include "anvil/media/repository.h"
+#include "namespaces.h"
 #include "app_fixture.h"
 #include "db_fixture.h"
 
@@ -57,7 +58,8 @@ protected:
     }
 
     [[nodiscard]] Uuid store(Ns ns, std::uint8_t hash_seed,
-                             std::optional<std::array<std::uint8_t, 16>> ip = std::nullopt) {
+                             std::optional<std::array<std::uint8_t, 16>> ip = std::nullopt,
+                             const Uuid& owner = anvil::uuid::generate_v7()) {
         const Uuid id = anvil::uuid::generate_v7();
         anvil::crypto::Digest256 sha{};
         sha[0] = hash_seed;
@@ -67,7 +69,7 @@ protected:
             .sha256 = sha,
             .bytes = 123456,
             .id = id,
-            .owner = anvil::uuid::generate_v7(),
+            .owner = owner,
             .uploader_ip = ip,
             .width = 1600,
             .height = 900,
@@ -144,13 +146,57 @@ TEST_F(MediaDb, DeduplicationIsScopedToOneNamespace) {
     anvil::crypto::Digest256 sha{};
     sha[0] = 0x03;
 
-    const auto same_ns = media().find_by_hash(db(), content, sha);
+    // A namespace-scoped table ignores who is asking: anybody's upload of these
+    // bytes is reused.
+    const auto same_ns = media().find_by_hash(db(), content, anvil::uuid::generate_v7(), sha);
     ASSERT_TRUE(same_ns.ok());
     EXPECT_TRUE(same_ns.value().has_value());
 
-    const auto other_ns = media().find_by_hash(db(), guest, sha);
+    const auto other_ns = media().find_by_hash(db(), guest, anvil::uuid::generate_v7(), sha);
     ASSERT_TRUE(other_ns.ok());
     EXPECT_FALSE(other_ns.value().has_value());
+}
+
+TEST_F(MediaDb, AnOwnerScopedNamespaceReusesOnlyTheOwnersOwnUpload) {
+    // The oracle this closes: in a private namespace a hit answers faster than
+    // new bytes, so a namespace-wide lookup tells a stranger that somebody here
+    // already holds the file they guessed. Scoped to the owner, a fast answer
+    // only ever says "you uploaded this before".
+    const Uuid alice = anvil::uuid::generate_v4();
+    const Uuid bob = anvil::uuid::generate_v4();
+    const Uuid stored = store(testapp::kChat, 0x04, std::nullopt, alice);
+
+    anvil::crypto::Digest256 sha{};
+    sha[0] = 0x04;
+
+    const auto own = media().find_by_hash(db(), testapp::kChat, alice, sha);
+    ASSERT_TRUE(own.ok());
+    ASSERT_TRUE(own.value().has_value());
+    EXPECT_EQ(own.value()->id, stored);
+
+    const auto stranger = media().find_by_hash(db(), testapp::kChat, bob, sha);
+    ASSERT_TRUE(stranger.ok());
+    EXPECT_FALSE(stranger.value().has_value());
+
+    // And the stranger's own upload of the same bytes is a second object, which
+    // is what the scope costs: one copy per owner rather than one per namespace.
+    const Uuid second = store(testapp::kChat, 0x04, std::nullopt, bob);
+    EXPECT_NE(second, stored);
+    const auto theirs = media().find_by_hash(db(), testapp::kChat, bob, sha);
+    ASSERT_TRUE(theirs.ok());
+    ASSERT_TRUE(theirs.value().has_value());
+    EXPECT_EQ(theirs.value()->id, second);
+}
+
+TEST_F(MediaDb, ANamespaceThatNeverDeduplicatesFindsNothingEvenForTheOwner) {
+    const Uuid owner = anvil::uuid::generate_v4();
+    (void)store(testapp::kSealed, 0x05, std::nullopt, owner);
+
+    anvil::crypto::Digest256 sha{};
+    sha[0] = 0x05;
+    const auto found = media().find_by_hash(db(), testapp::kSealed, owner, sha);
+    ASSERT_TRUE(found.ok());
+    EXPECT_FALSE(found.value().has_value());
 }
 
 TEST_F(MediaDb, AListingCoversOneNamespaceAndPaginatesByItsCursor) {

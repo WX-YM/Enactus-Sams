@@ -5,7 +5,7 @@
 // built WRONGLY is a request sent to somewhere else, carrying the session's
 // cookies, and every one of those cases has its own test.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { RouteTarget } from "../../src/wire/session_view.js";
 import { buildRoute, requestPath } from "../../src/wire/route.js";

@@ -1,6 +1,6 @@
 // Showing somebody the result before the server has agreed to it.
 //
-// `ENGINEERING_RULES.md` §6 draws the line in one sentence: an optimistic update is
+// `CLAUDE.md` §6 draws the line in one sentence: an optimistic update is
 // reconcilable or it is absent. Three things follow from that, and all three are
 // here rather than at a call site, because a call site gets the third one wrong.
 //

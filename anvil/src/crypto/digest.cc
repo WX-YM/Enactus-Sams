@@ -16,7 +16,7 @@ std::span<const std::uint8_t> as_bytes(std::string_view text) noexcept {
 }
 
 // RAII for the OpenSSL context: every early return and every exception must
-// still free it (ENGINEERING_RULES.md §3.3).
+// still free it (CLAUDE.md §3.3).
 struct MdCtxDeleter final {
     void operator()(EVP_MD_CTX* ctx) const noexcept { EVP_MD_CTX_free(ctx); }
 };

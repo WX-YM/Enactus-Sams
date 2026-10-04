@@ -55,7 +55,7 @@ DOCS = {
     "17-lib-notifications": "11-notifications",
 }
 
-# yardclub ENGINEERING_RULES.md section -> anvil ENGINEERING_RULES.md section.
+# yardclub CLAUDE.md section -> anvil CLAUDE.md section.
 RULES = {"1": "2", "2": "3", "3": "4", "4": "5", "5": "6", "6": "7", "7": "8"}
 
 
@@ -106,7 +106,7 @@ def lift(text: str) -> tuple[str, list[str]]:
     text = re.sub(r",?\s*(?:see\s+)?\x00DROPDOC\x00[^\s,.;)]*", "", text)
     text = text.replace("\x00DROPDOC\x00", "")
 
-    text = re.sub(r"ENGINEERING_RULES\.md §(\d)", lambda m: f"ENGINEERING_RULES.md §{RULES.get(m.group(1), m.group(1))}", text)
+    text = re.sub(r"CLAUDE\.md §(\d)", lambda m: f"CLAUDE.md §{RULES.get(m.group(1), m.group(1))}", text)
 
     # A comment can wrap a citation across lines, which puts a `//` between the
     # digits and the closing paren. Join those before matching, or the citation

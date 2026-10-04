@@ -5,7 +5,7 @@
 // the `Cache-Control` assertions assertions about the header rather than about a
 // value the test handed itself.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { ResourceStore } from "../../src/state/resource.js";
 import type { StateCount } from "../../src/state/counts.js";

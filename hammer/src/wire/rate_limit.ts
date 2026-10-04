@@ -35,7 +35,7 @@ import { fail, ok } from "../core/result.js";
 
 // The shape of a row in the generated `kRateLimits`, structurally. The table is
 // the application's and arrives through the descriptor; nothing here knows a
-// bucket name (`ENGINEERING_RULES.md` §1).
+// bucket name (`CLAUDE.md` §1).
 export type BucketSpec = {
     readonly windowMs: number;
     readonly maxEvents: number;
@@ -45,7 +45,7 @@ export type RateLimitTable = Readonly<Record<string, BucketSpec>>;
 
 // One shape, every field declared where it is created, and nothing added later:
 // a shape change deoptimises every call site that has already seen the old one
-// (`ENGINEERING_RULES.md` §2.3).
+// (`CLAUDE.md` §2.3).
 type Bucket = {
     // Fractional on purpose. An integer count would refill in steps of a whole
     // event, so a bucket of five events per hour would admit nothing for
@@ -95,7 +95,7 @@ export class RateLimiter {
     // The clock is a parameter and it is the MONOTONIC one. A bucket driven by
     // the wall clock refills by an hour when the operating system corrects the
     // device's time, and empties for an hour when it corrects it the other way
-    // (`ENGINEERING_RULES.md` §6).
+    // (`CLAUDE.md` §6).
     admit(bucket: string | null, monotonicNowMs: number): Result<void, ClientError> {
         if (bucket === null) {
             return ok();

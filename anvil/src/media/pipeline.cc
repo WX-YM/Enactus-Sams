@@ -8,7 +8,13 @@
 #include <string_view>
 #include <utility>
 
+#include <unistd.h>
+
+#include <cerrno>
+
+#include "anvil/core/uuid.h"
 #include "anvil/fs/paths.h"
+#include "anvil/images/edit.h"
 #include "anvil/images/probe.h"
 #include "anvil/images/strip.h"
 #include "anvil/images/variants.h"
@@ -38,6 +44,10 @@ struct LeafName final {
 }  // namespace
 
 Result<ProcessedMedia> process(fs::Ns ns, const fs::UploadResult& upload) {
+    // A stored file or a sealed blob is never handed to a decoder. Refused
+    // before anything opens it, so a caller that forgot to branch on the class
+    // gets a failure rather than libvips guessing at a PDF or at ciphertext.
+    if (fs::mime_class(upload.mime) != fs::MimeClass::Image) { return fail(ErrorCode::Internal); }
     const fs::Storage& storage = fs::Storage::instance();
 
     // The raw upload is still in tmp/ and is opened read-only for probing and
@@ -96,6 +106,67 @@ Result<ProcessedMedia> process(fs::Ns ns, const fs::UploadResult& upload) {
         .width = normalised.value().width,
         .height = normalised.value().height,
         .mime = upload.mime,
+    };
+}
+
+namespace {
+
+// The derived master's bytes, hashed in one streaming pass. It is at most the
+// widest rung, so this is a few megabytes read once, on the pool that just wrote
+// them.
+[[nodiscard]] Result<crypto::Digest256> hash_file(int fd) {
+    crypto::Sha256Stream digest;
+    std::array<std::uint8_t, fs::kStreamChunkBytes> buffer{};
+    while (true) {
+        const ssize_t got = ::read(fd, buffer.data(), buffer.size());
+        if (got < 0) {
+            if (errno == EINTR) { continue; }
+            return fail(ErrorCode::Internal);
+        }
+        if (got == 0) { break; }
+        digest.update(std::span<const std::uint8_t>{buffer.data(), static_cast<std::size_t>(got)});
+    }
+    return digest.finish();
+}
+
+}  // namespace
+
+Result<RenderedMedia> render(fs::Ns ns, const PreparedEdit& edit) {
+    const fs::Storage& storage = fs::Storage::instance();
+
+    const fs::Fd source = storage.open_media(ns, edit.source, fs::kMasterVariant);
+    if (!source.valid()) { return fail(ErrorCode::NotFound); }
+
+    // A fresh id for every attempt, including a retry of the same edit. The
+    // unique {ns, src, esha} index decides which attempt's row survives, and
+    // the loser's files are under an id nothing else will ever name.
+    const Uuid id = uuid::generate_v4();
+    Result<images::RenderedEdit> rendered = images::render_edit(
+        storage, ns, id, source.get(), edit.mime, edit.recipe, edit.plan);
+    if (!rendered) {
+        unlink_all_files(storage, ns, id, {});
+        return rendered.error();
+    }
+    images::RenderedEdit output = std::move(rendered).value();
+
+    const fs::Fd master = storage.open_media(ns, id, fs::kMasterVariant);
+    Result<crypto::Digest256> sha256 =
+        master.valid() ? hash_file(master.get()) : Result<crypto::Digest256>{fail(ErrorCode::Internal)};
+    if (!sha256) {
+        unlink_all_files(storage, ns, id, output.variants);
+        return sha256.error();
+    }
+
+    return RenderedMedia{
+        ProcessedMedia{
+            .variants = std::move(output.variants),
+            .master_bytes = output.master_bytes,
+            .id = id,
+            .width = output.width,
+            .height = output.height,
+            .mime = edit.mime,
+        },
+        sha256.value(),
     };
 }
 

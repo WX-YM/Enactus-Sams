@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Bans that are absolute, and therefore worth enforcing mechanically rather than
-# in review (ENGINEERING_RULES.md §5, §8).
+# in review (CLAUDE.md §5, §8).
 #
 #   std::regex   a backtracking engine. A crafted input against an RFC 5322-style
 #                pattern is catastrophic backtracking — one request pinning a core
@@ -26,7 +26,7 @@
 #                (docs/17-analytics.md §6). A ban is greppable where the
 #                reasoning is not.
 #
-# Plus two rules that exist only because anvil is a library (ENGINEERING_RULES.md §1):
+# Plus two rules that exist only because anvil is a library (CLAUDE.md §1):
 #
 #   - a public header may not reach into src/, or a private type becomes part of
 #     the ABI by accident;

@@ -12,7 +12,7 @@
 // addition away from a response body.
 //
 // Returning the whole document to read one boolean also costs network, BSON
-// decode CPU and heap on every login (ENGINEERING_RULES.md §7), but that is the smaller of
+// decode CPU and heap on every login (CLAUDE.md §7), but that is the smaller of
 // the two reasons.
 //
 // Which fields anvil owns, and why an application may keep its own in the same
@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <utility>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,19 +35,15 @@
 #include "anvil/core/types.h"
 #include "anvil/db/codec.h"
 #include "anvil/db/repository.h"
+#include "anvil/identity/login_identity.h"
 
 namespace anvil::identity {
 
-// Which unique index answers a login lookup. The branch is chosen from the
-// identifier's SHAPE before the query is issued: one equality on one field,
-// never an `$or` across three. An `$or` cannot use a single index and turns the
-// login path — the one path an attacker can drive hardest — into a scan.
-enum class LoginIdentity : std::uint8_t { Email = 0, Username = 1, Phone = 2 };
 
 // Everything the login path needs, and nothing else.
 //
 // Ordered largest-alignment-first so the struct carries no interior padding
-// (ENGINEERING_RULES.md §2.3).
+// (CLAUDE.md §2.3).
 struct UserAuthRecord final {
     std::string               password_hash;
     std::optional<db::TimeMs> lock_until;
@@ -73,7 +70,7 @@ struct UserPermRecord final {
 // UserAuthRecord with fields added — see the header comment.
 //
 // `version` is here because a permission edit is a read-modify-write and
-// therefore optimistic (ENGINEERING_RULES.md §6), and this row is where the client learns
+// therefore optimistic (CLAUDE.md §6), and this row is where the client learns
 // the version to send back.
 struct AccountRecord final {
     db::TimeMs   created_at;
@@ -117,7 +114,7 @@ struct AccountQuery final {
     std::optional<UserStatus>    status = std::nullopt;
     std::optional<UserType>      user_type = std::nullopt;
     // Bounded by the repository at one when a caller leaves it unset, because a
-    // result set with no bound is a response with no bound (ENGINEERING_RULES.md §7).
+    // result set with no bound is a response with no bound (CLAUDE.md §7).
     std::int32_t                 limit = 0;
 };
 
@@ -139,13 +136,32 @@ struct NewUser final {
     std::string_view password_hash;
     // E.164 and nothing else, already validated by the caller. Empty means the
     // account has none, and it is written ABSENT — see fields::kPhone for what
-    // a partial unique index does with an empty string.
+    // a partial unique index does with an empty string. The email and the
+    // username are written absent when empty too, for the same reason: an
+    // account schema may make either optional (anvil/accounts/schema.h), and
+    // then the application declares that index partial as it does the phone's.
     std::string_view phone_e164;
     Locale           locale;
     // A field rather than a constant because the two creation paths disagree
     // legitimately: registration writes PendingVerification, and an operator
     // creating an account for somebody writes Active.
     UserStatus       status;
+    // The application's profile, key and already-validated value, written under
+    // fields::kProfile. Empty writes no subdocument at all. The keys come from
+    // the application's account schema and never from a request.
+    std::span<const std::pair<std::string_view, std::string_view>> profile{};
+};
+
+// What a password flow needs about an account it already knows by id: the
+// stored hash and the version it is written back under, the status, and the
+// identifiers an enrolment salt may be derived from. One projection, so a
+// password change is one read.
+struct CredentialRecord final {
+    UserAuthRecord auth;
+    std::string    email_normalised;     // empty when the account has none
+    std::string    username_normalised;  // likewise
+    std::string    phone_e164;           // likewise
+    std::int64_t   version;
 };
 
 // One account's id and the handle to show for it.
@@ -172,6 +188,12 @@ public:
         mongocxx::client& client, std::string_view normalised, LoginIdentity kind) const;
 
     [[nodiscard]] Result<std::optional<UserPermRecord>> find_permissions(
+        mongocxx::client& client, const Uuid& user_id) const;
+
+    // By id, for a flow that has already established whose account it is — a
+    // password change behind the access filter, a reset whose code verified.
+    // Never on a path an unauthenticated caller can aim at an arbitrary id.
+    [[nodiscard]] Result<std::optional<CredentialRecord>> find_credential(
         mongocxx::client& client, const Uuid& user_id) const;
 
     // Relies on the unique indexes for collision detection rather than a prior
@@ -212,7 +234,7 @@ public:
     // VersionMismatch when the row moved under the caller: two administrators
     // with the grid open on the same person is the normal case for a small team,
     // and a find_one followed by an unconditional write loses one of them in
-    // silence (ENGINEERING_RULES.md §6).
+    // silence (CLAUDE.md §6).
     [[nodiscard]] Result<std::int64_t> set_permissions(mongocxx::client& client,
                                                        const Uuid& user_id,
                                                        std::int64_t expected_version,

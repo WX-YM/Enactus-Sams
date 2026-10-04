@@ -45,7 +45,9 @@
 #include <string_view>
 
 #include "anvil/accesscontrol/route_registry.h"
+#include "anvil/accounts/schema.h"
 #include "anvil/analytics/event_spec.h"
+#include "anvil/chat/kind_spec.h"
 #include "anvil/core/perm_catalogue.h"
 #include "anvil/descriptor/route_description.h"
 #include "anvil/forms/field_type.h"
@@ -72,7 +74,10 @@ namespace anvil::descriptor {
 // route — so the number is what tells it that a non-null answer is now possible
 // and is underwritten by the writer rather than by a second table
 // (anvil/http/response_writer.h).
-inline constexpr int kDescriptorFormat = 3;
+//
+// 4 adds `limits.chat`: anvil's chat bounds and the application's conversation
+// kinds, or `null` for an application without chat. Additive again.
+inline constexpr int kDescriptorFormat = 4;
 
 // The bounds a client enforces before it spends a round trip finding out. They
 // are the application's, because they are deployment decisions — anvil ships
@@ -80,8 +85,23 @@ inline constexpr int kDescriptorFormat = 3;
 struct Limits final {
     std::uint64_t upload_max_bytes;   // a byte cap, because an upload is bytes
     std::uint64_t body_max_bytes;
+    // The ceiling of EVERY list route: a client reads it as the server's, so
+    // no route may declare a larger `limit_max` (page_ceiling_covers).
     std::uint32_t page_limit_max;
 };
+
+// Whether `limits.page_limit_max` is at least every route's own `limit_max`. A
+// descriptor that says 100 globally and 200 on one route contradicts itself,
+// and a generator that trusts either number builds a client wrong about the
+// other. Constexpr, so an application asserts it on its own tables;
+// emit_descriptor refuses a descriptor that breaks it.
+[[nodiscard]] constexpr bool page_ceiling_covers(std::span<const RouteDescription> routes,
+                                                 const Limits& limits) noexcept {
+    for (const RouteDescription& route : routes) {
+        if (route.limit_max > limits.page_limit_max) { return false; }
+    }
+    return true;
+}
 
 // Everything an application hands the emitter. Spans, so every table stays
 // constexpr and stays in .rodata, and so a table an application has not declared
@@ -118,6 +138,21 @@ struct DescriptorInput final {
     std::span<const sections::SectionSpec>         sections;
     std::span<const notifications::TopicSpec>      topics;
     std::span<const analytics::EventSpec>          events;
+
+    // The built-in account flows, when the application uses them: its account
+    // schema, who hashes, and which of its routes plays which role
+    // (docs/01-seams.md §16). Null emits `"accounts":null`, for an application
+    // that writes its own — the key is always present, so a generator branches
+    // on a value and never on a typo. Checked by the static_assert beside the
+    // application's description, not again here.
+    const accounts::AccountDescription* accounts = nullptr;
+
+    // The conversation kinds, when the application has chat (docs/01-seams.md
+    // §18): published under `limits.chat` with anvil's own bounds, so a
+    // composer refuses what the server would. Empty emits `"chat":null`.
+    // Checked by the static_assert beside the application's table, not again
+    // here.
+    std::span<const chat::ConversationKindSpec>    chat_kinds{};
 
     Limits limits;
 };

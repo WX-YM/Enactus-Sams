@@ -58,7 +58,7 @@
 // --- threading --------------------------------------------------------------
 //
 // Every method here BLOCKS on MongoDB and must never be called from a Trantor
-// event-loop thread (ENGINEERING_RULES.md §4). db_pool.
+// event-loop thread (CLAUDE.md §4). db_pool.
 
 #include <array>
 #include <chrono>
@@ -147,11 +147,11 @@ struct PublishHooks final {
 // What a caller asks to be published.
 //
 // No recipient list, deliberately — see the header comment. Ordered
-// largest-alignment-first so the struct packs (ENGINEERING_RULES.md §2.3).
+// largest-alignment-first so the struct packs (CLAUDE.md §2.3).
 struct PublishRequest final {
     TopicRef                   topic;
     // Borrowed for the duration of the call and copied into the row's owned
-    // StoredParams before anything crosses a pool boundary (ENGINEERING_RULES.md §2.2).
+    // StoredParams before anything crosses a pool boundary (CLAUDE.md §2.2).
     std::span<const Param>     params;
     // REQUIRED, and it is what makes a retried publish a no-op rather than a
     // second notification. Every queue in this system is at-least-once, so the
@@ -199,7 +199,7 @@ inline constexpr std::chrono::seconds kOutboxGrace{60};
 
 // Per round trip, not in total. An audience is paged at this width so a topic
 // with thousands of subscribers is many bounded reads rather than one unbounded
-// one (ENGINEERING_RULES.md §7); the TOTAL is bounded only by the subscription count, which
+// one (CLAUDE.md §7); the TOTAL is bounded only by the subscription count, which
 // is the application's declared decision when it marks a topic FanOut::Write.
 inline constexpr std::int32_t kSubscriberPage = 256;
 
@@ -218,7 +218,7 @@ public:
     // `templates` and the repository's topic table are views of the application's
     // `constexpr` tables and outlive the service. Held as spans rather than
     // copied: the tables are in `.rodata`, shared across every thread and every
-    // request, and costing nothing to consult (ENGINEERING_RULES.md §2.1).
+    // request, and costing nothing to consult (CLAUDE.md §2.1).
     PublishService(const NotificationRepository& repository,
                    std::span<const TemplateSpec> templates, PublishHooks hooks,
                    ShedPolicy shedding = {}) noexcept
@@ -325,7 +325,7 @@ public:
     // The window is a FIXED bucket, not a sliding one: two events a second apart
     // that straddle a boundary do not coalesce. A sliding window would need a read
     // before the write, which is the check-then-act the atomic upsert exists to
-    // avoid (ENGINEERING_RULES.md §6).
+    // avoid (CLAUDE.md §6).
     //
     // Truncated to 128 bits of SHA-256. A collision suppresses one notification,
     // and at 2^-64 birthday bound over any realistic publish volume it is not the
@@ -351,7 +351,7 @@ private:
     [[nodiscard]] Result<NotificationRow> build_row(const PublishRequest& request,
                                                     const TopicSpec& spec, db::TimeMs now) const;
 
-    // Declaration order is initialisation order (ENGINEERING_RULES.md §3.2). The reference
+    // Declaration order is initialisation order (CLAUDE.md §3.2). The reference
     // and both spans outlive the service; the hooks are owned.
     const NotificationRepository& repository_;
     std::span<const TemplateSpec> templates_;

@@ -14,7 +14,9 @@
 //      tmp/<uuid>.part, and the SHA-256 is computed in the same pass — hashing
 //      the finished file would be a second full read of every byte.
 //   4. The content type is sniffed from magic bytes. The claimed type is
-//      compared against it and a disagreement is rejected and audited.
+//      compared against it and a disagreement is rejected and audited. In a
+//      SEALED namespace nothing is sniffed: the client declares the SHA-256 of
+//      its ciphertext and the digest from step 3 must equal it.
 //   5. fsync the file, fsync the temp directory, THEN rename into the namespace
 //      directory, then fsync that directory. Rename within one filesystem is
 //      atomic, so a reader never observes a partial file; without the directory
@@ -72,6 +74,10 @@ inline constexpr std::string_view kRejectTypeMismatch = "upload.claim_mismatch";
 // difference between an auditor looking for an attacker and an operator looking
 // at a client that offered the wrong picker.
 inline constexpr std::string_view kRejectNamespaceType = "upload.ns_type";
+// A sealed upload whose bytes do not hash to what the client declared. Its own
+// reason because it is neither a probe nor a wrong picker: it is a truncated
+// or altered stream, or a client that lies about its own ciphertext.
+inline constexpr std::string_view kRejectSealedHash = "upload.sealed_hash";
 
 struct UploadLimits final {
     std::uint64_t max_bytes;
@@ -130,10 +136,35 @@ public:
     // fsync, then sniff and validate against the allow-list AND against what
     // this sink's namespace accepts. `claimed_content_type` is the client's
     // header: it is compared, never believed. Blocking — post it to a pool.
+    //
+    // Refuses a SEALED namespace with Internal before touching anything: that
+    // is a caller on the wrong path, not a client mistake, and sniffing
+    // ciphertext would find a "type" one time in a few hundred.
     [[nodiscard]] Result<UploadResult> finish(std::string_view claimed_content_type);
+
+    // The only way to finish an upload into a SEALED namespace (Ns::sealed()),
+    // and refused with Internal on any other: two methods rather than a flag,
+    // so a sealed namespace cannot be sniffed and an image namespace cannot
+    // skip the sniff, whichever one the caller meant.
+    //
+    // fsync, then compare the digest the stream already computed with the
+    // client's declared SHA-256 of its ciphertext. Nothing about the bytes is
+    // inspected: no XML probe, no sniff, no claim. A mismatch is
+    // ValidationFailed with kRejectSealedHash. The result's mime is
+    // Mime::Sealed; hand it to media::store_sealed. The byte cap is the one
+    // write() already enforced during the stream.
+    //
+    // What this does NOT bound is how many sealed bytes one account stores. A
+    // namespace that cannot inspect content is otherwise free file hosting, so
+    // a per-account BYTE budget belongs in front of every sealed upload — and
+    // it lives in the chat upload route, which knows the account and can
+    // refuse before the stream opens. anvil's sink knows neither
+    // (docs/22-chat.md §6.4). Blocking — post it to a pool.
+    [[nodiscard]] Result<UploadResult> finish_sealed(const crypto::Digest256& declared_sha256);
 
     // Creates the shard directories, renames the temp file into place and fsyncs
     // the destination directory, under the namespace this sink was opened for.
+    // Refused with Internal unless a finish accepted the bytes.
     // Blocking — post it to a pool. After this the sink owns nothing and the
     // destructor unlinks nothing.
     [[nodiscard]] Status publish();
@@ -153,6 +184,9 @@ private:
 
     void unlink_temp() noexcept;
 
+    // The steps both finishes share: the stream ended cleanly and is durable.
+    [[nodiscard]] Status make_durable() noexcept;
+
     // Declaration order is construction order and also largest-first: the
     // digest owns a heap context, the counters are 8 bytes, the id is 16 raw
     // bytes, and the flags are last.
@@ -165,10 +199,14 @@ private:
     SniffBuffer           head_;
     std::uint8_t          head_size_;
     // One byte, and it sits with the flags rather than with limits_ because that
-    // is where the largest-first ordering puts it (ENGINEERING_RULES.md §2.3).
+    // is where the largest-first ordering puts it (CLAUDE.md §2.3).
     Ns                    ns_;
     bool                  aborted_;
     bool                  finished_;
+    // Set only by a finish that ACCEPTED the bytes. finished_ alone said the
+    // stream was durable, which is also true of a stream finish refused, so a
+    // caller that ignored the refusal could still publish it.
+    bool                  accepted_;
     bool                  published_;
 };
 

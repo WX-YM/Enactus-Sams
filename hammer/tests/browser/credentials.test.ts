@@ -36,10 +36,9 @@
 // credential, and a refresh token that can rotate once. The assertion is then
 // `exactly one`, which is a thing that can fail.
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "../support/test.js";
 
-import type { Browser, Page } from "playwright-core";
-
+import type { Browser, Page } from "./cdp.js";
 import type { Tabs } from "./harness.js";
 import { launch, liveTabs } from "./harness.js";
 
@@ -63,7 +62,7 @@ beforeAll(async () => {
     const opened = await tabs.open(2);
     first = opened[0] as Page;
     second = opened[1] as Page;
-}, 120_000);
+}, { timeout: 120_000 });
 
 afterAll(async () => {
     await tabs?.close();
@@ -96,7 +95,7 @@ describe("one session, two real tabs", () => {
         expect(report.identity).not.toBeNull();
 
         // A 404 here is not a permission error and must never be reported as
-        // one (`ENGINEERING_RULES.md` §5) — it means the object is missing OR forbidden and
+        // one (`CLAUDE.md` §5) — it means the object is missing OR forbidden and
         // the client is not entitled to know which.
         // `NOT_FOUND` is the server's own code. It is not a permission error
         // and must never be rendered as one: it means the object is missing OR

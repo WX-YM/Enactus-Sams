@@ -143,7 +143,7 @@ jitter that does not do its job.
 
 It **sleeps, on the calling thread.** That is only correct because every caller is already on
 `db_pool`: the driver is synchronous, so a transaction is a blocking call by construction,
-and a Trantor loop thread may never reach here (ENGINEERING_RULES.md §4).
+and a Trantor loop thread may never reach here (CLAUDE.md §4).
 
 `translate()` maps driver errors to domain codes: a duplicate key becomes
 `Conflict` — a unique index violation is a business outcome, not a fault — and a

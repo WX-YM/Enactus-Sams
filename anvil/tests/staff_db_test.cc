@@ -10,14 +10,21 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "anvil/core/uuid.h"
+#include "anvil/crypto/secret.h"
 #include "anvil/identity/authz.h"
+#include "anvil/identity/sessions.h"
 #include "anvil/identity/staff.h"
 #include "anvil/identity/users.h"
 #include "app_fixture.h"
@@ -32,7 +39,9 @@ using anvil::UserStatus;
 using anvil::UserType;
 using anvil::identity::AuthzService;
 using anvil::identity::NewUser;
+using anvil::identity::NewSession;
 using anvil::identity::RoleTable;
+using anvil::identity::SessionRepository;
 using anvil::identity::StaffService;
 using anvil::identity::UserRepository;
 using anvil::testfixture::scratch_names;
@@ -106,9 +115,9 @@ protected:
     return service;
 }
 
-[[nodiscard]] StaffService staff() {
+[[nodiscard]] StaffService staff(anvil::identity::SessionsRevoked on_revoked = {}) {
     return StaffService{std::string{scratch_names().for_collection(kUsers)}, kUsers, kSessions,
-                        kGuard, authz()};
+                        kGuard, authz(), std::move(on_revoked)};
 }
 
 [[nodiscard]] std::int64_t stored_epoch(mongocxx::client& client, const Uuid& id) {
@@ -313,6 +322,54 @@ TEST_F(StaffDb, DisablingReportsThePreImageAndBumpsTheEpoch) {
     // separately would record a value that was true a moment earlier.
     EXPECT_EQ(disabled.value(), UserStatus::Active);
     EXPECT_GT(stored_epoch(db(), target), before);
+}
+
+TEST_F(StaffDb, DisablingNamesEverySessionItRevokedToTheHook) {
+    ANVIL_REQUIRE_TRANSACTIONS();
+    create("admin-hook", UserType::SuperAdmin, UserStatus::Active);
+    const Uuid target = create("hook-me", UserType::Staff, UserStatus::Active);
+    const SessionRepository sessions{std::string{scratch_names().for_collection(kUsers)},
+                                     kSessions};
+    const anvil::db::TimeMs now = anvil::db::now_ms();
+    std::vector<Uuid> made;
+    for (std::uint8_t i = 0; i < 2; ++i) {
+        anvil::crypto::Digest256 hash{};
+        hash.fill(static_cast<std::uint8_t>(0x50 + i));
+        made.push_back(anvil::uuid::generate_v7());
+        ASSERT_TRUE(sessions
+                        .insert(db(), NewSession{.id = made.back(),
+                                                 .user_id = target,
+                                                 .refresh_hash = hash,
+                                                 .now = now,
+                                                 .expires_at = now + std::chrono::hours{24},
+                                                 .abs_expiry = now + std::chrono::hours{72},
+                                                 .ip = {},
+                                                 .user_agent_hash = {},
+                                                 .user_type = UserType::Staff})
+                        .ok());
+    }
+
+    // A disable revokes sessions without SessionService, so the hook has to
+    // be given here too or a disabled account's chat devices outlive it.
+    std::vector<Uuid> told;
+    StaffService service =
+        staff([&told, target](mongocxx::client&, const Uuid& user, std::span<const Uuid> ended) {
+            EXPECT_EQ(user, target);
+            told.insert(told.end(), ended.begin(), ended.end());
+        });
+    ASSERT_TRUE(service
+                    .set_status(db(), target, UserStatus::Disabled, UserType::SuperAdmin, now)
+                    .ok());
+    std::sort(told.begin(), told.end());
+    std::sort(made.begin(), made.end());
+    EXPECT_EQ(told, made);
+
+    // Enabling revokes nothing, and so names nothing.
+    told.clear();
+    ASSERT_TRUE(service
+                    .set_status(db(), target, UserStatus::Active, UserType::SuperAdmin, now)
+                    .ok());
+    EXPECT_TRUE(told.empty());
 }
 
 TEST_F(StaffDb, DisablingLeavesThePermissionGridUntouched) {

@@ -15,7 +15,7 @@
 // that is the entire point of it being here rather than in `src/`.
 
 import type { HammerError } from "hammer";
-import type { Mounted } from "hammer/dom";
+import type { Mounted, Prepare } from "hammer/dom";
 import {
     renderBell,
     renderConsent,
@@ -28,7 +28,9 @@ import {
     renderPermissionGate,
     renderSection,
     renderSessionGate,
+    renderSignup,
     renderUpload,
+    renderAccountForm,
 } from "hammer/dom";
 import { renderChart } from "hammer/chart";
 import { Form } from "hammer/state";
@@ -77,6 +79,15 @@ export type ScreenParts = {
         body: Readonly<Record<string, unknown>>,
         signal: AbortSignal,
     ) => Promise<{ readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: HammerError<ErrorCode | "Unknown", ValidationReason | "Unknown"> }>;
+    readonly signUp: ScreenParts["signIn"];
+
+    // Any other account screen — here, verifying an address — sent through
+    // `Accounts.submit` in the running application.
+    readonly sendAccount: ScreenParts["signIn"];
+
+    // The credential step, in client-prehash mode: `Prehasher.prepare` from
+    // `hammer/prehash`, the same one for both forms (`docs/01-seams.md` §21).
+    readonly prepare: Prepare<ValidationReason | "Unknown">;
 };
 
 // The form this application puts on a screen, built from the descriptor's own
@@ -157,6 +168,36 @@ export function screenComponents(locale: Locale, parts: ScreenParts): readonly S
                     reasons: failure.reasons,
                     errors: failure.errors,
                     signIn: parts.signIn,
+                    prepare: parts.prepare,
+                }),
+        },
+        {
+            name: "accountForm",
+            mount: (into) =>
+                renderAccountForm(into, {
+                    form: contentForm(),
+                    fields: [{ key: "headline", label: "Code" }],
+                    classes: authClasses,
+                    formClasses,
+                    copy: words.form,
+                    reasons: failure.reasons,
+                    errors: failure.errors,
+                    send: parts.sendAccount,
+                }),
+        },
+        {
+            name: "signup",
+            mount: (into) =>
+                renderSignup(into, {
+                    form: contentForm(),
+                    fields: [{ key: "headline", label: "Email" }],
+                    classes: authClasses,
+                    formClasses,
+                    copy: words.form,
+                    reasons: failure.reasons,
+                    errors: failure.errors,
+                    signUp: parts.signUp,
+                    prepare: parts.prepare,
                 }),
         },
         {

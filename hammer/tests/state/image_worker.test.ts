@@ -19,7 +19,7 @@
 // was asked. The decode and the encode are the platform's and are not what is
 // under test here; the geometry between them is entirely hammer's.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "../support/test.js";
 
 import type { DownscaleRequest, DownscaleResult } from "../../src/state/workers/image.js";
 import { serveImagePool } from "../../src/state/workers/image.js";
@@ -295,7 +295,7 @@ describe("what the worker reports back", () => {
     it("answers a failure rather than leaving the caller waiting", async () => {
         // A handler that rejected would leave the promise on the other side
         // unsettled, and a UI that waits forever is worse than one that reports
-        // an error (`ENGINEERING_RULES.md` §4).
+        // an error (`CLAUDE.md` §4).
         FakeCanvas.encodeThrows = true;
         const scope = serving();
         scope.deliver(request(), 7);
@@ -323,7 +323,7 @@ describe("what the worker reports back", () => {
 
     it("hands back a Blob, which is a handle and not bytes", async () => {
         // The one piece of binary this library produces. It goes straight to
-        // `client.upload` as the body and is never read (`ENGINEERING_RULES.md` §2.2).
+        // `client.upload` as the body and is never read (`CLAUDE.md` §2.2).
         const scope = serving();
         scope.deliver(request());
 

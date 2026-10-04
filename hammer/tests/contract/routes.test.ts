@@ -14,7 +14,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { buildRoute, requestPath } from "../../src/wire/route.js";
 import { decodeSessionView } from "../../src/wire/session_view.js";

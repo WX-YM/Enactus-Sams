@@ -145,7 +145,7 @@ Result<std::size_t> SectionRepository::count_unbound_image_slots(
         mongocxx::options::find options{};
         // `media` only. The values are a few hundred bytes each and none of them
         // is being read — returning whole documents to count map keys is network
-        // and BSON decode spent on nothing (ENGINEERING_RULES.md §7). `_id` arrives whatever
+        // and BSON decode spent on nothing (CLAUDE.md §7). `_id` arrives whatever
         // the projection says, which is what maps each document back to its spec.
         options.projection(make_document(kvp(db::codec::key_of(codec::kMediaField), 1)));
         // Bounded by what was asked for. The `_id` is unique, so this cannot be
@@ -181,7 +181,7 @@ Result<std::size_t> SectionRepository::count_unbound_image_slots(
         // slot at a time out of the same registry `unbound` was summed from, so
         // it cannot exceed it. Saturating rather than wrapping, because an
         // unsigned wrap here would report a gigantic number of gaps and send an
-        // operator looking for content that is fine (ENGINEERING_RULES.md §5).
+        // operator looking for content that is fine (CLAUDE.md §5).
         return bound >= unbound ? std::size_t{0} : unbound - bound;
     });
 }

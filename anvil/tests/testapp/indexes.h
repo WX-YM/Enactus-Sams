@@ -18,8 +18,13 @@
 #include <bsoncxx/types.hpp>
 
 #include "anvil/analytics/event.h"
+#include "anvil/chat/device_queue.h"
+#include "anvil/chat/devices.h"
+#include "anvil/chat/prekeys.h"
+#include "anvil/chat/record.h"
 #include "anvil/audit/record.h"
 #include "anvil/db/migrations.h"
+#include "anvil/entries/document.h"
 #include "anvil/forms/repository.h"
 #include "anvil/identity/capabilities.h"
 #include "anvil/identity/sessions.h"
@@ -40,6 +45,18 @@ namespace ff = anvil::forms::form_fields;
 namespace nf = anvil::notifications::notification_fields;
 namespace aef = anvil::analytics::event_fields;
 namespace asf = anvil::analytics::session_fields;
+namespace enf = anvil::entries::entry_fields;
+namespace ccf = anvil::chat::conversation_fields;
+namespace cmf = anvil::chat::member_fields;
+namespace cgf = anvil::chat::message_fields;
+namespace crf = anvil::chat::reaction_fields;
+namespace cif = anvil::chat::invite_fields;
+namespace cbf = anvil::chat::block_fields;
+namespace cpr = anvil::chat::report_fields;
+namespace cdf = anvil::chat::identity_fields;
+namespace cpf = anvil::chat::prekey_fields;
+namespace cqf = anvil::chat::device_queue_fields;
+namespace clf = anvil::chat::link_fields;
 
 // A partial-index filter, BUILT rather than named.
 //
@@ -69,6 +86,17 @@ namespace asf = anvil::analytics::session_fields;
 [[nodiscard]] inline bsoncxx::document::value uploader_ip_present_only() {
     return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
         anvil::db::codec::key_of(mf::kUploaderIp),
+        bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
+}
+
+// Only the media rows that are EDITS. Unique over {ns, src, esha}, so the same
+// recipe applied to the same source is one object however many requests race to
+// make it (docs/21-image-edits.md §3) — and partial, because every upload in a
+// namespace would otherwise collide on a missing pair.
+[[nodiscard]] inline bsoncxx::document::value media_edits_only() {
+    return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
+        anvil::db::codec::key_of(mf::kSource),
         bsoncxx::builder::basic::make_document(
             bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
 }
@@ -146,7 +174,85 @@ namespace asf = anvil::analytics::session_fields;
             bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
 }
 
-inline constexpr std::array<anvil::db::IndexSpec, 39> kIndexes{{
+// A slug is unique within its kind, and a kind with no slugs writes none. The
+// equality a slug lookup issues implies this filter, which is what lets the
+// planner choose the partial index for it.
+[[nodiscard]] inline bsoncxx::document::value entry_slug_present_only() {
+    return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
+        anvil::db::codec::key_of(enf::kSlug),
+        bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
+}
+
+// Only DIRECT conversations carry a pair key. Unique over it, so two people
+// opening each other at once converge on one row (docs/22-chat.md §3.2); and
+// partial, because every group would otherwise collide on the missing key.
+[[nodiscard]] inline bsoncxx::document::value direct_pairs_only() {
+    return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
+        anvil::db::codec::key_of(ccf::kDirectPair),
+        bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
+}
+
+// Only conversations a client created with a key: a direct conversation has
+// none, and neither does one a seed created at boot.
+[[nodiscard]] inline bsoncxx::document::value keyed_creations_only() {
+    return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
+        anvil::db::codec::key_of(ccf::kClientId),
+        bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
+}
+
+// Only pinned memberships, which are a handful per person.
+[[nodiscard]] inline bsoncxx::document::value pinned_members_only() {
+    return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
+        anvil::db::codec::key_of(cmf::kPinned),
+        bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
+}
+
+// Only messages with a timer, which the expiry sweeper walks. NOT a TTL index:
+// the monitor would remove a message without releasing its attachments.
+[[nodiscard]] inline bsoncxx::document::value expiring_messages_only() {
+    return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
+        anvil::db::codec::key_of(cgf::kExpiresAt),
+        bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
+}
+
+// Only messages somebody edited, revoked or reacted to, which the mutation
+// catch-up walks (docs/22-chat.md §4.5). A message nobody touched, which is
+// nearly every one, costs this index nothing.
+[[nodiscard]] inline bsoncxx::document::value mutated_messages_only() {
+    return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
+        anvil::db::codec::key_of(cgf::kMutation),
+        bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
+}
+
+// --- chat devices (docs/22-chat.md §7.3) -------------------------------------
+//
+// Only accounts holding a device. A multikey unique index indexes an EMPTY
+// array as one key, so two accounts that had unlinked every device would
+// collide with each other; the partial filter leaves them out.
+[[nodiscard]] inline bsoncxx::document::value accounts_with_devices_only() {
+    return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
+        anvil::db::codec::key_of(cdf::kDeviceIdPath),
+        bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
+}
+
+// Only accounts with a device change not yet pushed to their conversations,
+// which is nobody for longer than a request, or a minute after a crash.
+[[nodiscard]] inline bsoncxx::document::value pending_device_changes_only() {
+    return bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp(
+        anvil::db::codec::key_of(cdf::kPendingSince),
+        bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("$exists", bsoncxx::types::b_bool{true}))));
+}
+// --- end chat devices --------------------------------------------------------
+
+inline constexpr std::array<anvil::db::IndexSpec, 68> kIndexes{{
     // --- users -------------------------------------------------------------
     //
     // The three login identities, each its own unique index. Three indexes and
@@ -219,6 +325,8 @@ inline constexpr std::array<anvil::db::IndexSpec, 39> kIndexes{{
      false},
     {{{{mf::kNamespace, 1}, {mf::kCreatedAt, -1}, {mf::kId, -1}}}, "media", "media_ns_created",
      nullptr, -1, 3, false, false},
+    {{{{mf::kNamespace, 1}, {mf::kSource, 1}, {mf::kEditSha, 1}}}, "media", "media_ns_edit",
+     &media_edits_only, -1, 3, true, false},
 
     // --- drafts -------------------------------------------------------------
     //
@@ -367,6 +475,106 @@ inline constexpr std::array<anvil::db::IndexSpec, 39> kIndexes{{
     // as a residual over a range that is already bounded and limited.
     {{{{"_id.code", 1}, {"_id.gran", 1}, {"_id.bucket", 1}}}, "analytics_rollups",
      "rollups_code_gran_bucket", nullptr, -1, 3, false, false},
+
+    // --- entries -----------------------------------------------------------
+    //
+    // Every listing, both stages, both directions: equality on the scope, the
+    // stage as an equality or a two-value $in, then the order and its tiebreak.
+    {{{{enf::kScope, 1}, {enf::kLive, 1}, {enf::kPosition, 1}, {enf::kId, 1}}}, "entries",
+     "entries_listing", nullptr, -1, 4, false, false},
+    // The URL identity. The constraint is the server's: two staff saving the
+    // same slug at once are one insert and one Conflict, never two rows.
+    {{{{enf::kKind, 1}, {enf::kSlug, 1}}}, "entries", "entries_slug_unique",
+     &entry_slug_present_only, -1, 2, true, false},
+
+    // --- chat (docs/22-chat.md §9.1) ----------------------------------------
+    //
+    // Sixteen, and each has one query behind it in tests/testapp/queries.h.
+    {{{{ccf::kDirectPair, 1}}}, "chat_conversations", "chat_direct_pair", &direct_pairs_only,
+     -1, 1, true, false},
+    // The idempotent create: a retry with the same key finds the first (§3.1).
+    {{{{ccf::kCreatedBy, 1}, {ccf::kClientId, 1}}}, "chat_conversations", "chat_created_cid",
+     &keyed_creations_only, -1, 2, true, false},
+    // Every membership check, and the member listing by user id.
+    {{{{cmf::kConversation, 1}, {cmf::kUser, 1}}}, "chat_members", "chat_member_unique",
+     nullptr, -1, 2, true, false},
+    // The chat list: one person's memberships, archived or not, most recently
+    // active first, with the member id as the tiebreak a cursor needs.
+    {{{{cmf::kUser, 1}, {cmf::kArchived, 1}, {cmf::kActivity, -1}, {cmf::kId, -1}}},
+     "chat_members", "chat_member_list", nullptr, -1, 4, false, false},
+    {{{{cmf::kUser, 1}, {cmf::kPinned, 1}}}, "chat_members", "chat_member_pinned",
+     &pinned_members_only, -1, 2, false, false},
+    // Owner succession: the longest-standing holder of a role.
+    {{{{cmf::kConversation, 1}, {cmf::kRole, 1}, {cmf::kJoinedSeq, 1}}}, "chat_members",
+     "chat_member_role", nullptr, -1, 3, false, false},
+    // "Read by" for one message.
+    {{{{cmf::kConversation, 1}, {cmf::kRead, 1}}}, "chat_members", "chat_member_read", nullptr,
+     -1, 2, false, false},
+    // "Delivered to" for one message, beside it (§5.1).
+    {{{{cmf::kConversation, 1}, {cmf::kDelivered, 1}}}, "chat_members", "chat_member_delivered",
+     nullptr, -1, 2, false, false},
+    // One person's conversations by id: a device change walks every one of
+    // them, paged by a key that does not move while it walks (§7.4).
+    {{{{cmf::kUser, 1}, {cmf::kConversation, 1}}}, "chat_members", "chat_member_of_user",
+     nullptr, -1, 2, false, false},
+    // The log. Unique, so a seq names one message however a write raced.
+    {{{{cgf::kConversation, 1}, {cgf::kSeq, 1}}}, "chat_messages", "chat_message_seq", nullptr,
+     -1, 2, true, false},
+    // The idempotent send: a retry with the same client id finds the first.
+    {{{{cgf::kConversation, 1}, {cgf::kSender, 1}, {cgf::kClientId, 1}}}, "chat_messages",
+     "chat_message_cid", nullptr, -1, 3, true, false},
+    {{{{cgf::kExpiresAt, 1}, {cgf::kId, 1}}}, "chat_messages", "chat_message_expiry",
+     &expiring_messages_only, -1, 2, false, false},
+    // The mutation catch-up: one conversation's changed messages in the order
+    // they changed (§4.5).
+    {{{{cgf::kConversation, 1}, {cgf::kMutation, 1}}}, "chat_messages", "chat_message_mutation",
+     &mutated_messages_only, -1, 2, false, false},
+    {{{{crf::kConversation, 1}, {crf::kSeq, 1}, {crf::kUser, 1}}}, "chat_reactions",
+     "chat_reaction_unique", nullptr, -1, 3, true, false},
+    // A garbage collector for spent links; the redeem filter is what refuses one.
+    {{{{cif::kExpiresAt, 1}}}, "chat_invites", "chat_invite_ttl", nullptr, 0, 1, false, false},
+    {{{{cbf::kBlocker, 1}, {cbf::kBlocked, 1}}}, "chat_blocks", "chat_block_unique", nullptr,
+     -1, 2, true, false},
+    // One report per range per reporter, so a retried report is the first
+    // (§9.2). The staff listing walks _id, which needs no index of its own.
+    {{{{cpr::kConversation, 1}, {cpr::kReporter, 1}, {cpr::kFrom, 1}, {cpr::kTo, 1}}},
+     "chat_reports", "chat_report_range", nullptr, -1, 4, true, false},
+
+    // --- chat devices (docs/22-chat.md §7.3) --------------------------------
+    //
+    // A device id names one device anywhere: the server refuses a second
+    // account linking an id somebody else holds. No read uses it.
+    {{{{cdf::kDeviceIdPath, 1}}}, "chat_identities", "chat_identity_device",
+     &accounts_with_devices_only, -1, 1, true, false},
+    // The idle sweeper (multikey: one key per device).
+    {{{{cdf::kLastSeenPath, 1}}}, "chat_identities", "chat_identity_seen", nullptr, -1, 1,
+     false, false},
+    // One key id per device, and the claim's find_one_and_delete by device
+    // rides its prefix.
+    {{{{cpf::kDevice, 1}, {cpf::kKeyId, 1}}}, "chat_prekeys", "chat_prekey_unique", nullptr,
+     -1, 2, true, false},
+    // The device-change sweeper, oldest first (§7.4).
+    {{{{cdf::kPendingSince, 1}}}, "chat_identities", "chat_identity_pending",
+     &pending_device_changes_only, -1, 1, false, false},
+    // One device's queue in send order: the read, and the acknowledgement's
+    // range delete (§7.6).
+    {{{{cqf::kDevice, 1}, {cqf::kId, 1}}}, "chat_device_queue", "chat_queue_device", nullptr,
+     -1, 2, false, false},
+    // One message's rows, which a revoke removes with its common ciphertext.
+    {{{{cqf::kConversation, 1}, {cqf::kSeq, 1}}}, "chat_device_queue", "chat_queue_message",
+     nullptr, -1, 2, false, false},
+    // The garbage collector for a device that never comes back. Not the access
+    // control: the read filters the expiry too.
+    {{{{cqf::kExpiresAt, 1}}}, "chat_device_queue", "chat_queue_ttl", nullptr, 0, 1, false,
+     false},
+    // The link relay: a session's earlier request, which its next one
+    // replaces, and the collector for one nobody approved (§7.3.1). Every
+    // other read is by the token's digest, the _id.
+    {{{{clf::kUser, 1}, {clf::kSession, 1}}}, "chat_link_requests", "chat_link_session",
+     nullptr, -1, 2, false, false},
+    {{{{clf::kExpiresAt, 1}}}, "chat_link_requests", "chat_link_ttl", nullptr, 0, 1, false,
+     false},
+    // --- end chat devices ---------------------------------------------------
 }};
 
 static_assert(anvil::db::catalogue_is_well_formed(kIndexes),
@@ -390,6 +598,6 @@ inline constexpr std::array<anvil::db::RetiredIndex, 2> kRetiredIndexes{{
 // Bumped when an index is added, removed or respecified. Recorded in each
 // database's schema_meta so a deploy can tell whether migrations have run against
 // a given cluster.
-inline constexpr std::int32_t kSchemaVersion = 5;
+inline constexpr std::int32_t kSchemaVersion = 9;
 
 }  // namespace testapp

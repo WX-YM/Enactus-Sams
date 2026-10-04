@@ -7,7 +7,9 @@
 // construction order that only works in one direction is a seam an application
 // discovers at run time.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
+import { inProcessWorkers } from "../support/in_process_worker.js";
+import { serveArgon2Pool } from "../../src/prehash/worker.js";
 
 import { ChannelBus } from "../support/fake_channel.js";
 import { FakeServer } from "../support/fake_fetch.js";
@@ -41,6 +43,7 @@ function app(server: FakeServer) {
         pageOrigin: "https://app.example.com",
         apiOrigin: "https://app.example.com",
         imageWorker: workers.create,
+        prehashWorker: inProcessWorkers(serveArgon2Pool).create,
         beaconTo: {
             sendBeacon: (_url, data) => {
                 beaconed.push(String(data));

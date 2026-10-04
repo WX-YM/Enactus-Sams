@@ -5,7 +5,7 @@
 // rotation race against anvil's compare-and-swap, whose loser is signed out
 // with a valid session, in the tab they were using.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { CredentialsConfig } from "../../src/wire/credentials.js";
 import {

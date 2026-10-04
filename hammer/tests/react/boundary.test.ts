@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 import { build } from "esbuild";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 const kSource = new URL("../../src/react/", import.meta.url);
 

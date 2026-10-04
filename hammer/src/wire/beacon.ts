@@ -24,7 +24,7 @@
 // The slice of `navigator` this needs, injected rather than read, for the reason
 // `wire/leader.ts` gives about the lock manager: a global the platform imposes
 // arrives as a parameter, so a test supplies its own instead of racing every
-// other test in the file (`ENGINEERING_RULES.md` §3.3).
+// other test in the file (`CLAUDE.md` §3.3).
 export type BeaconSender = {
     readonly sendBeacon: (url: string, data: BodyInit) => boolean;
 };

@@ -9,7 +9,7 @@
 // nothing the table does not, and two descriptions of one figure read out one
 // after the other is worse than one.
 //
-// That ordering is also what keeps the rule in `ENGINEERING_RULES.md` §9 — no `aria-hidden`
+// That ordering is also what keeps the rule in `CLAUDE.md` §9 — no `aria-hidden`
 // over anything focusable — mechanical rather than remembered: the drawing is
 // hidden, so nothing in it may be focusable, so the keyboard path is the table's
 // rows. There is no arrangement of this component where a focusable node ends up
@@ -19,7 +19,7 @@
 //
 // Scales, ticks, path strings and hit regions are arithmetic. Which series is
 // which colour, how a number reads in this locale, and what the axes are called
-// are the application's (`ENGINEERING_RULES.md` §9). Every one of them arrives as a
+// are the application's (`CLAUDE.md` §9). Every one of them arrives as a
 // parameter and none of them has a default here.
 
 import type { ClassNames } from "../core/tables.js";
@@ -157,7 +157,7 @@ export function renderChart(mount: Element, options: ChartOptions): Mounted {
         line.setAttribute("d", pathOf(one.points, toX, toY));
         // No `stroke` and no `fill`. A colour is the application's, and an
         // inline one would be blocked by the CSP the application serves anyway
-        // (`ENGINEERING_RULES.md` §5).
+        // (`CLAUDE.md` §5).
         figure.append(line);
 
         for (const point of one.points) {

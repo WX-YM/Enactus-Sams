@@ -23,6 +23,7 @@ namespace anvil::config {
 // the low layer — the linker binds them. tests/testapp/jobs.cc defines these.
 [[nodiscard]] timer::JobOutcome sweep_handler(const timer::JobRunContext& ctx) noexcept;
 [[nodiscard]] timer::JobOutcome fanout_handler(const timer::JobRunContext& ctx) noexcept;
+[[nodiscard]] timer::JobOutcome chat_push_handler(const timer::JobRunContext& ctx) noexcept;
 
 // --- the job table ---------------------------------------------------------
 //
@@ -34,10 +35,15 @@ namespace anvil::config {
 // its id can never be handed to something else — an envelope written before the
 // retirement still names it, and dispatch must answer "this is gone" rather than
 // running whatever moved into the slot.
-inline constexpr std::array<timer::JobSpec, 3> kJobSpecs{{
+inline constexpr std::array<timer::JobSpec, 4> kJobSpecs{{
     {"none",        nullptr,          0,   0, timer::JobPool::Db,  false},
     {"test.sweep",  &sweep_handler,   900, 3, timer::JobPool::Cpu, true},
     {"test.fanout", &fanout_handler,   60, 5, timer::JobPool::Db,  false},
+    // A chat push nudge (anvil/chat/push.h): one per conversation per window.
+    // A dead endpoint is the endpoint's problem, not a page; a nudge that
+    // failed three times is a minute late and then lost, which the chat list
+    // still shows.
+    {"chat.push",   &chat_push_handler, 60, 3, timer::JobPool::Db, false},
 }};
 
 // --- recurrences -----------------------------------------------------------

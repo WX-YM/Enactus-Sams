@@ -41,7 +41,7 @@
 //
 // `deliver()` is called from a job worker; `drain()` from whichever thread is
 // writing the response. Both are safe to call concurrently, and neither blocks on
-// anything but a short mutex — no I/O happens under any lock here (ENGINEERING_RULES.md §4).
+// anything but a short mutex — no I/O happens under any lock here (CLAUDE.md §4).
 
 #include <array>
 #include <cstddef>
@@ -75,6 +75,16 @@ enum class SseEventKind : std::uint8_t {
     // Keeps an idle connection alive through proxies that reap silent ones.
     // Carries no notification.
     Ping = 2,
+    // A chat message the reader may see arrived in a conversation, carried for a
+    // client whose proxy breaks WebSocket upgrades (docs/22-chat.md §8.1).
+    // `notification` holds the CONVERSATION's id and nothing else is set: the
+    // client catches that conversation up from its cursor. Never the message and
+    // never its seq — a slot is 32 bytes, and growing it for chat would grow
+    // every notification stream in the process.
+    ChatWake = 3,
+    // Chat wakes may have been lost: catch every conversation up from its cursor.
+    // Sent when the reader's wake channel is (re)subscribed (chat/frames.h, Sync).
+    ChatSync = 4,
 };
 
 // 32 bytes, trivially copyable, ordered largest-first so there is no interior
@@ -154,7 +164,7 @@ public:
     SseStream& operator=(const SseStream&) = delete;
 
 private:
-    // Declaration order is initialisation order (ENGINEERING_RULES.md §3.2). The ring is
+    // Declaration order is initialisation order (CLAUDE.md §3.2). The ring is
     // first because it is the largest and the hottest.
     std::array<SseEvent, kStreamRingSlots> ring_{};
     mutable std::mutex                     mutex_;

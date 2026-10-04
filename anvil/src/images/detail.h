@@ -29,6 +29,8 @@
 
 #include <chrono>
 
+#include "anvil/fs/sniff.h"
+
 namespace anvil::images::detail {
 
 // One resource, one owner, released on every path.
@@ -127,6 +129,12 @@ private:
 #else
 #define ANVIL_VIPS_HAS_HEIF_SUBSAMPLE 0
 #endif
+
+// Encodes a master in its container. Shared by the upload's normalisation and an
+// edit's render, because the derived master of an edit is a master in every
+// sense the variant code cares about, and two sets of quality settings for one
+// kind of file would drift (docs/21-image-edits.md §4). Defined in strip.cc.
+[[nodiscard]] int save_master(VipsImage* image, VipsTarget* target, fs::Mime mime);
 
 }  // namespace anvil::images::detail
 

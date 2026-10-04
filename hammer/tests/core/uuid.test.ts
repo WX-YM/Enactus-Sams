@@ -5,7 +5,7 @@
 // compares equal to nothing, sorts before everything, and is indistinguishable
 // from a real id in every log line it reaches.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { Uuid, kUuidBytes } from "../../src/core/uuid.js";
 

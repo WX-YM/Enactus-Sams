@@ -35,7 +35,7 @@ struct SectionValue final {
     //
     // Owned strings rather than views. Content is decoded out of a BSON document
     // that dies with the query, and it then crosses into a cache that outlives
-    // every request that reads it (ENGINEERING_RULES.md §2.2).
+    // every request that reads it (CLAUDE.md §2.2).
     std::array<std::string, kLocaleCount> text;
     std::int64_t                          number{0};
     bool                                  boolean{false};

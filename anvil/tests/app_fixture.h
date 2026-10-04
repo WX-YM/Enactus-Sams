@@ -17,6 +17,7 @@
 // through DatabaseNames. So each run gets its own database and drops it
 // afterwards, and two runs on one cluster cannot see each other's rows.
 
+#include <atomic>
 #include <cstdlib>
 #include <string>
 
@@ -113,8 +114,23 @@ inline bool pools_ready() {
 // A database name no other run is using. One per PROCESS, not one per test:
 // apply_migrations builds every index in the catalogue and that is not something
 // to pay for per case.
+//
+// Unless ANVIL_TEST_SCRATCH_DB names one: a process a case spawns as its peer
+// (chat_peers_listener_test.cc) is the same deployment as its parent, and two
+// processes are one deployment only if they share a database.
+//
+// Whether THIS process minted its scratch database's name, and so owns it. A
+// name inherited through ANVIL_TEST_SCRATCH_DB belongs to the process that set
+// it, and is that process's to drop.
+inline std::atomic<bool> g_scratch_database_owned{false};
+
 [[nodiscard]] inline const std::string& scratch_database() {
-    static const std::string name = "anvil_t_" + uuid::to_string(uuid::generate_v4()).substr(0, 8);
+    static const std::string name = [] {
+        const char* shared = std::getenv("ANVIL_TEST_SCRATCH_DB");
+        if (shared != nullptr && *shared != '\0') { return std::string{shared}; }
+        g_scratch_database_owned.store(true);
+        return "anvil_t_" + uuid::to_string(uuid::generate_v4()).substr(0, 8);
+    }();
     return name;
 }
 

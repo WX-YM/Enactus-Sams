@@ -1,10 +1,9 @@
-// @vitest-environment happy-dom
 //
 // The paging control. What is asserted is mostly what it CANNOT do: there is no
 // page number, no total and no offset, because the cursor model has no way to
 // express one and `core/cursor.ts` has no field that is a position.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClassNames } from "../../src/core/tables.js";
 import { renderPager } from "../../src/dom/pager.js";

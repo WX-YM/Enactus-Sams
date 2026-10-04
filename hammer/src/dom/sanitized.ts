@@ -284,7 +284,7 @@ function policy(): HtmlPolicy | null {
     try {
         htmlPolicy = types.createPolicy(kPolicyName, { createHTML: (html: string) => html }) as HtmlPolicy;
     } catch (cause) {
-        // A misconfigured client, which is what `throw` is for (`ENGINEERING_RULES.md`
+        // A misconfigured client, which is what `throw` is for (`CLAUDE.md`
         // §3.1). The alternative is rendering nothing and reporting nothing,
         // and a blank section with a clean console is the failure nobody
         // diagnoses.
@@ -360,7 +360,7 @@ export type TrustedTypesScope = {
 // It is an explicit call rather than something that happens on import. A library
 // that installed a throwing default policy as a side effect of being loaded
 // would break the application's own markup from a decision it never made, and
-// this repository has no top-level side effects at all (`ENGINEERING_RULES.md` §2.1).
+// this repository has no top-level side effects at all (`CLAUDE.md` §2.1).
 //
 // A policy that REFUSES rather than one that sanitises. hammer's own markup path
 // does not go through a Trusted Types sink, so it needs no policy to do its

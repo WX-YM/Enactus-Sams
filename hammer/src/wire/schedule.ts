@@ -8,7 +8,7 @@
 // --- nothing scheduled in a tab is durable ----------------------------------
 //
 // `setTimeout` dies when the tab is frozen, discarded or reloaded, and so does
-// every promise waiting on one (`ENGINEERING_RULES.md` §6). So a wait here is a hint about
+// every promise waiting on one (`CLAUDE.md` §6). So a wait here is a hint about
 // the interface and never a guarantee about work: anything that must happen
 // happens server-side. Where this library waits, the worst case of the wait
 // never resolving is a request that is not made — never a write that is lost.
@@ -18,7 +18,7 @@
 // The obvious shape is a promise that rejects when the signal fires, and it is
 // the wrong one here: an abort is an expected condition on every screen that
 // unmounts, and an exception thrown for an expected condition is a `catch`
-// somebody forgets to write (`ENGINEERING_RULES.md` §3.1). This resolves, and the caller
+// somebody forgets to write (`CLAUDE.md` §3.1). This resolves, and the caller
 // checks the signal — which it has to do anyway, because the signal can fire
 // while it is doing something else.
 

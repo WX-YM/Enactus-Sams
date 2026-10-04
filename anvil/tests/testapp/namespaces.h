@@ -21,15 +21,21 @@ enum class MediaNs : std::uint8_t {
     Content = 0,
     Media   = 1,
     Guest   = 2,
+    Chat    = 3,
+    Sealed  = 4,
 };
 
 inline constexpr anvil::fs::Ns kContent = anvil::fs::Ns::of(MediaNs::Content);
 inline constexpr anvil::fs::Ns kMedia   = anvil::fs::Ns::of(MediaNs::Media);
 inline constexpr anvil::fs::Ns kGuest   = anvil::fs::Ns::of(MediaNs::Guest);
+inline constexpr anvil::fs::Ns kChat    = anvil::fs::Ns::of(MediaNs::Chat);
+inline constexpr anvil::fs::Ns kSealed  = anvil::fs::Ns::of(MediaNs::Sealed);
 
 static_assert(kContent.dir() == "content");
 static_assert(kMedia.dir() == "media");
 static_assert(kGuest.dir() == "guest");
+static_assert(kChat.dir() == "chat");
+static_assert(kSealed.dir() == "sealed");
 
 // The index is what is stored, so it is what must never drift.
 static_assert(kContent.stored() == 0);

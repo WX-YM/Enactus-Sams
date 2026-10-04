@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Static checks no unit test can make: they are about what the source is ALLOWED
-# to contain, not about what it computes (ENGINEERING_RULES.md §6, §7).
+# to contain, not about what it computes (CLAUDE.md §6, §7).
 #
 #   1. Index creation, collection creation and collMod never appear on a request
 #      path. An index build holds the collection for its duration and every
@@ -69,8 +69,8 @@ repo_files() {
     {
         find src -name 'repository.cc' -o -name 'repository.h' \
                -o -name '*_repository.cc' -o -name '*_repository.h' 2>/dev/null
-        find src/identity src/audit src/media src/sections src/forms src/notifications \
-             src/analytics src/db \
+        find src/identity src/audit src/media src/sections src/entries src/forms src/notifications \
+             src/analytics src/db src/chat \
              -name '*.cc' -o -name '*.h' 2>/dev/null
     } | sort -u
 }
@@ -111,7 +111,8 @@ done < <(repo_files)
 # the subsystems whose rows anvil itself gives a lifetime to.
 driver_calls='\.(find|find_one|find_one_and_update|find_one_and_delete|find_one_and_replace|update_one|update_many|delete_one|delete_many|count_documents)\('
 for subsystem in identity/sessions identity/capabilities identity/verification \
-                 notifications/repository notifications/inbox analytics/repository; do
+                 notifications/repository notifications/inbox analytics/repository \
+                 chat/repository; do
     for file in "src/${subsystem}"*.cc "src/${subsystem}"*.h; do
         [ -e "$file" ] || continue
         grep -qE "$driver_calls" "$file" || continue

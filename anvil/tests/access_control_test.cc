@@ -1083,7 +1083,7 @@ TEST(RequestScope, TheKeyThePublicHeaderDeclaresIsTheOneTheReaderUses) {
 
 TEST(RequestScope, TheContextTheReaderGetsAliasesTheScopeRatherThanACopy) {
     // The aliasing constructor is what makes a context safe to carry onto a
-    // thread pool without the copy ENGINEERING_RULES.md §2.2 would otherwise demand: the
+    // thread pool without the copy CLAUDE.md §2.2 would otherwise demand: the
     // pointer a handler holds keeps the whole scope alive, so the id is still
     // readable from the same request and nothing was allocated to achieve it.
     const drogon::HttpRequestPtr request = request_with_scope();

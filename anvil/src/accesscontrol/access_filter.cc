@@ -224,7 +224,7 @@ void AccessFilter::doFilter(const HttpRequestPtr& req, drogon::FilterCallback&& 
         // it fails closed. The route-coverage test exists so this is caught in
         // CI rather than in production, but a deny-by-default runtime is what
         // makes that test a safety net instead of the only defence
-        // (ENGINEERING_RULES.md §5).
+        // (CLAUDE.md §5).
         LOG_ERROR << "route '" << pattern
                   << "' declares no access policy; denying. Add it to route_registry.h";
         fcb(not_found_response());
@@ -256,7 +256,7 @@ void AccessFilter::doFilter(const HttpRequestPtr& req, drogon::FilterCallback&& 
     // The epoch authority is not cached. Everything from here is off the event
     // loop, because it may touch Redis and, rarely, MongoDB. Captured by value:
     // the request and both callbacks are shared_ptr-backed and this frame is
-    // gone the moment resolve_async returns (ENGINEERING_RULES.md §3.3).
+    // gone the moment resolve_async returns (CLAUDE.md §3.3).
     deps.epochs->resolve_async(
         evaluation.ctx.user_id,
         [req, fcb = std::move(fcb), fccb = std::move(fccb), evaluation,
@@ -288,7 +288,7 @@ std::shared_ptr<const UserContext> user_context(const HttpRequestPtr& req) {
     // The ALIASING constructor: one more reference on the scope's existing
     // control block, pointing at the member. No allocation, and the scope
     // outlives every copy of this pointer — which is what makes a context that
-    // travels to a thread pool safe without the copy ENGINEERING_RULES.md §2.2 would
+    // travels to a thread pool safe without the copy CLAUDE.md §2.2 would
     // otherwise demand.
     return std::shared_ptr<const UserContext>{scope, &scope->ctx};
 }

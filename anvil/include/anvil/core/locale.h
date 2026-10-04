@@ -100,7 +100,7 @@ inline constexpr std::array<Locale, kLocaleCount> kAllLocales = [] {
 // The values are string_views: for content read out of BSON they borrow from the
 // document buffer, so a Localized must not outlive it. That is the same lifetime
 // rule the JSON parser carries, and the same one that a thread-pool boundary
-// breaks (ENGINEERING_RULES.md §2.2).
+// breaks (CLAUDE.md §2.2).
 template <std::size_t N = kLocaleCount>
 struct Localized final {
     std::array<std::string_view, N> values;

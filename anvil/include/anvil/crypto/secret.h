@@ -5,7 +5,7 @@
 // std::memset before scope exit is legally removed by the optimiser: the writes
 // are dead stores to an object whose lifetime is ending, so the compiler is
 // entitled to delete them. OPENSSL_cleanse is written specifically to survive
-// that (ENGINEERING_RULES.md §5).
+// that (CLAUDE.md §5).
 //
 // Move-only. A copyable secret is a secret that ends up in a container, gets
 // reallocated, and leaves a plaintext copy behind in freed memory.

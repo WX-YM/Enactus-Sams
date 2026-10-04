@@ -1,6 +1,6 @@
 # Build hardening and warning policy.
 #
-# The flag set is mandated by ENGINEERING_RULES.md §5. Applied through one INTERFACE target
+# The flag set is mandated by CLAUDE.md §5. Applied through one INTERFACE target
 # that every anvil target links, so nothing can quietly opt out — including an
 # application that consumes anvil via add_subdirectory and forgets to set its own.
 
@@ -14,7 +14,7 @@ add_library(anvil::flags ALIAS anvil_flags)
 
 # --- Warnings -------------------------------------------------------------
 # -Werror=reorder is required: member init order must match declaration order
-# (ENGINEERING_RULES.md §3.2). Mismatched order is undefined-order initialisation, and it
+# (CLAUDE.md §3.2). Mismatched order is undefined-order initialisation, and it
 # is load-bearing in at least one place — MongoPool declares `instance_` before
 # `pool_` because the driver instance must outlive every client drawn from it.
 target_compile_options(anvil_flags INTERFACE
@@ -35,7 +35,7 @@ target_compile_options(anvil_flags INTERFACE
     -Wunused
 
     # Errors, not warnings — each maps to a rule that is not negotiable.
-    -Werror=reorder              # ENGINEERING_RULES.md §3.2 declaration order
+    -Werror=reorder              # CLAUDE.md §3.2 declaration order
     -Werror=return-type          # falling off a non-void function is UB
     -Werror=uninitialized
     -Werror=return-local-addr    # the string_view-into-request-body class
@@ -70,7 +70,7 @@ target_link_options(anvil_flags INTERFACE
 )
 
 # --- Sanitizers -----------------------------------------------------------
-# ASan+UBSan on the full suite, TSan on the concurrency tests (ENGINEERING_RULES.md §5).
+# ASan+UBSan on the full suite, TSan on the concurrency tests (CLAUDE.md §5).
 # TSan is mutually exclusive with ASan.
 if(ANVIL_SANITIZERS)
     if("thread" IN_LIST ANVIL_SANITIZERS AND "address" IN_LIST ANVIL_SANITIZERS)
@@ -87,7 +87,7 @@ if(ANVIL_SANITIZERS)
 
     if("undefined" IN_LIST ANVIL_SANITIZERS)
         # An unchecked integer overflow on a size or offset is a memory-safety
-        # bug, not a warning (ENGINEERING_RULES.md §5).
+        # bug, not a warning (CLAUDE.md §5).
         target_compile_options(anvil_flags INTERFACE
             -fno-sanitize-recover=undefined
             -fsanitize=float-divide-by-zero)

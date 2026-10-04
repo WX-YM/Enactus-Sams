@@ -2,7 +2,7 @@
 // request is SENT — is asserted at the end, and it is asserted as a type,
 // because a rule about what a caller can express is only kept by the compiler.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClientError, HammerError } from "../../src/core/errors.js";
 import { affordsRoute, holdsAll } from "../../src/wire/affordance.js";

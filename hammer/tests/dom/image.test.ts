@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // The image element. Short, because the implementation is: an image is an
 // `<img>` and this module sets its attributes.
@@ -8,7 +7,7 @@
 // `createObjectURL`, `readAsDataURL` or a `fetch` for image bytes. A test can
 // only speak for one module; the ban speaks for all of them.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { stripBidiControls } from "../../src/core/bidi.js";
 import type { ClassNames } from "../../src/core/tables.js";

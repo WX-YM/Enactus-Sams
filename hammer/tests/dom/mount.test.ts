@@ -1,20 +1,21 @@
-// @vitest-environment happy-dom
 //
 // The shape every component has, driven directly.
 //
-// The environment is declared per file rather than in `vitest.config.ts`,
-// because `tests/core/environment.test.ts` asserts that the default run has no
-// `document` in it at all — and its own header warns that the property is lost
-// by a one-line change to that config, in a commit about something else. A
-// docblock keeps the DOM where the DOM is needed and nowhere else, which is the
-// split the config file already describes.
+// This file runs in a real Chromium page, driven by
+// `tests/dom/in_browser.test.ts` rather than by a shared configuration flag or
+// a per-file environment import — `tests/core/environment.test.ts` asserts
+// that the default `node --test` run has no `document` in it at all, and this
+// file is one of the nineteen named explicitly in the driver's own file list
+// for exactly that reason: the DOM stays where the DOM is needed and nowhere
+// else, and which files need it is a list a reviewer reads in one place rather
+// than an import scattered across every file in the suite.
 //
 // What is asserted here is the part every other component in this layer inherits
 // and therefore never re-asserts: a document that came from the mount, a close
 // that runs once and in the right order, and user text that cannot reorder the
 // sentence around it.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import {
     Closers,
@@ -40,7 +41,16 @@ describe("the document a component builds in", () => {
     // this layer: the same component renders into a document that is not the
     // tab's — a preview, a print view, a frame — with no branch for it.
     it("is the foreign one when the mount belongs to a foreign document", () => {
-        const other = new DOMParser().parseFromString("<main></main>", "text/html");
+        // `document.implementation.createHTMLDocument` rather than
+        // `DOMParser.parseFromString`: the parser is a Trusted Types sink
+        // (`src/dom/sanitized.ts`'s own header, found in Phase 7) and this
+        // page enforces `require-trusted-types-for 'script'`
+        // (`tests/dom/in_browser.test.ts`) with no policy of ITS OWN to hand
+        // it — only hammer's "hammer" policy is installed, and only for
+        // hammer's own parse. Building the foreign document from empty
+        // markup needs no parse at all.
+        const other = document.implementation.createHTMLDocument("");
+        other.body.append(other.createElement("main"));
         const mount = other.querySelector("main");
         expect(mount).not.toBeNull();
         if (mount === null) {
@@ -138,10 +148,15 @@ describe("taking a node out of the tree", () => {
     // happy-dom 15 resolves a `<form>`'s parent through its form-owner and
     // throws `removeChild` at itself. A form renderer using the short spelling
     // would leave its root behind here and nowhere else.
-    it("removes a form, which is where the short spelling failed in happy-dom 15", () => {
-        // happy-dom 15 resolved a <form> parent through its form-owner and threw
-        // removeChild at itself. happy-dom >= 20 fixed form.remove(); detach()
-        // remains the tree-explicit and safest standard across all environments.
+    // A workaround this layer used to need: happy-dom 15 resolved a
+    // `<form>`'s parent through its form-owner rather than through the tree,
+    // and `node.remove()` threw `removeChild` at itself as a result — a fake
+    // DOM's bug, not a real one, and gone now that `detach` is checked
+    // against Chromium rather than against a stand-in (`docs/15-tasks.md`
+    // Phase 8 B2). What is left worth asserting is the ordinary case: a
+    // `<form>` is a node like any other node, and taking it out of the tree
+    // does not need a special case.
+    it("removes a form like any other node", () => {
         const host = document.createElement("div");
         const form = document.createElement("form");
         host.append(form);

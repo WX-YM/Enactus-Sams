@@ -16,7 +16,7 @@ constexpr std::string_view kPoolName = "hash";
 // buffer without touching its contents, so the password stays legible in freed
 // heap until the allocator hands that block to something else — which may be a
 // response body. OPENSSL_cleanse survives the optimiser's dead-store removal in
-// a way that a plain memset does not (ENGINEERING_RULES.md §5).
+// a way that a plain memset does not (CLAUDE.md §5).
 void burn(std::string& secret) noexcept {
     if (!secret.empty()) { OPENSSL_cleanse(secret.data(), secret.size()); }
 }
@@ -27,7 +27,7 @@ bool PasswordService::saturated() noexcept { return Pools::hash().saturated(); }
 
 Status PasswordService::hash_async(std::string password, HashCallback on_done) const {
     // Captured BY VALUE, never by reference: the caller's frame is gone the
-    // moment try_post returns (ENGINEERING_RULES.md §3.3).
+    // moment try_post returns (CLAUDE.md §3.3).
     auto task = [this, password = std::move(password), on_done = std::move(on_done)]() mutable {
         HashResult result = fail(ErrorCode::Internal);
         try {

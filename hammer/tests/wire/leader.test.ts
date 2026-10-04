@@ -4,7 +4,7 @@
 // them, which is the only arrangement in which "exactly one of them did it" is a
 // deterministic assertion rather than a timing one.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { channelFanOut, leadership, noFanOut } from "../../src/wire/leader.js";
 import { ChannelBus } from "../support/fake_channel.js";

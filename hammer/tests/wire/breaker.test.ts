@@ -1,7 +1,7 @@
 // The circuit, and the property the whole thing exists for: after it opens,
 // exactly one request per window reaches the origin.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { CircuitBreaker, kDefaultBreaker } from "../../src/wire/breaker.js";
 

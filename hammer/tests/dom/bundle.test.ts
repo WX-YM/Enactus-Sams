@@ -15,7 +15,7 @@
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { componentCopy } from "../testapp/app/component_copy.js";
 

@@ -1,4 +1,4 @@
-# Checks selected to enforce ENGINEERING_RULES.md mechanically rather than by review.
+# Checks selected to enforce CLAUDE.md mechanically rather than by review.
 Checks: >
   bugprone-*,
   cert-*,

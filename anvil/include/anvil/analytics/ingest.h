@@ -3,24 +3,29 @@
 // The event sink: the one entry point, and everything that decides whether a
 // moment becomes a row.
 //
-// Four gates, in this order, and the order is the design:
+// Five gates, in this order, and the order is the design:
 //
 //   1. CONSENT, at the door. An event declaring requires_consent is not recorded
 //      without it — not recorded and then filtered, not recorded
 //      pseudonymously. "Recorded and then excluded from queries" is a policy one
 //      forgotten $match away from being no policy at all
 //      (docs/17-analytics.md §12).
-//   2. A VISITOR. The packed address never reaches a row; what identifies a
+//   2. ENTITY ADMISSION, at the same door, for the same reason. An event
+//      declaring an Entity-kind dimension and offered with a non-nil id is not
+//      recorded unless EntityAdmission says the id may be reported — an
+//      unvetted id refused before it costs a session or a sample decision
+//      (docs/17-analytics.md §19).
+//   3. A VISITOR. The packed address never reaches a row; what identifies a
 //      visitor is the peppered, day-rotating digest in
 //      anvil/analytics/sessions.h. A deployment with no pepper installed records
 //      nothing rather than recording something reversible.
-//   3. SAMPLING, above a high-water mark, and DETERMINISTIC PER SESSION. A
+//   4. SAMPLING, above a high-water mark, and DETERMINISTIC PER SESSION. A
 //      session is kept whole or dropped whole. Per-event sampling keeps a random
 //      half of every session, and a half-observed funnel is worse than an
 //      unobserved one: it reports a drop-off that is an artefact of the sampler,
 //      and there is no way to tell it from a real one afterwards
 //      (docs/17-analytics.md §13).
-//   4. The BUFFER's classify-and-shed policy (anvil/analytics/buffer.h).
+//   5. The BUFFER's classify-and-shed policy (anvil/analytics/buffer.h).
 //
 // Everything after that is batching: one insert_many per flush interval on
 // analytics_pool, never one insert per event. Batching is the difference between
@@ -29,11 +34,12 @@
 //
 // Like AuditService, every write here is FIRE AND FORGET and always
 // ASYNCHRONOUS: offer() is called from a Trantor event-loop thread and nothing
-// blocking may run there (ENGINEERING_RULES.md §4).
+// blocking may run there (CLAUDE.md §4).
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <span>
 #include <string>
@@ -58,7 +64,7 @@ namespace anvil::analytics {
 // What a caller hands the sink. Assembled on a request path, so it is trivially
 // copyable and carries no allocation.
 //
-// Ordered largest-alignment-first (ENGINEERING_RULES.md §2.3). Only `code` needs more than
+// Ordered largest-alignment-first (CLAUDE.md §2.3). Only `code` needs more than
 // byte alignment, so it goes first and everything else packs behind it: with the
 // address leading instead, `code` lands mid-struct and the padding in front of it
 // costs four bytes on every request.
@@ -71,10 +77,44 @@ struct Offer final {
     // where consent is recorded and what it covers is a product decision anvil
     // cannot infer.
     bool                consented;    //  1
+    // The Entity-kind dimension's value, for a code whose spec declares one
+    // (event_spec.h) — a UUID the application minted elsewhere, never parsed
+    // from a request byte here (anvil::uuid::parse is the strict canonical-form
+    // validator that belongs on the application's side of that boundary, the
+    // same place an out-of-list enum dimension value is refused today).
+    // kNilUuid means "none for this occurrence". LAST, so a positional
+    // aggregate-init written against the five-member struct keeps compiling.
+    Uuid                entity = kNilUuid;  // 16
 };
 
-static_assert(sizeof(Offer) == 44, "Offer must not grow padding");
+static_assert(sizeof(Offer) == 60, "Offer must not grow padding");
 static_assert(std::is_trivially_copyable_v<Offer>);
+
+// The application's answer to "may this id be reported at all" — bounded
+// cardinality is the application's to enforce, because only it knows the
+// entity's real universe, the same argument docs/17-analytics.md §6 makes for
+// a metric label's value space. `dimension` is the declared name (e.g.
+// "project"), so one hook can serve every Entity-kind dimension in the table
+// by dispatching on it; `code` is the event the id was offered against, for a
+// hook that admits different ids to different events under the same name.
+//
+// Called synchronously from offer(), which runs on a Trantor event-loop thread
+// and must never block (CLAUDE.md §4) — so a real implementation answers from
+// an in-memory set the application keeps current, refilled from its own
+// invalidation signal (for anvil/entries, the existing
+// EntryServiceConfig::on_invalidated hook is what such a set is built from),
+// never from a database read. MUST NOT THROW: offer() is itself noexcept, and
+// an exception here is caught and treated as a refusal rather than escaping
+// into std::terminate — but a real implementation should not rely on that
+// safety net, because a caught-and-refused admission is indistinguishable from
+// a caller that meant no.
+//
+// Unset (the default) refuses every id. That is DENY BY DEFAULT (CLAUDE.md
+// §5): a spec can declare an Entity dimension without wiring this up — nothing
+// stops a deploy — and the safe failure for an unbounded id space nothing is
+// admitting is to admit none of it, not all of it.
+using EntityAdmission =
+    std::function<bool(std::string_view dimension, EventCode code, const Uuid& entity)>;
 
 struct IngestConfig final {
     // How long a raw row lives. A TTL index expires it; every read also filters
@@ -87,6 +127,9 @@ struct IngestConfig final {
     // Sampling engages only ABOVE this many buffered rows. Below it the sink is
     // keeping up and there is nothing to trade away.
     std::size_t          high_water_rows = EventBuffer::kDefaultCapacityRows / 2;
+    // Unset refuses every entity id (see EntityAdmission's own comment). A
+    // table declaring no Entity-kind dimension never consults this at all.
+    EntityAdmission entity_admission{};
 };
 
 class EventSink final {
@@ -105,6 +148,12 @@ public:
         Recorded,
         // The event declares requires_consent and the offer carried none.
         RefusedConsent,
+        // The event declares an Entity dimension, the offer named a non-nil
+        // id, and EntityAdmission (unset, or asked and said no) refused it.
+        // The same "refused at the door" shape as RefusedConsent, and for the
+        // same reason: an id nothing has vetted must not be recorded and then
+        // filtered later.
+        RefusedEntity,
         // No visitor pepper installed, so no visitor could be derived. The row
         // is refused rather than recorded against an unkeyed digest.
         NoVisitor,
@@ -195,7 +244,7 @@ private:
     // stack-use-after-return the first time it drove one hard enough to leave a
     // flush in flight. A repository is a string and a view, so copying one into
     // the task is cheaper than the ordering rule would have been to enforce
-    // (ENGINEERING_RULES.md §3.3).
+    // (CLAUDE.md §3.3).
     [[nodiscard]] static Status write_batch(mongocxx::client& client,
                                             const EventRepository& events,
                                             const SessionRepository& sessions_repo,

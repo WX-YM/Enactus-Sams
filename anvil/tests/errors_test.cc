@@ -78,6 +78,12 @@ TEST(Errors, FailureCarriesAFieldNameButNeverAValue) {
     static_assert(sizeof(Failure) <= 24, "no room for a value, by design");
     EXPECT_EQ(f.field, "email");
     EXPECT_EQ(f.code, ErrorCode::ValidationFailed);
+    // No detail unless one is given, so every existing construction means what
+    // it always did.
+    EXPECT_EQ(f.detail, 0U);
+    constexpr Failure detailed{ErrorCode::ValidationFailed, "title",
+                               static_cast<std::uint16_t>(anvil::input::Reason::TooLong)};
+    static_assert(detailed.detail == static_cast<std::uint16_t>(anvil::input::Reason::TooLong));
 }
 
 // --- 6: stealth mapping ---------------------------------------------------

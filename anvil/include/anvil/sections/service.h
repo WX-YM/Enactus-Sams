@@ -111,7 +111,7 @@ struct SectionServiceConfig final {
     //
     // An exception escaping it is caught and logged rather than allowed to
     // propagate — `invalidate_local` is noexcept and the subscriber thread must
-    // survive a consumer's bug (ENGINEERING_RULES.md §4).
+    // survive a consumer's bug (CLAUDE.md §4).
     //
     // `key` is always a key the registry declares. A published key that is not
     // in the table is discarded before this is reached, which is the same
@@ -123,6 +123,17 @@ struct SectionWriteOutcome final {
     std::array<char, 18> etag;
     std::int64_t         version;
 };
+
+// Every image slot in `content` names media that exists, lives in `ns`, and
+// MEETS the slot's ImageSpec: minimum dimensions, and the aspect ratio within
+// one part in a hundred. A hero slot needing 1920x1080 rejects a 200x200 upload
+// rather than letting the public site render broken.
+//
+// A free function rather than only a member so that every store of
+// section-shaped content checks images with the same code. db_pool.
+[[nodiscard]] Status verify_images(mongocxx::client& client, const media::MediaService& media,
+                                   fs::Ns ns, const SectionSpec& spec,
+                                   const SectionContent& content);
 
 class SectionService final {
 public:
@@ -171,10 +182,7 @@ public:
     [[nodiscard]] Result<std::optional<SectionDocument>> read_document(
         mongocxx::client& client, const SectionSpec& spec, SectionState state) const;
 
-    // Every image slot in `content` must name media that exists, lives in the
-    // configured namespace, and MEETS the slot's ImageSpec. A hero slot needing
-    // 1920x1080 rejects a 200x200 upload rather than letting the public site
-    // render broken.
+    // verify_images() above, against this service's media and namespace.
     [[nodiscard]] Status verify_images(mongocxx::client& client, const SectionSpec& spec,
                                        const SectionContent& content) const;
 
@@ -226,7 +234,7 @@ private:
 
     // Declaration order is construction order: sections_ is built from
     // database_, cache_ is sized from registry_, and listener_ is started last,
-    // after everything it touches exists (ENGINEERING_RULES.md §3.2).
+    // after everything it touches exists (CLAUDE.md §3.2).
     const std::string            database_;
     std::span<const SectionSpec> registry_;
     media::MediaService&         media_;

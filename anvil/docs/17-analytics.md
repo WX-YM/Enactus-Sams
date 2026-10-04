@@ -41,7 +41,7 @@ request is `N × request_rate` inserts against the cluster the request path is a
 ## 3. The metric table, and the one table anvil populates
 
 The application declares its metrics. anvil declares its own, in
-`analytics/internal_metrics.h`, and that needs defending against ENGINEERING_RULES.md §1 — *a `constexpr`
+`analytics/internal_metrics.h`, and that needs defending against CLAUDE.md §1 — *a `constexpr`
 table anvil ships is machinery; a `constexpr` table anvil populates is a bug*:
 
 ```cpp
@@ -347,7 +347,7 @@ it is full the sink sheds and counts, like every other bounded queue in this lib
 ([`00-architecture.md`](00-architecture.md) §3).
 
 This costs `PoolSizes` two members, which is an API and aggregate-initialisation break for every
-consumer — called out per ENGINEERING_RULES.md §9.3 rather than slipped in.
+consumer — called out per CLAUDE.md §9.3 rather than slipped in.
 
 The renderer's boot-time load failures and the migration runner's progress are both counted
 here rather than logged, for the reason in §2.
@@ -383,7 +383,7 @@ Five properties, in the order they matter:
   and deflates it instead.
 - **A session is a `(visitor, day)` upsert**, and the unique key *is* the sessionisation —
   there is no read-then-write, so N instances converge without coordination
-  (ENGINEERING_RULES.md §6). The pair is the document's **`_id`**, not a unique secondary index: a
+  (CLAUDE.md §6). The pair is the document's **`_id`**, not a unique secondary index: a
   compound `_id` is already unique, so the collection carries no secondary index for its write
   path at all, and the upsert is a primary-key write. Whether the call CREATED the row comes
   from the server's own `upsertedId` rather than from a read that raced another instance
@@ -438,7 +438,7 @@ field-by-field — so it is built in exactly one place. That is what makes the w
 primary-key upsert, and the upsert is what makes the job re-runnable:
 
 > **A rollup that `$inc`s is not re-runnable.** Every queue in this system is at-least-once
-> (ENGINEERING_RULES.md §6), so a rollup that adds to what it finds double-counts the first time a worker
+> (CLAUDE.md §6), so a rollup that adds to what it finds double-counts the first time a worker
 > is reclaimed after a lease expiry — and the resulting number is wrong in a way nothing
 > reports and nobody can reconstruct.
 
@@ -459,7 +459,7 @@ highest-volume collection in the system, issued by whoever can open the dashboar
 Result<std::vector<Bucket>> counts_over_time(EventCode, TimeRange, Granularity);
 ```
 
-Bounded by a `limit` like every other read (ENGINEERING_RULES.md §7), paginated by the indexed bucket key,
+Bounded by a `limit` like every other read (CLAUDE.md §7), paginated by the indexed bucket key,
 never `skip(n)`. The raw collection has exactly two readers: the rollup job, and the erasure
 path.
 
@@ -669,7 +669,7 @@ services the deployment controls. They do not flow back to the client.
 wire for every query on a path [09](09-mongodb.md) spends its whole length minimising.
 
 **A trace id on every log line.** The proposal put this in the redacting logger. There is no
-redacting logger in this repository — it is a rule §5 of ENGINEERING_RULES.md states and nothing yet
+redacting logger in this repository — it is a rule §5 of CLAUDE.md states and nothing yet
 enforces — so there was nowhere to put the field that would not have been a format string at
 every call site. It waits for the logger.
 
@@ -677,3 +677,169 @@ every call site. It waits for the logger.
 here so that an application's outbound call writes the same 55 bytes anvil parsed rather than a
 second formatter that can disagree with the parser about a leading zero; anvil ships no caller
 for it.
+
+## 19. An open entity dimension
+
+§8 states the reasoning a dimension has always followed: a closed, `constexpr` set of values,
+because a free-text dimension is a collection whose index cardinality is chosen by a visitor.
+That reasoning holds for "which surface" and "which referrer". It does not hold for "which
+project" — an application like [`anvil/entries`](20-entries.md) lets a project be added by a
+staff member rather than a deploy, and a `constexpr` list of project slugs makes a project
+uncounted until the next release appends it, and a renamed slug relabel every row of its own
+history. The table cannot enumerate the value space, because the value space is not fixed at
+compile time. It never was going to be a `constexpr` table; the question is what replaces one.
+
+### 19.1 A kind, not a different mechanism
+
+`DimensionSpec` gains a `kind`: `Enum`, the closed set every dimension has always been, or
+`Entity`, an application-minted UUID. Everything else about a dimension stays — declared beside
+the event, checked by `event_table_is_well_formed`, refused at the door if malformed — because
+the only thing that actually differs is the value SPACE, not the shape a dimension has in the
+table:
+
+```cpp
+enum class DimensionKind : std::uint8_t { Enum = 0, Entity = 1 };
+
+struct DimensionSpec final {
+    std::string_view                  name;
+    std::span<const std::string_view> values;  // ENUM ONLY — empty for Entity
+    DimensionKind                     kind = DimensionKind::Enum;
+};
+```
+
+An `Entity` dimension's `values` must be empty; an `Enum` dimension's must not be. The two
+disagreeing — a kind naming one shape and a value list naming the other — is exactly the state
+`well_formed()` exists to refuse rather than pick a side of silently, so it is checked alongside
+every other malformed table (empty name, duplicate value, oversized set). One event may declare
+**at most one** `Entity` dimension, for a storage reason §19.2 makes exact: unlike the enum
+dimensions, which share one four-slot array regardless of how many an event declares, the entity
+value has exactly one slot of its own, so a second `Entity` dimension on the same event would
+have nowhere to be stored.
+
+### 19.2 Storage: a slot of its own, not an index
+
+An enum dimension's stored form is the INDEX — one byte, because the row IS the index into a
+list the reader already has. An entity dimension has no list to index into, so its stored form
+is the id itself: 16 bytes, BSON `BinData` subtype 4, never a string and never an index into
+anything (CLAUDE.md §2.3's rule for every UUID in this codebase, applied here for the first time
+to something that travels beside `dims` rather than inside it).
+
+`Event` and `RollupRow` each gain one `Uuid entity` field, `kNilUuid` meaning "not supplied for
+this occurrence" — the same absent-slot idea `kNoDimensionValue` gives an enum dimension's byte,
+chosen because a real id is never nil in practice. It is a field of its own rather than a fifth
+`dims` slot, because a `Uuid` does not fit in the one byte a `dims` slot has, and growing every
+slot to sixteen bytes to fit the rare case would nearly triple `dims` for every event that never
+uses one. The cost lands only on the feature that uses it: `Event` grows from 44 bytes to 60,
+`EventRow` from 56 to 72 — under a third more, and still under a megabyte for eight thousand
+buffered rows (`analytics/buffer.h`) — while the wire and storage form OMITS the field entirely
+when it is nil, so an ordinary row, and every row on disk before this feature existed, costs
+nothing extra at all. An enum dimension's slot is written unconditionally, even absent, so the
+rollup's equality filter never has to distinguish "no dimensions" from "field missing" (§14); an
+entity id does not share that reasoning, because there is no array position to keep uniform — the
+field is simply present or it is not, and both states are exactly as before this feature existed.
+
+### 19.3 Admission: bounded cardinality is the application's, again
+
+§6 makes the case once for a metric label and once for an enum dimension: an unbounded value
+space reachable from a request is a cardinality explosion, and the fix is to make the space
+`constexpr` so a build enforces the bound. An entity dimension cannot take that fix — the whole
+point is that the space is NOT fixed at compile time — so the bound has to be enforced a
+different way, at the only other point that can see every id before it is written: `offer()`.
+
+```cpp
+using EntityAdmission =
+    std::function<bool(std::string_view dimension, EventCode code, const Uuid& entity)>;
+```
+
+Supplied through `IngestConfig::entity_admission`, and consulted as a new gate — the SECOND of
+five, immediately after consent and before a visitor is even derived, because an id nothing has
+vetted should not go on to cost a session or a sampling decision. `dimension` is the declared
+name, so one hook serves every `Entity` dimension in the table by dispatching on it; `code` is
+the event the id was offered against, for a hook that admits different ids to different events
+under the same dimension name.
+
+**Unset refuses every id.** This is deliberate and it is CLAUDE.md §5's "deny by default" applied
+to a seam rather than a route: a table can declare an `Entity` dimension without anyone wiring up
+`EntityAdmission`, because nothing at compile time can catch a runtime hook being missing — a
+`std::function` is not a fact `static_assert` can see. The safe failure for an unbounded id space
+nothing is vetting is to admit none of it, matching the direction `requires_consent` and an
+unknown `EventCode` already fail in (§8, §9): every gate in this sink fails towards recording
+less, never more.
+
+**The hook must not block**, for the reason every gate in `offer()` must not: it runs on a
+Trantor event-loop thread (CLAUDE.md §4). A real implementation therefore answers from an
+in-memory set the application keeps current, never from a database read — and anvil already
+ships the signal such a set is built from. [`20-entries.md`](20-entries.md) §6 gives
+`EntryServiceConfig::on_invalidated(kind)` precisely so an application can refill a cache of its
+own on the write path and on every other instance, and "is this UUID a currently-published entry
+of this kind" is exactly the shape of question `EntityAdmission` asks. The two seams are
+designed to fit together without anvil naming the fit: entries owns publishing a project,
+analytics owns counting one, and the admission hook is the only line connecting them.
+
+**The hook must not throw.** `offer()` is itself `noexcept`, so an exception escaping the
+application's callable is caught at the call site and treated as a refusal rather than reaching
+`std::terminate` — the same direction an unset hook already fails, so a throwing implementation
+degrades to a refusing one rather than taking the process down. That is a safety net, not a
+license: a real implementation should not rely on it, because a caught-and-refused admission is
+indistinguishable, from the caller's side, from one that plainly said no.
+
+### 19.4 The rollup, and a series query with two shapes
+
+The rollup's identity tuple gains the entity id: `(code, granularity, bucket, dimensions,
+entity)`, grouped exactly as an enum dimension combination is — two ids in one bucket are two
+rollup documents, and re-running the job over the same window still `$set`s the same documents
+it always did (§14 is otherwise unchanged; the entity id is one more field of the same `_id`).
+
+A series query now comes in two shapes, mirroring the existing narrowed/unnarrowed pair for enum
+dimensions:
+
+```cpp
+// Narrowed to ONE entity, across every bucket and enum-dimension combination.
+Result<std::vector<Bucket>> counts_over_time_for_entity(
+    mongocxx::client&, EventCode, const Uuid& entity, const TimeRange&, Granularity,
+    std::int32_t limit = 512) const;
+
+// GROUPED by entity: every id that appeared, each with its own total.
+Result<std::vector<EntityCount>> counts_by_entity(
+    mongocxx::client&, EventCode, const TimeRange&, Granularity,
+    std::int32_t limit = 512) const;
+```
+
+`counts_over_time_for_entity` is `counts_over_time_for`'s counterpart: an equality filter on
+`_id.ent` rides the same index `_id.dims` already answers a narrowed query from. `counts_by_entity`
+is new in kind rather than degree — it is the "top projects" question, which has no enum-dimension
+equivalent because the enum value space is small enough that a caller already knows every value
+to ask for one at a time. It reads a window unfiltered, exactly as `counts_over_time` does, and
+folds the rows by entity instead of by bucket — discarding rows carrying no entity at all, because
+"no entity" is not an id worth reporting in a result whose whole point is a list of ids — returning
+the highest count first so two reads of an unchanged window agree byte for byte. `limit` bounds
+the rollup documents READ, exactly as it does everywhere else in this file; the entities returned
+can never exceed it, because each row read contributes to at most one entity's total.
+
+`Uuid` stays the raw 16 bytes through every one of these, as everywhere else in anvil — a caller
+building JSON converts with `anvil::uuid::to_string`, the one place `uuid.h` itself draws that
+boundary.
+
+### 19.5 What was rejected
+
+**A `std::string_view` value for the entity dimension.** The same refusal §6 gives an enum
+dimension's `observe()`: a function that cannot accept a request byte cannot be made to accept
+one by a refactor that was not thinking about cardinality. `Offer::entity` is a `Uuid` the
+application already parsed and validated — with `anvil::uuid::parse`, the strict canonical-form
+validator every other UUID boundary in this codebase already uses — so a malformed value is
+refused at the SAME boundary an out-of-list enum value already is: in the application's own
+request handling, before anything reaches `offer()`, with the application's own `ValidationFailed`
+and no driver text anywhere near it.
+
+**A database read inside `offer()`.** Considered and rejected for the same reason every gate in
+this sink is synchronous: `offer()` runs on a Trantor event-loop thread, and `EntityAdmission`
+blocking on `db_pool` would stall every connection that loop owns for the length of a query. The
+seam is deliberately an in-memory predicate, with `entries::EntryServiceConfig::on_invalidated`
+named as the signal a real one is built from, rather than a callback shaped to invite a query.
+
+**Renumbering `dims` to fit a UUID.** Widening every dimension slot to sixteen bytes so an entity
+value could live inside `DimensionValues` was rejected on the same memory argument §2 makes for
+the whole subsystem: it would nearly triple the row for every event that never declares an entity
+dimension, to save one field on the rare event that does. A dedicated `Uuid entity` field costs
+nothing on the rows that do not use it, because it is omitted from the wire form entirely when it
+is nil (§19.2).

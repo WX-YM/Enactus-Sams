@@ -20,7 +20,7 @@
 //
 // Only a digest is stored. A raw token in a collection is a credential anybody
 // with a database dump can replay, and the digest is peppered so that dump is
-// not enough on its own (ENGINEERING_RULES.md §5).
+// not enough on its own (CLAUDE.md §5).
 
 #include <chrono>
 #include <cstdint>

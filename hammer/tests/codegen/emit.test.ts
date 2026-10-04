@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { transformSync } from "esbuild";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { Descriptor } from "../../src/codegen/descriptor.js";
 import { readDescriptorJson } from "../../src/codegen/descriptor.js";
@@ -418,6 +418,72 @@ describe("the content tables", () => {
             `${dimension.name}: [${dimension.values.map((value) => JSON.stringify(value)).join(", ")}],`,
         );
     });
+
+    it("emits an entity dimension as a kind marker, not a values array", () => {
+        const event = kDescriptor.tables.events.find(
+            (candidate) => candidate.name === "ProjectViewed",
+        );
+        expect(event).toBeDefined();
+        if (event === undefined) return;
+        const dimension = event.dimensions.find((candidate) => candidate.kind === "entity");
+        expect(dimension).toBeDefined();
+        if (dimension === undefined) return;
+        expect(dimension.values).toHaveLength(0);
+        expect(kEmitted).toContain(`${dimension.name}: { kind: "entity" },`);
+    });
+});
+
+describe("accounts", () => {
+    it("emits the reference table's shape, one route role as a const reference", () => {
+        // The golden case: every member, in camelCase, and — the one thing this
+        // table cannot get wrong — `routes.signIn` bound to the route's own
+        // generated `const` rather than to the route id as a string. A string
+        // there would still be `"auth.login"` after anvil retired the route; the
+        // reference is a compile error instead.
+        expect(kEmitted).toContain("export const kAccounts = {");
+        expect(kEmitted).toContain('    hashing: "client",');
+        expect(kEmitted).toContain('    activation: "verify",');
+        expect(kEmitted).toContain('    contact: "email",');
+        expect(kEmitted).toContain("    identifiers: [");
+        expect(kEmitted).toContain('        { kind: "email", required: true, signIn: true },');
+        expect(kEmitted).toContain('        { kind: "username", required: true, signIn: true },');
+        expect(kEmitted).toContain('        { kind: "phone", required: false, signIn: true },');
+        expect(kEmitted).toContain("    profile: [");
+        expect(kEmitted).toContain('            key: "given_name",');
+        expect(kEmitted).toContain("            required: true,");
+        expect(kEmitted).toContain("            minCodePoints: 1,");
+        expect(kEmitted).toContain("            maxCodePoints: 80,");
+        expect(kEmitted).toContain('            text: "prose",');
+        expect(kEmitted).toContain("            lineBreaks: false,");
+        expect(kEmitted).toContain(
+            "    secret: { minCodePoints: 12, maxCodePoints: 128, maxBytes: 1024 },",
+        );
+        expect(kEmitted).toContain("    codeDigits: 6,");
+        expect(kEmitted).toContain("    routes: {");
+        expect(kEmitted).toContain("        salt: routeAuthPrehash,");
+        expect(kEmitted).toContain("        register: routeAuthSignup,");
+        expect(kEmitted).toContain("        verify: routeAuthVerify,");
+        expect(kEmitted).toContain("        resend: routeAuthResend,");
+        expect(kEmitted).toContain("        signIn: routeAuthLogin,");
+        expect(kEmitted).toContain("        resetRequest: routeAuthReset,");
+        expect(kEmitted).toContain("        resetConfirm: routeAuthResetConfirm,");
+        expect(kEmitted).toContain("        change: routeAuthPassword,");
+        expect(kEmitted).toContain("        refresh: routeAuthRefresh,");
+        expect(kEmitted).toContain("        signOut: routeAuthLogout,");
+        // Never the wire's snake_case, and never the id as a quoted string.
+        expect(kEmitted).not.toContain("sign_in:");
+        expect(kEmitted).not.toContain('signIn: "auth.login"');
+        expect(kEmitted).toContain("export type AccountsTable = typeof kAccounts;");
+    });
+
+    it("emits null, and still the type alias, for an application that declares none", () => {
+        const mutated: unknown = structuredClone(kDescriptor);
+        (mutated as { tables: { accounts: unknown } }).tables.accounts = null;
+        const emitted = emitClient(mutated as Descriptor);
+        expect(emitted).toContain("export const kAccounts = null;");
+        expect(emitted).toContain("export type AccountsTable = typeof kAccounts;");
+        expect(emitted).not.toContain("hashing:");
+    });
 });
 
 describe("what a route answers with", () => {
@@ -598,6 +664,8 @@ describe("a table with nothing in it", () => {
         // left to name: an empty table is the case being tested, not a dangling
         // reference into one.
         tables["topics"] = [];
+        // Accounts names routes by id, and there are none left to name either.
+        tables["accounts"] = null;
 
         const reading = readDescriptorJson(JSON.stringify(stripped));
         expect(reading.ok).toBe(true);

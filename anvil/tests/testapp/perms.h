@@ -41,12 +41,22 @@ enum class Perm : std::uint8_t {
     // one.
     AuditRead     = 25,
 
+    // Conversations (docs/22-chat.md). Taking part in one needs no bit beyond
+    // being signed in: membership is what decides. Creating a group or a
+    // channel is an account-level authority, held apart so a product can let
+    // everybody message and only some people broadcast.
+    ChatCreateGroup   = 32,
+    ChatCreateChannel = 33,
+    // Reading a conversation one is not in, and the reports members file
+    // (docs/22-chat.md §9.2): staff, and audited on every read.
+    ChatReview        = 34,
+
     // The highest bit any test declares, and the last word of the 128-bit set.
     // Present so the wire format's high word is exercised rather than assumed.
     SystemAnnounce = 120,
 };
 
-inline constexpr std::array<anvil::PermName, 11> kPermNameTable{{
+inline constexpr std::array<anvil::PermName, 14> kPermNameTable{{
     {"ContentRead",    static_cast<std::uint8_t>(Perm::ContentRead)},
     {"ContentWrite",   static_cast<std::uint8_t>(Perm::ContentWrite)},
     {"ContentDelete",  static_cast<std::uint8_t>(Perm::ContentDelete)},
@@ -57,6 +67,9 @@ inline constexpr std::array<anvil::PermName, 11> kPermNameTable{{
     {"FormPii",        static_cast<std::uint8_t>(Perm::FormPii)},
     {"StaffManage",    static_cast<std::uint8_t>(Perm::StaffManage)},
     {"AuditRead",      static_cast<std::uint8_t>(Perm::AuditRead)},
+    {"ChatCreateGroup",   static_cast<std::uint8_t>(Perm::ChatCreateGroup)},
+    {"ChatCreateChannel", static_cast<std::uint8_t>(Perm::ChatCreateChannel)},
+    {"ChatReview",        static_cast<std::uint8_t>(Perm::ChatReview)},
     {"SystemAnnounce", static_cast<std::uint8_t>(Perm::SystemAnnounce)},
 }};
 

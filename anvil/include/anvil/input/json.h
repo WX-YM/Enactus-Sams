@@ -54,7 +54,7 @@ enum class JsonError : std::uint8_t {
 // Never for a response body: which limit a body broke is information about the
 // parser, and a caller that learns "DepthExceeded" learns the depth cap. The
 // wire answer for every one of these stays the same VALIDATION_FAILED with no
-// field (ENGINEERING_RULES.md §5). But a staff write that is refused for a reason nobody
+// field (CLAUDE.md §5). But a staff write that is refused for a reason nobody
 // records is a support ticket with nothing behind it — a rejected body left no
 // trace at all, and "publish does nothing" could not be told apart from
 // "publish sent something the parser would not read".
@@ -151,7 +151,7 @@ public:
 // A parsed document. The root borrows from both `body` and `arena`, so both
 // must outlive it — the same lifetime rule as any string_view into a request
 // body, and the reason a parsed document must never cross a thread-pool
-// boundary without the buffer that backs it (ENGINEERING_RULES.md §2.2).
+// boundary without the buffer that backs it (CLAUDE.md §2.2).
 class JsonDocument final {
 public:
     [[nodiscard]] JsonError error() const noexcept { return error_; }

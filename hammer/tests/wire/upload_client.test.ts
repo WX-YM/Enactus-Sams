@@ -30,7 +30,7 @@
 //                   an upload that a retry may repeat, which is the case the
 //                   single-use grant on `media.delete` forbids.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { Capability, SessionSource } from "../../src/wire/index.js";
 import { createClient } from "../../src/wire/index.js";
@@ -160,7 +160,7 @@ describe("the body that reaches the wire", () => {
     // decided: the object handed to `fetch` is the `File` the caller passed,
     // not a copy of its bytes. A 40 MB video that reached the JS heap would be
     // 40 MB against a tab budget that is frequently 350 MB, and the symptom is
-    // the tab being killed rather than the upload being slow (`ENGINEERING_RULES.md` §2.2).
+    // the tab being killed rather than the upload being slow (`CLAUDE.md` §2.2).
     it("is the file itself when nothing asked for progress", async () => {
         const host = harness();
         const file = jpeg(2048);

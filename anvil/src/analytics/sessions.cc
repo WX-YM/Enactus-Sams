@@ -16,7 +16,7 @@ namespace anvil::analytics {
 namespace {
 
 // Held behind a shared_ptr so a reader never sees a half-installed key, and read
-// on the ingest path with no lock at all (ENGINEERING_RULES.md §4).
+// on the ingest path with no lock at all (CLAUDE.md §4).
 std::atomic<std::shared_ptr<const crypto::Key256>> g_pepper;
 std::mutex                                         g_pepper_mutex;
 

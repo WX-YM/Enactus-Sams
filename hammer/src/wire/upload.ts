@@ -4,7 +4,7 @@
 // of this module's design: `readAsArrayBuffer` on a 40 MB video is 40 MB of tab
 // memory and a frozen main thread, against a budget that is frequently around
 // 350 MB on a mid-range phone — and the failure mode is not slowness, it is the
-// tab being killed with whatever was typed in it (`ENGINEERING_RULES.md` §2.2). So the body
+// tab being killed with whatever was typed in it (`CLAUDE.md` §2.2). So the body
 // handed to `fetch` is the `File` itself, or a stream over it, and
 // `tools/check-source-bans.sh` fails the build on every API that would read one
 // into the heap.

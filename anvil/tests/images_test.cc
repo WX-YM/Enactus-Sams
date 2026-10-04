@@ -24,7 +24,7 @@
 #include "anvil/crypto/digest.h"
 #include "anvil/fs/paths.h"
 #include "anvil/fs/upload.h"
-#include "anvil/images/crop.h"
+#include "anvil/images/edit.h"
 #include "anvil/images/probe.h"
 #include "anvil/images/strip.h"
 #include "anvil/images/variants.h"
@@ -434,68 +434,149 @@ TEST_F(ImageFixture, EveryRecordedVariantExistsOnDiskWithTheRecordedSize) {
     }
 }
 
-// --- crop is non-destructive ------------------------------------------------
+// --- an edit is a new object ------------------------------------------------
 
-TEST_F(ImageFixture, CropLeavesTheMasterByteIdentical) {
-    const std::string path = make_image("croppable", 1200, 900, ".png");
-    ASSERT_FALSE(path.empty());
+// Everything under one id, as bytes, so a case can say "not one of these moved".
+[[nodiscard]] std::vector<std::string> contents_under(const std::string& root, fs::Ns ns,
+                                                     const Uuid& id,
+                                                     const std::vector<images::VariantRecord>& variants) {
+    std::vector<fs::VariantKey> keys{fs::kMasterVariant};
+    for (const images::VariantRecord& variant : variants) {
+        keys.push_back(fs::VariantKey{variant.width, variant.format});
+    }
+    std::vector<std::string> contents;
+    for (const fs::VariantKey key : keys) {
+        const std::filesystem::path path =
+            std::filesystem::path{root} / std::string{fs::media_relative_path(ns, id, key).view()};
+        std::FILE* file = std::fopen(path.c_str(), "rb");
+        std::string bytes;
+        if (file != nullptr) {
+            std::array<char, 4096> buffer{};
+            std::size_t read = 0;
+            while ((read = std::fread(buffer.data(), 1, buffer.size(), file)) > 0) {
+                bytes.append(buffer.data(), read);
+            }
+            std::fclose(file);
+        }
+        contents.push_back(std::move(bytes));
+    }
+    return contents;
+}
 
-    // The master, as stored.
-    const Uuid id = anvil::uuid::generate_v4();
-    {
-        const anvil::Result<fs::Fd> shard =
-            fs::Storage::instance().open_shard_for_write(testapp::kGuest, id);
-        ASSERT_TRUE(shard.ok());
-        const std::filesystem::path master_path =
+class EditFixture : public ImageFixture {
+protected:
+    // A stored source: the master in place and its variants derived, exactly as
+    // an upload leaves it.
+    void store_source(int width, int height) {
+        const std::string path = make_image("source", width, height, ".png");
+        ASSERT_FALSE(path.empty());
+        source_ = anvil::uuid::generate_v4();
+        ASSERT_TRUE(fs::Storage::instance().open_shard_for_write(testapp::kMedia, source_).ok());
+        const std::filesystem::path master =
             std::filesystem::path{root_} /
-            std::string{fs::media_relative_path(testapp::kGuest, id).view()};
+            std::string{fs::media_relative_path(testapp::kMedia, source_).view()};
         std::error_code ec;
-        std::filesystem::copy_file(path, master_path, ec);
+        std::filesystem::copy_file(path, master, ec);
         ASSERT_FALSE(ec) << ec.message();
+        master_path_ = master.string();
+        info_ = images::ImageInfo{static_cast<std::uint32_t>(width),
+                                  static_cast<std::uint32_t>(height), 1};
+        const fs::Fd fd = open_read(master_path_);
+        auto derived = images::generate_variants(fs::Storage::instance(), testapp::kMedia,
+                                                 source_, fd.get(), info_);
+        ASSERT_TRUE(derived.ok());
+        source_variants_ = std::move(derived).value();
     }
 
-    const std::filesystem::path master_path =
+    [[nodiscard]] anvil::Result<images::RenderedEdit> render(const images::Recipe& recipe,
+                                                             const Uuid& id) {
+        const anvil::Result<images::EditPlan> plan =
+            images::plan_edit(recipe, info_, images::kEditLimits);
+        if (!plan) { return plan.error(); }
+        const fs::Fd fd = open_read(master_path_);
+        return images::render_edit(fs::Storage::instance(), testapp::kMedia, id, fd.get(),
+                                   fs::Mime::Png, recipe, plan.value());
+    }
+
+    Uuid                               source_{};
+    std::string                        master_path_;
+    images::ImageInfo                  info_{};
+    std::vector<images::VariantRecord> source_variants_;
+};
+
+TEST_F(EditFixture, AnEditWritesOnlyUnderItsOwnIdAndLeavesTheSourceByteIdentical) {
+    // The defect apply_crop had: its result was published over the SOURCE's
+    // variant files, which a deduplicated upload shares with every other
+    // document holding those bytes. Crop, change it, remove it — the source's
+    // master and every one of its variants must come out exactly as they went in.
+    store_source(1200, 900);
+    const std::vector<std::string> before =
+        contents_under(root_, testapp::kMedia, source_, source_variants_);
+
+    images::Recipe cropped{};
+    cropped.crop = images::FixedRect{6553, 6553, 52428, 52428};
+    images::Recipe turned{};
+    turned.turns = 1;
+    turned.flip = true;
+    for (const images::Recipe& recipe : {cropped, turned}) {
+        const Uuid id = anvil::uuid::generate_v4();
+        const anvil::Result<images::RenderedEdit> rendered = render(recipe, id);
+        ASSERT_TRUE(rendered.ok()) << rendered.error().field;
+        EXPECT_FALSE(rendered.value().variants.empty());
+        // The derived object is complete under its own id.
+        for (const std::string& file :
+             contents_under(root_, testapp::kMedia, id, rendered.value().variants)) {
+            EXPECT_FALSE(file.empty());
+        }
+    }
+
+    EXPECT_EQ(contents_under(root_, testapp::kMedia, source_, source_variants_), before)
+        << "an edit wrote to the source it was derived from";
+}
+
+TEST_F(EditFixture, TheRenderedSizeIsThePlannedSize) {
+    store_source(1200, 900);
+    images::Recipe recipe{};
+    recipe.turns = 1;
+    recipe.long_edge_px = 1000;
+    const anvil::Result<images::RenderedEdit> rendered =
+        render(recipe, anvil::uuid::generate_v4());
+    ASSERT_TRUE(rendered.ok());
+    // A quarter turn stands the picture up; the long edge is now its height.
+    EXPECT_EQ(rendered.value().width, 750U);
+    EXPECT_EQ(rendered.value().height, 1000U);
+}
+
+TEST_F(EditFixture, AStrokeLandsWhereThePlanPutsIt) {
+    store_source(1200, 900);
+    images::Recipe recipe{};
+    // A red dot a twentieth of the short edge wide, at the centre.
+    recipe.points = {32768, 32768};
+    recipe.strokes.push_back(images::RecipeStroke{{255, 0, 0, 255}, 3277, 1, 0});
+    const Uuid id = anvil::uuid::generate_v4();
+    const anvil::Result<images::RenderedEdit> rendered = render(recipe, id);
+    ASSERT_TRUE(rendered.ok()) << rendered.error().field;
+
+    const std::filesystem::path master =
         std::filesystem::path{root_} /
-        std::string{fs::media_relative_path(testapp::kGuest, id).view()};
-    const std::uint64_t before_size = size_of(master_path.string());
-    const anvil::crypto::Digest256 before = [&master_path] {
-        std::FILE* file = std::fopen(master_path.c_str(), "rb");
-        std::vector<std::uint8_t> bytes;
-        std::array<std::uint8_t, 4096> buffer{};
-        std::size_t read = 0;
-        while ((read = std::fread(buffer.data(), 1, buffer.size(), file)) > 0) {
-            bytes.insert(bytes.end(), buffer.begin(), buffer.begin() + read);
-        }
-        std::fclose(file);
-        return anvil::crypto::sha256(bytes);
-    }();
-
-    const images::ImageInfo info{1200, 900, 1};
-
-    // Crop, change it, remove it. The master is opened READ-ONLY throughout.
-    for (const images::CropRect rect : {images::CropRect{0.1F, 0.1F, 0.8F, 0.8F},
-                                        images::CropRect{0.0F, 0.0F, 0.5F, 0.5F},
-                                        images::CropRect{0.0F, 0.0F, 1.0F, 1.0F}}) {
-        const fs::Fd master = open_read(master_path.string());
-        ASSERT_TRUE(master.valid());
-        const anvil::Result<std::vector<images::VariantRecord>> derived = images::apply_crop(
-            fs::Storage::instance(), testapp::kGuest, id, master.get(), info, rect);
-        ASSERT_TRUE(derived.ok()) << static_cast<int>(derived.error().code);
-    }
-
-    EXPECT_EQ(size_of(master_path.string()), before_size);
-    const anvil::crypto::Digest256 after = [&master_path] {
-        std::FILE* file = std::fopen(master_path.c_str(), "rb");
-        std::vector<std::uint8_t> bytes;
-        std::array<std::uint8_t, 4096> buffer{};
-        std::size_t read = 0;
-        while ((read = std::fread(buffer.data(), 1, buffer.size(), file)) > 0) {
-            bytes.insert(bytes.end(), buffer.begin(), buffer.begin() + read);
-        }
-        std::fclose(file);
-        return anvil::crypto::sha256(bytes);
-    }();
-    EXPECT_EQ(before, after) << "the master was modified by a crop";
+        std::string{fs::media_relative_path(testapp::kMedia, id).view()};
+    VipsImage* image = vips_image_new_from_file(master.c_str(), nullptr);
+    ASSERT_NE(image, nullptr);
+    double* centre = nullptr;
+    int bands = 0;
+    ASSERT_EQ(vips_getpoint(image, &centre, &bands, 600, 450, nullptr), 0);
+    ASSERT_GE(bands, 3);
+    // The master is a PNG, so the colour is exact rather than near.
+    EXPECT_EQ(centre[0], 255.0);
+    EXPECT_EQ(centre[1], 0.0);
+    EXPECT_EQ(centre[2], 0.0);
+    g_free(centre);
+    double* corner = nullptr;
+    ASSERT_EQ(vips_getpoint(image, &corner, &bands, 10, 10, nullptr), 0);
+    // Grey noise stays grey: every band of a far pixel agrees.
+    EXPECT_EQ(corner[0], corner[1]);
+    g_free(corner);
+    g_object_unref(image);
 }
 
 // --- malformed input under ASan ---------------------------------------------
@@ -545,31 +626,6 @@ TEST_F(ImageFixture, MalformedInputIsRejectedRatherThanCrashing) {
             (void)images::normalise_master(fd.get(), fs::Mime::Png, out.get());
         }
     }
-}
-
-// --- crop validation --------------------------------------------------------
-
-TEST(ImageCrop, RectangleIsValidatedAgainstBoundsAndTheSmallestVariant) {
-    const images::ImageInfo master{1200, 900, 1};
-
-    EXPECT_TRUE(images::validate_crop(images::CropRect{0.0F, 0.0F, 1.0F, 1.0F}, master).ok());
-    EXPECT_TRUE(images::validate_crop(images::CropRect{0.25F, 0.25F, 0.5F, 0.5F}, master).ok());
-
-    // Outside the image.
-    EXPECT_FALSE(images::validate_crop(images::CropRect{0.5F, 0.0F, 0.6F, 0.5F}, master).ok());
-    EXPECT_FALSE(images::validate_crop(images::CropRect{-0.1F, 0.0F, 0.5F, 0.5F}, master).ok());
-    // Empty.
-    EXPECT_FALSE(images::validate_crop(images::CropRect{0.0F, 0.0F, 0.0F, 0.5F}, master).ok());
-    // NaN and infinity fail every comparison, so they are excluded explicitly.
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    EXPECT_FALSE(images::validate_crop(images::CropRect{nan, 0.0F, 0.5F, 0.5F}, master).ok());
-    EXPECT_FALSE(images::validate_crop(
-                     images::CropRect{0.0F, 0.0F, std::numeric_limits<float>::infinity(), 0.5F},
-                     master)
-                     .ok());
-    // Narrower than the smallest target width: every variant would be an
-    // upscale, which looks worse than not cropping.
-    EXPECT_FALSE(images::validate_crop(images::CropRect{0.0F, 0.0F, 0.2F, 0.2F}, master).ok());
 }
 
 #endif  // ANVIL_HAS_VIPS

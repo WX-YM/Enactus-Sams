@@ -46,7 +46,26 @@ import { Store } from "./store.js";
 
 // The part of the descriptor's field-type table this reads. A TYPE hammer ships
 // is machinery; the table of types an application declared is not
-// (`ENGINEERING_RULES.md` §1).
+// (`CLAUDE.md` §1).
+// What a field IS to the platform, for the handful of fields whose purpose the
+// browser, a password manager and an on-screen keyboard all need to know: a
+// password drawn as plain text is on the screen of everybody standing behind
+// the person typing it, and a sign-in form a password manager cannot recognise
+// is one people fill by pasting from somewhere worse.
+//
+// Machinery, not words: each maps to the platform's own input type and its
+// standard `autocomplete` token (dom/form.ts), which are HTML's vocabulary and
+// no application's.
+export type InputPurpose =
+    | "current-password"
+    | "new-password"
+    | "email"
+    | "username"
+    | "tel"
+    | "one-time-code"
+    | "given-name"
+    | "family-name";
+
 export type FieldTypeSpec = {
     // `null` for a PII type, and not `"text"`. A PII field produces no answer a
     // client ever reads back, and a renderer handed `"text"` draws a control for
@@ -66,7 +85,7 @@ export type FieldTypeSpec = {
 };
 
 // What a field answers with. One union rather than five fields, because three
-// booleans are eight states of which five are meaningless (`ENGINEERING_RULES.md` §3.1).
+// booleans are eight states of which five are meaningless (`CLAUDE.md` §3.1).
 export type FieldValue = string | number | readonly string[] | null;
 
 export type FieldDefinition = {
@@ -79,7 +98,35 @@ export type FieldDefinition = {
 
     // The closed set this field admits, for a type whose flags say it has
     // options. Empty for every other type.
+    //
+    // These are STORED VALUES, not words. anvil constrains an option value to
+    // `[A-Za-z0-9_-]` so that it is safe in a CSV cell, a JSON string, a URL
+    // and a BSON value at once, which also makes it unable to hold a word in
+    // any language that is not written in ASCII.
     readonly choices?: readonly string[];
+
+    // What a person READS for each of those values, keyed by the value.
+    //
+    // Separate from `choices` rather than replacing it, because the two are
+    // different things with different rules: the value is what is stored,
+    // exported and validated against, and the label is what is on screen. A
+    // renderer needs both and a validator needs only the first.
+    //
+    // OPTIONAL, and a value with no entry is drawn as itself. That is the
+    // honest fallback rather than a blank option — a section field's `choices`
+    // arrive from the descriptor as bare values and have no labels to offer,
+    // so the common case for this library is that there are none and the
+    // stored value is all there is to show.
+    //
+    // It is not a locale map. Which locale is being read is the application's
+    // question and it has already answered it by the time it builds these
+    // definitions; a map here would be a second copy of the locale table
+    // (`CLAUDE.md` §1).
+    readonly choiceLabels?: Readonly<Record<string, string>>;
+
+    // What the field is to the platform, when it is one of the fields that
+    // matter to it. Absent, a text field is drawn as plain text, as before.
+    readonly purpose?: InputPurpose;
 };
 
 // The reasons this module can produce, named by the application from the
@@ -175,7 +222,7 @@ export class Form<Reason extends string> {
 
     // A keystroke. The value is normalised on the way IN rather than on the way
     // out, so what is counted, what is compared and what is sent are one string
-    // (`ENGINEERING_RULES.md` §8) — a form that checked the composed form and sent the
+    // (`CLAUDE.md` §8) — a form that checked the composed form and sent the
     // decomposed one is two different keys to the server's index.
     set(key: string, value: FieldValue): void {
         const definition = this.definitions.get(key);
@@ -310,7 +357,7 @@ export class Form<Reason extends string> {
             const text = toNfc(value);
             // An Arabic-Indic digit in a numeric field is a validation failure
             // at the server and a silent one in the browser, so it is folded to
-            // ASCII before anything counts or sends it (`ENGINEERING_RULES.md` §8).
+            // ASCII before anything counts or sends it (`CLAUDE.md` §8).
             return definition.type.answer === "number" ? foldDigits(text) : text;
         }
         return value;

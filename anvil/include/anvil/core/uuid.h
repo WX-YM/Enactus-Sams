@@ -12,7 +12,7 @@
 //
 // Both draw from OpenSSL's CSPRNG. std::rand, std::mt19937 and time-seeded
 // generators are banned for anything security-relevant, and UUIDv1 is banned
-// outright: it encodes MAC address and timestamp (ENGINEERING_RULES.md §5).
+// outright: it encodes MAC address and timestamp (CLAUDE.md §5).
 
 #include <array>
 #include <cstdint>

@@ -8,7 +8,7 @@
 // The fuzz loops use a fixed seed. A random seed turns a reproducible failure
 // into a story about what CI saw once — the seed is the difference between a
 // bug report and a rumour. The generator is std::mt19937 deliberately: it is
-// banned for anything security-relevant (ENGINEERING_RULES.md §5) and is exactly right for
+// banned for anything security-relevant (CLAUDE.md §5) and is exactly right for
 // reproducible test input, which is not security-relevant at all.
 
 #include <gtest/gtest.h>

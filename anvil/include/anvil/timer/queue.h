@@ -134,7 +134,7 @@ inline constexpr std::uint8_t kJobEnvelopeVersionLinked = 2;
 // therefore drain in batches rather than materialising at once (docs/10-timer-jobs.md §6).
 inline constexpr std::uint64_t kStreamHighWater = 20000;
 
-// Ordered largest-alignment-first, no interior padding (ENGINEERING_RULES.md §2.3).
+// Ordered largest-alignment-first, no interior padding (CLAUDE.md §2.3).
 struct JobHeader final {
     Uuid          id;           // 16
     db::TimeMs    not_before;   //  8

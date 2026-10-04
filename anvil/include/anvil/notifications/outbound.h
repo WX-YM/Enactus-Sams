@@ -140,6 +140,16 @@ struct OutboundSummary final {
     std::int32_t skipped;
 };
 
+// What one attempt's verdict costs its endpoint (the table at the top of this
+// header), counted into `summary`. Public because a chat nudge (chat/push.h)
+// delivers to the same endpoints through the same transport and must cost them
+// exactly what a notification would: an endpoint that answered 410 to a chat
+// push is as gone as one that answered it to anything else.
+[[nodiscard]] Status record_verdict(const NotificationRepository& repository,
+                                    mongocxx::client& client, const Uuid& endpoint,
+                                    DeliveryVerdict verdict, db::TimeMs now,
+                                    OutboundSummary& summary);
+
 // How many endpoints one send will attempt before giving up on the rest.
 //
 // A ceiling and not a page size: the audience is paged at kSubscriberPage
@@ -181,12 +191,6 @@ private:
                                        OutboundSummary& summary) const;
 
     [[nodiscard]] const Transport* transport_for(ClientType type) const noexcept;
-
-    // What the verdict costs the endpoint. Separated because it is the half that
-    // has to be right when the transport half is a stub in a test.
-    [[nodiscard]] Status record(mongocxx::client& client, const ClientTarget& target,
-                                DeliveryVerdict verdict, db::TimeMs now,
-                                OutboundSummary& summary) const;
 
     const NotificationRepository& repository_;
     std::span<const TemplateSpec> templates_;

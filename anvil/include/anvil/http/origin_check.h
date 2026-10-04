@@ -112,7 +112,7 @@ enum class OriginRequirement : std::uint8_t {
 // able to answer the question without one, which means the process has to hold
 // the list somewhere.
 //
-// Fixed capacity in automatic storage (ENGINEERING_RULES.md §2.1) and the same shape as
+// Fixed capacity in automatic storage (CLAUDE.md §2.1) and the same shape as
 // `TrustedProxies`, for the same reason: it is a handful of entries, it is read
 // on a request path, and a heap indirection per entry would be a cache miss to
 // save nothing. A deployment that needs more than this many origins has an

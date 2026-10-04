@@ -4,8 +4,14 @@
 #include <unistd.h>
 
 #include <array>
+#include <exception>
 #include <string_view>
 #include <utility>
+
+#include <mongocxx/exception/exception.hpp>
+
+#include "anvil/crypto/digest.h"
+#include "anvil/images/edit.h"
 
 namespace anvil::media {
 namespace {
@@ -39,6 +45,11 @@ void unlink_one(const fs::Storage& storage, fs::Ns ns, const Uuid& id,
     (void)::unlinkat(shard.value().get(), name.c_str(), 0);
 }
 
+struct AbortTransaction final : std::exception {
+    explicit AbortTransaction(Failure f) noexcept : failure{f} {}
+    Failure failure;
+};
+
 }  // namespace
 
 // Deliberately NOT images::unlink_variants, even though that function does the
@@ -58,12 +69,46 @@ void unlink_all_files(const fs::Storage& storage, fs::Ns ns, const Uuid& id,
     unlink_one(storage, ns, id, fs::kMasterVariant);
 }
 
+namespace {
+
+// Publish the bytes that arrived as the master, and describe nothing about
+// them. The class check is each caller's, so that neither entry point accepts
+// the other's input.
+[[nodiscard]] Result<ProcessedMedia> publish_as_sent(fs::UploadSink& sink,
+                                                     const fs::UploadResult& upload) {
+    const Status published = sink.publish();
+    if (!published) { return published.error(); }
+    return ProcessedMedia{
+        .variants = {},
+        .master_bytes = upload.bytes,
+        .id = upload.id,
+        .width = 0,
+        .height = 0,
+        .mime = upload.mime,
+    };
+}
+
+}  // namespace
+
+Result<ProcessedMedia> store_file(fs::UploadSink& sink, const fs::UploadResult& upload) {
+    if (fs::mime_class(upload.mime) != fs::MimeClass::File) { return fail(ErrorCode::Internal); }
+    return publish_as_sent(sink, upload);
+}
+
+Result<ProcessedMedia> store_sealed(fs::UploadSink& sink, const fs::UploadResult& upload) {
+    if (fs::mime_class(upload.mime) != fs::MimeClass::Sealed) {
+        return fail(ErrorCode::Internal);
+    }
+    return publish_as_sent(sink, upload);
+}
+
 MediaService::MediaService(std::string database, std::string_view collection)
     : database_{std::move(database)}, media_{database_, collection} {}
 
 Result<std::optional<MediaRecord>> MediaService::find_duplicate(
-    mongocxx::client& client, fs::Ns ns, const crypto::Digest256& sha256) const {
-    return media_.find_by_hash(client, ns, sha256);
+    mongocxx::client& client, fs::Ns ns, const Uuid& owner,
+    const crypto::Digest256& sha256) const {
+    return media_.find_by_hash(client, ns, owner, sha256);
 }
 
 Status MediaService::record(mongocxx::client& client, fs::Ns ns, const Uuid& owner,
@@ -108,6 +153,110 @@ Status MediaService::release(mongocxx::client& client, mongocxx::client_session&
 Result<std::optional<MediaRecord>> MediaService::find(mongocxx::client& client, fs::Ns ns,
                                                       const Uuid& id) const {
     return media_.find(client, ns, id);
+}
+
+Result<std::variant<EditedMedia, PreparedEdit>> MediaService::prepare_edit(
+    mongocxx::client& client, fs::Ns ns, const Uuid& source,
+    std::span<const std::uint8_t> recipe, bool detach) const {
+    // Decoded before any lookup: a malformed recipe costs a parse, never a
+    // round trip.
+    Result<images::Recipe> decoded = images::decode_recipe(recipe, images::kEditLimits);
+    if (!decoded) { return decoded.error(); }
+
+    const Result<std::optional<MediaRecord>> found = media_.find(client, ns, source);
+    if (!found) { return found.error(); }
+    if (!found.value().has_value()) { return fail(ErrorCode::NotFound); }
+    const MediaRecord& row = *found.value();
+    if (row.source.has_value()) {
+        return fail(ErrorCode::ValidationFailed, images::kFaultNotSource);
+    }
+    // A stored file or a sealed blob has no pixels this process wrote and no
+    // size to plan against. Refused here rather than left to the planner, whose answer for a
+    // zero-sized frame would name a crop fault for a document nobody cropped.
+    if (fs::mime_class(row.mime) != fs::MimeClass::Image) {
+        return fail(ErrorCode::UnsupportedMedia);
+    }
+
+    const Result<images::EditPlan> plan = images::plan_edit(
+        decoded.value(), images::ImageInfo{row.width, row.height, 1}, images::kEditLimits);
+    if (!plan) { return plan.error(); }
+
+    const crypto::Digest256 edit_sha = crypto::sha256(recipe);
+    if (!detach) {
+        const Result<std::optional<MediaRecord>> existing =
+            media_.find_edit(client, ns, source, edit_sha);
+        if (!existing) { return existing.error(); }
+        if (existing.value().has_value()) {
+            const MediaRecord& edit = *existing.value();
+            return std::variant<EditedMedia, PreparedEdit>{
+                EditedMedia{edit.id, edit.width, edit.height, false}};
+        }
+    }
+
+    return std::variant<EditedMedia, PreparedEdit>{PreparedEdit{
+        .recipe = std::move(decoded).value(),
+        .canonical = std::vector<std::uint8_t>(recipe.begin(), recipe.end()),
+        .edit_sha = edit_sha,
+        .plan = plan.value(),
+        .source = source,
+        .mime = row.mime,
+        .detach = detach,
+    }};
+}
+
+Result<EditedMedia> MediaService::record_edit(mongocxx::client& client, fs::Ns ns,
+                                              const Uuid& owner, const PreparedEdit& edit,
+                                              const ProcessedMedia& rendered,
+                                              const crypto::Digest256& sha256) const {
+    NewMedia row{
+        .variants = rendered.variants,
+        .sha256 = sha256,
+        .bytes = rendered.master_bytes,
+        .id = rendered.id,
+        .owner = owner,
+        .uploader_ip = std::nullopt,
+        .width = rendered.width,
+        .height = rendered.height,
+        .ns = ns,
+        .mime = rendered.mime,
+    };
+    if (!edit.detach) {
+        row.edit = edit.canonical;
+        row.source = edit.source;
+        row.edit_sha = edit.edit_sha;
+    }
+
+    Status inserted = ok();
+    try {
+        auto session = client.start_session();
+        repo::in_transaction(session, [&](mongocxx::client_session* txn) {
+            const Status written = media_.insert_edit(client, *txn, row);
+            if (!written) { throw AbortTransaction{written.error()}; }
+        });
+    } catch (const AbortTransaction& aborted) {
+        inserted = aborted.failure;
+    } catch (const mongocxx::exception&) {
+        inserted = fail(ErrorCode::ServiceUnavailable);
+    }
+
+    if (inserted) { return EditedMedia{rendered.id, rendered.width, rendered.height, true}; }
+
+    // Whatever happened, no row points at these files: they are this attempt's,
+    // under the id it minted, and nothing else can reference them.
+    unlink_all_files(fs::Storage::instance(), ns, rendered.id, rendered.variants);
+
+    if (inserted.error().code == ErrorCode::Conflict && !edit.detach) {
+        // An identical edit of the same source committed between this attempt's
+        // lookup and its insert. That one is the answer.
+        const Result<std::optional<MediaRecord>> winner =
+            media_.find_edit(client, ns, edit.source, edit.edit_sha);
+        if (!winner) { return winner.error(); }
+        if (winner.value().has_value()) {
+            const MediaRecord& found = *winner.value();
+            return EditedMedia{found.id, found.width, found.height, false};
+        }
+    }
+    return inserted.error();
 }
 
 Result<std::vector<MediaRecord>> MediaService::library(mongocxx::client& client, fs::Ns ns,

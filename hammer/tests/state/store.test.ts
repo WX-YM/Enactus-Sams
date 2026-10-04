@@ -5,7 +5,7 @@
 // unsubscribes another from inside its own callback, and one subscriber throwing
 // where the other four still have to run.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, fn } from "../support/test.js";
 
 import { Store } from "../../src/state/store.js";
 
@@ -27,7 +27,7 @@ describe("Store", () => {
 
     it("does not notify when the value did not change", () => {
         const store = new Store("a");
-        const listener = vi.fn();
+        const listener = fn();
         store.subscribe(listener);
 
         store.set("a");
@@ -39,7 +39,7 @@ describe("Store", () => {
 
     it("compares with Object.is, so NaN is not a change", () => {
         const store = new Store(Number.NaN);
-        const listener = vi.fn();
+        const listener = fn();
         store.subscribe(listener);
 
         store.set(Number.NaN);
@@ -49,7 +49,7 @@ describe("Store", () => {
 
     it("unsubscribes exactly once, so a second call does not drop a live listener", () => {
         const store = new Store(0);
-        const listener = vi.fn();
+        const listener = fn();
 
         const off = store.subscribe(listener);
         off();
@@ -65,7 +65,7 @@ describe("Store", () => {
 
     it("does not call a listener another listener removed during the same notify", () => {
         const store = new Store(0);
-        const second = vi.fn();
+        const second = fn();
         let off = (): void => {};
 
         store.subscribe(() => {
@@ -80,7 +80,7 @@ describe("Store", () => {
 
     it("does not call a listener subscribed during the same notify", () => {
         const store = new Store(0);
-        const late = vi.fn();
+        const late = fn();
 
         store.subscribe(() => {
             store.subscribe(late);
@@ -99,7 +99,7 @@ describe("Store", () => {
 
     it("keeps notifying after a subscriber throws, and surfaces the throw", async () => {
         const store = new Store(0);
-        const after = vi.fn();
+        const after = fn();
 
         store.subscribe(() => {
             throw new Error("thrown by a subscriber");
@@ -139,7 +139,7 @@ describe("Store", () => {
 
     it("close drops every listener", () => {
         const store = new Store(0);
-        const listener = vi.fn();
+        const listener = fn();
         store.subscribe(listener);
 
         store.close();

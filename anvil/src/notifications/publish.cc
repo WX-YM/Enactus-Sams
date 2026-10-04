@@ -125,7 +125,7 @@ void append_uuid_bytes(std::string& out, const Uuid& id) {
         } else {
             // COPIED, not viewed. The row outlives this call and crosses a pool
             // boundary before it is rendered; a view into the caller's buffer is
-            // the dangling string_view ENGINEERING_RULES.md §2.2 names as the most likely
+            // the dangling string_view CLAUDE.md §2.2 names as the most likely
             // crash in code built on this library.
             stored.text.assign(param.text);
         }

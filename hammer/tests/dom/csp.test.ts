@@ -1,20 +1,22 @@
-// @vitest-environment happy-dom
 //
 // Every component under a policy with no `unsafe-inline` and no `unsafe-eval`.
 //
-// happy-dom enforces neither, so the absence is asserted the way
-// `tests/state/persistence.test.ts` asserts that nothing is persisted: by
-// installing tripwires on every route a component would have to take to break
-// the policy, driving the whole layer through them, and — the part that makes it
-// worth anything — driving the tripwire itself at the end. A check that cannot
-// fail reports clean for the wrong reason.
+// This page runs under the real policy now (`tests/dom/in_browser.test.ts`
+// serves it under the same CSP `tests/browser/harness.ts` does), which is a
+// second, independent proof of the same absence Chromium itself enforces. The
+// tripwires below are still worth keeping rather than deleting now that a real
+// browser is watching too: they name the EXACT call a component would have to
+// make to break the policy, driving the whole layer through them, and — the
+// part that makes it worth anything — driving the tripwire itself at the end.
+// A check that cannot fail reports clean for the wrong reason, the same lesson
+// `tests/state/persistence.test.ts` applies to asserting nothing is persisted.
 //
 // The policy this stands in for is the application's (`docs/00-architecture.md`
 // §8). What it costs to get wrong is not an error: a component that sets an
 // inline style passes every other suite in this repository and is silently blank
 // in production.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "../support/test.js";
 
 import { mountEach } from "./registry.js";
 
@@ -100,10 +102,13 @@ beforeEach(() => {
 
     // A `<style>` or a `<script>` element built at run time is the same
     // violation by a different route.
-    // On the document itself, not on `Document.prototype`: happy-dom defines
-    // `createElement` as an own property of the instance, so a trap on the
-    // prototype is shadowed and never fires — which the last case in this file
-    // is what caught.
+    // On the document itself, not on `Document.prototype`: happy-dom used to
+    // define `createElement` as an own property of the instance, which
+    // shadowed a trap on the prototype and never fired it — caught by the
+    // last case in this file, back when that fake DOM was what this suite
+    // ran on. A real browser defines it on the prototype and either shape
+    // works with an instance-level trap, so this stays where it is rather
+    // than moving now that the reason for it is history.
     trapMethod(document, "createElement", (args) => {
         const tag = String(args[0]).toLowerCase();
         if (tag === "style" || tag === "script") {
@@ -167,12 +172,36 @@ describe("every component, under a policy that forbids inline", () => {
     it("catches each violation, so the absence above is an absence", () => {
         const probe = document.createElement("div");
 
-        probe.setAttribute("style", "color:red");
-        probe.setAttribute("onclick", "x()");
-        probe.setAttribute("href", "javascript:x()"); // ban-exempt: driving the tripwire
-        probe.innerHTML = "<b>x</b>";
-        document.createElement("style");
-        document.createElement("script");
+        // Each attempt is wrapped rather than called bare: a real browser
+        // enforcing Trusted Types does not just report `onclick` and
+        // `innerHTML` as violations, it REFUSES them outright — a TypeError
+        // at the sink, same as `tests/browser/trusted_types.test.ts`'s own
+        // probe. happy-dom enforced neither, so this used to run all six
+        // straight through. The trap above records an attempt before the
+        // real call runs, which is what this test is checking; whether
+        // Chromium then also refuses the write is its own enforcement, not
+        // this test's concern, so the refusal is swallowed rather than
+        // asserted on here.
+        const attempt = (write: () => void): void => {
+            try {
+                write();
+            } catch {
+                // deliberately swallowed — see above.
+            }
+        };
+
+        attempt(() => probe.setAttribute("style", "color:red"));
+        attempt(() => probe.setAttribute("onclick", "x()"));
+        attempt(() => probe.setAttribute("href", "javascript:x()")); // ban-exempt: driving the tripwire
+        attempt(() => {
+            probe.innerHTML = "<b>x</b>";
+        });
+        attempt(() => {
+            document.createElement("style");
+        });
+        attempt(() => {
+            document.createElement("script");
+        });
 
         expect(touched).toEqual([
             "setAttribute(style)=color:red",

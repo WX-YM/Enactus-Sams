@@ -5,7 +5,7 @@
 // `tests/state/persistence.test.ts`, because asserting an absence needs the
 // storage APIs to exist and fail rather than to be missing from the environment.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { Lru, ResourceCache, cacheKey } from "../../src/state/cache.js";
 

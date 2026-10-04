@@ -2,7 +2,7 @@
 // is shaped on the way out. A value that crosses in the wrong direction is a
 // validation failure at the server with nothing in the browser to explain it.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import {
     DigitShaper,

@@ -74,7 +74,7 @@ is not something a step is able to say.
 
 The claim is one `find_one_and_update` on the ledger: match the step's `_id` with no live
 lease, set an owner and an expiry, return the document. One atomic operation, never
-check-then-act (ENGINEERING_RULES.md §6). A runner that does not win reports *held* and exits non-zero
+check-then-act (CLAUDE.md §6). A runner that does not win reports *held* and exits non-zero
 rather than waiting — a second operator watching a migration "hang" is how two of them end up
 force-killing the one that was working.
 
@@ -121,7 +121,7 @@ host that lost its disk for ninety seconds. Four mitigations, and the last is an
 ## 5. Idempotence is the correctness argument
 
 Every step must produce the same result applied once, twice, or resumed from the middle. It is
-the same contract the job handlers carry (ENGINEERING_RULES.md §6), and it is written as loudly here
+the same contract the job handlers carry (CLAUDE.md §6), and it is written as loudly here
 because the failure is quieter: a job that runs twice usually shows up, and a migration that
 runs twice over a batch boundary usually does not.
 
@@ -141,7 +141,7 @@ Recording at the top rather than at the bottom is what makes §4's fencing work:
 records progress is also the write that renews the lease and detects a changed owner, so a
 fenced runner learns it before it reads or writes anything else. Never `skip(n)` — it is O(n)
 server-side, so the last batch of a large collection costs the most at the point the run is
-most likely to be interrupted (ENGINEERING_RULES.md §7).
+most likely to be interrupted (CLAUDE.md §7).
 
 Resumption re-applies the batch that was in flight. That is not a rough edge to be tightened
 later; it is the design, and it is what §5 pays for.

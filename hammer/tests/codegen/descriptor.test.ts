@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { DescriptorProblem } from "../../src/codegen/descriptor.js";
 import { readDescriptor, readDescriptorJson } from "../../src/codegen/descriptor.js";
@@ -46,6 +46,14 @@ function namespace(descriptor: Mutable, at: number): Mutable {
     return found;
 }
 
+function accountsTable(descriptor: Mutable): Mutable {
+    const accounts = tables(descriptor)["accounts"];
+    if (accounts === null || accounts === undefined) {
+        throw new Error("the reference descriptor has no accounts table");
+    }
+    return accounts as Mutable;
+}
+
 function route(descriptor: Mutable, id: string): Mutable {
     const found = list(descriptor, "routes").find((candidate) => candidate["id"] === id);
     if (found === undefined) {
@@ -80,7 +88,7 @@ describe("the reference descriptor", () => {
         const reading = readDescriptorJson(kText);
         expect(reading.ok).toBe(true);
         if (!reading.ok) return;
-        expect(reading.value.descriptor.tables.routes).toHaveLength(14);
+        expect(reading.value.descriptor.tables.routes).toHaveLength(23);
         expect(reading.value.descriptor.tables.permissions).toHaveLength(11);
     });
 
@@ -527,6 +535,87 @@ describe("the content tables", () => {
         });
     });
 
+    it("reads a dimension with no kind at all as an enum", () => {
+        // anvil's format did not move: a descriptor from before the
+        // distinction existed is not a malformed one, and every dimension it
+        // ever emitted was a closed set.
+        const descriptor = clone();
+        const dimensions = entry(descriptor, "events", 0)["dimensions"] as Mutable[];
+        const dimension = dimensions[0];
+        if (dimension === undefined) {
+            throw new Error("the reference descriptor has no dimensions");
+        }
+        delete dimension["kind"];
+
+        const reading = readDescriptor(descriptor);
+        expect(reading.ok).toBe(true);
+        if (!reading.ok) return;
+        expect(reading.value.descriptor.tables.events[0]?.dimensions[0]).toMatchObject({
+            kind: "enum",
+        });
+    });
+
+    it("refuses an entity dimension that carries values", () => {
+        // The server stores no index for a foreign id, so a value here is a
+        // column nothing reads rather than a row the ingest path drops.
+        const descriptor = clone();
+        const dimensions = entry(descriptor, "events", 3)["dimensions"] as Mutable[];
+        const dimension = dimensions[0];
+        if (dimension === undefined) {
+            throw new Error("the reference descriptor has no entity dimension");
+        }
+        expect(dimension["kind"]).toBe("entity");
+        dimension["values"] = ["some-project"];
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.events[3].dimensions[0].values",
+            issue: "not-empty",
+        });
+    });
+
+    it("refuses an enum dimension with no values", () => {
+        const descriptor = clone();
+        const dimensions = entry(descriptor, "events", 0)["dimensions"] as Mutable[];
+        const dimension = dimensions[0];
+        if (dimension === undefined) {
+            throw new Error("the reference descriptor has no dimensions");
+        }
+        dimension["values"] = [];
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.events[0].dimensions[0].values",
+            issue: "empty",
+        });
+    });
+
+    it("refuses a second entity dimension on one event", () => {
+        // The row an event ingests has one column for a foreign id; a second
+        // entity dimension is a column the ingest path has nowhere to put.
+        const descriptor = clone();
+        const dimensions = entry(descriptor, "events", 3)["dimensions"] as Mutable[];
+        const dimension = dimensions[0];
+        if (dimension === undefined) {
+            throw new Error("the reference descriptor has no entity dimension");
+        }
+        dimensions.push({ ...dimension, name: "organization" });
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.events[3].dimensions",
+            issue: "duplicate-entity-dimension",
+        });
+    });
+
+    it("refuses a dimension kind the format does not name", () => {
+        const descriptor = clone();
+        const dimensions = entry(descriptor, "events", 0)["dimensions"] as Mutable[];
+        const dimension = dimensions[0];
+        if (dimension === undefined) {
+            throw new Error("the reference descriptor has no dimensions");
+        }
+        dimension["kind"] = "computed";
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.events[0].dimensions[0].kind",
+            issue: "unknown-member",
+        });
+    });
+
     it("refuses a default media role a namespace does not serve", () => {
         // A request with no role segment resolves to it, so a namespace that
         // does not serve it turns forgetting the segment into a 404 the caller
@@ -596,6 +685,221 @@ describe("the content tables", () => {
         expect(problems(descriptor)).toContainEqual({
             key: "tables.media.namespaces[0].accepts[1]",
             issue: "duplicate-name",
+        });
+    });
+});
+
+// --- accounts (anvil's built-in registration, verification and sign-in) -----
+
+describe("accounts", () => {
+    it("reads the table the reference application declares", () => {
+        const reading = readDescriptorJson(kText);
+        expect(reading.ok).toBe(true);
+        if (!reading.ok) return;
+        const accounts = reading.value.descriptor.tables.accounts;
+        expect(accounts).not.toBeNull();
+        if (accounts === null) return;
+        expect(accounts.hashing).toBe("client");
+        expect(accounts.contact).toBe("email");
+        expect(accounts.routes.sign_in).toBe("auth.login");
+        expect(accounts.routes.salt).toBe("auth.prehash");
+    });
+
+    it("reads an absent key as null, the way a descriptor from before this table existed does", () => {
+        const descriptor = clone();
+        delete tables(descriptor)["accounts"];
+        const reading = readDescriptor(descriptor);
+        expect(reading.ok).toBe(true);
+        if (!reading.ok) return;
+        expect(reading.value.descriptor.tables.accounts).toBeNull();
+    });
+
+    it("reads an explicit null the same way, for an application that declares none", () => {
+        const descriptor = clone();
+        tables(descriptor)["accounts"] = null;
+        const reading = readDescriptor(descriptor);
+        expect(reading.ok).toBe(true);
+        if (!reading.ok) return;
+        expect(reading.value.descriptor.tables.accounts).toBeNull();
+    });
+
+    it("refuses a table with no identifier a person can sign in with", () => {
+        const descriptor = clone();
+        for (const identifier of accountsTable(descriptor)["identifiers"] as Mutable[]) {
+            identifier["sign_in"] = false;
+        }
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.identifiers",
+            issue: "no-sign-in-identifier",
+        });
+    });
+
+    it("refuses the same identifier kind declared twice", () => {
+        const descriptor = clone();
+        const identifiers = accountsTable(descriptor)["identifiers"] as Mutable[];
+        const second = identifiers[1];
+        if (second === undefined) {
+            throw new Error("the reference descriptor has no second identifier");
+        }
+        second["kind"] = "email";
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.identifiers[1].kind",
+            issue: "duplicate-name",
+        });
+    });
+
+    it("refuses a contact that does not name a declared, required identifier", () => {
+        const descriptor = clone();
+        accountsTable(descriptor)["contact"] = "phone";
+        // The reference descriptor's phone identifier is optional, so naming it
+        // as the contact channel is the failure being tested — a reset flow
+        // with no address it can rely on being there.
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.contact",
+            issue: "unknown-identifier",
+        });
+    });
+
+    it("refuses a profile key with a character the format does not allow", () => {
+        const descriptor = clone();
+        const profile = accountsTable(descriptor)["profile"] as Mutable[];
+        const field = profile[0];
+        if (field === undefined) {
+            throw new Error("the reference descriptor has no profile field");
+        }
+        field["key"] = "Given Name";
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.profile[0].key",
+            issue: "not-a-profile-key",
+        });
+    });
+
+    it("refuses a profile key that is one of hammer's own words", () => {
+        const descriptor = clone();
+        const profile = accountsTable(descriptor)["profile"] as Mutable[];
+        const field = profile[0];
+        if (field === undefined) {
+            throw new Error("the reference descriptor has no profile field");
+        }
+        field["key"] = "password";
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.profile[0].key",
+            issue: "reserved-word",
+        });
+    });
+
+    it("refuses two profile fields with one key", () => {
+        const descriptor = clone();
+        const profile = accountsTable(descriptor)["profile"] as Mutable[];
+        const second = profile[1];
+        const first = profile[0];
+        if (second === undefined || first === undefined) {
+            throw new Error("the reference descriptor has no second profile field");
+        }
+        second["key"] = first["key"];
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.profile[1].key",
+            issue: "duplicate-name",
+        });
+    });
+
+    it("refuses a profile bound with the minimum above the maximum", () => {
+        const descriptor = clone();
+        const profile = accountsTable(descriptor)["profile"] as Mutable[];
+        const field = profile[0];
+        if (field === undefined) {
+            throw new Error("the reference descriptor has no profile field");
+        }
+        field["min_code_points"] = 100;
+        field["max_code_points"] = 80;
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.profile[0].min_code_points",
+            issue: "out-of-range",
+        });
+    });
+
+    it("refuses a profile maximum that admits nothing", () => {
+        const descriptor = clone();
+        const profile = accountsTable(descriptor)["profile"] as Mutable[];
+        const field = profile[0];
+        if (field === undefined) {
+            throw new Error("the reference descriptor has no profile field");
+        }
+        field["max_code_points"] = 0;
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.profile[0].max_code_points",
+            issue: "not-positive",
+        });
+    });
+
+    it("refuses a secret bound with the minimum above the maximum", () => {
+        const descriptor = clone();
+        const secret = accountsTable(descriptor)["secret"] as Mutable;
+        secret["min_code_points"] = 200;
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.secret.min_code_points",
+            issue: "out-of-range",
+        });
+    });
+
+    it("refuses a secret bound that is not positive", () => {
+        const descriptor = clone();
+        const secret = accountsTable(descriptor)["secret"] as Mutable;
+        secret["max_bytes"] = 0;
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.secret.max_bytes",
+            issue: "not-positive",
+        });
+    });
+
+    it("refuses fewer than four code digits", () => {
+        const descriptor = clone();
+        accountsTable(descriptor)["code_digits"] = 3;
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.code_digits",
+            issue: "out-of-range",
+        });
+    });
+
+    it("refuses a route role naming a route the route table does not declare", () => {
+        const descriptor = clone();
+        const routes = accountsTable(descriptor)["routes"] as Mutable;
+        routes["verify"] = "auth.verify_email";
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.routes.verify",
+            issue: "unknown-route",
+        });
+    });
+
+    it("refuses a table with no sign-in route", () => {
+        const descriptor = clone();
+        const routes = accountsTable(descriptor)["routes"] as Mutable;
+        delete routes["sign_in"];
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.routes.sign_in",
+            issue: "missing-role",
+        });
+    });
+
+    it("refuses client hashing with no salt route", () => {
+        const descriptor = clone();
+        const routes = accountsTable(descriptor)["routes"] as Mutable;
+        delete routes["salt"];
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.routes.salt",
+            issue: "missing-role",
+        });
+    });
+
+    it("refuses server hashing with a salt route", () => {
+        const descriptor = clone();
+        accountsTable(descriptor)["hashing"] = "server";
+        // The salt route stays declared — the failure being tested is that
+        // server hashing has nothing to prehash against, so a salt route on
+        // this table would be a route nothing calls.
+        expect(problems(descriptor)).toContainEqual({
+            key: "tables.accounts.routes.salt",
+            issue: "not-empty",
         });
     });
 });
@@ -710,6 +1014,57 @@ describe("a declared response", () => {
         expect(problems(descriptor)).toContainEqual({
             key: routeKey(descriptor, "identity.me", "response.fields[0].name"),
             issue: "empty",
+        });
+    });
+});
+
+describe("the image edit bounds", () => {
+    function editLimits(descriptor: Mutable): Mutable {
+        return (tables(descriptor)["limits"] as Mutable)["edit"] as Mutable;
+    }
+
+    it("reads them, and reads a descriptor that predates them as having none", () => {
+        const reading = readDescriptor(clone());
+        expect(reading.ok).toBe(true);
+        if (!reading.ok) return;
+        expect(reading.value.descriptor.tables.limits.edit).toEqual({
+            max_strokes: 64,
+            max_points: 4096,
+            max_edge_px: 2560,
+            min_edge_px: 320,
+        });
+
+        // An older server's descriptor: no bounds, and no `kEditLimits` emitted,
+        // so an editor against it fails to type-check rather than guessing.
+        const older = clone();
+        delete (tables(older)["limits"] as Mutable)["edit"];
+        const read = readDescriptor(older);
+        expect(read.ok).toBe(true);
+        if (!read.ok) return;
+        expect(read.value.descriptor.tables.limits.edit).toBeNull();
+    });
+
+    it("refuses a bound the recipe's wire format cannot carry", () => {
+        // A stroke count is one byte in the recipe, and an edge is sixteen bits.
+        const strokes = clone();
+        editLimits(strokes)["max_strokes"] = 256;
+        expect(problems(strokes)).toContainEqual({
+            key: "tables.limits.edit.max_strokes",
+            issue: "out-of-range",
+        });
+
+        const inverted = clone();
+        editLimits(inverted)["min_edge_px"] = 4000;
+        expect(problems(inverted)).toContainEqual({
+            key: "tables.limits.edit.min_edge_px",
+            issue: "out-of-range",
+        });
+
+        const zero = clone();
+        editLimits(zero)["max_points"] = 0;
+        expect(problems(zero)).toContainEqual({
+            key: "tables.limits.edit.max_points",
+            issue: "not-positive",
         });
     });
 });

@@ -23,6 +23,7 @@
 #include <mongocxx/pipeline.hpp>
 
 #include "anvil/analytics/counters.h"
+#include "anvil/images/recipe.h"
 
 namespace anvil::media {
 namespace {
@@ -47,17 +48,37 @@ constexpr std::string_view kUploaderIpRef = "$uip";
     return bsoncxx::types::b_int32{ns.stored()};
 }
 
-[[nodiscard]] mongocxx::options::find media_projection() {
-    mongocxx::options::find options{};
-    options.projection(make_document(
+// Every field a MediaRecord decodes, and nothing else. One document shared by
+// every read and both claims, so a field added to the record cannot be read by
+// one path and silently absent from another.
+[[nodiscard]] bsoncxx::document::value record_fields() {
+    return make_document(
         kvp(codec::key_of(f::kNamespace), 1), kvp(codec::key_of(f::kSha256), 1),
         kvp(codec::key_of(f::kOwner), 1), kvp(codec::key_of(f::kUploaderIp), 1),
         kvp(codec::key_of(f::kBytes), 1), kvp(codec::key_of(f::kWidth), 1),
         kvp(codec::key_of(f::kHeight), 1), kvp(codec::key_of(f::kMime), 1),
         kvp(codec::key_of(f::kRefs), 1), kvp(codec::key_of(f::kVariants), 1),
-        kvp(codec::key_of(f::kCreatedAt), 1)));
+        kvp(codec::key_of(f::kCreatedAt), 1), kvp(codec::key_of(f::kSource), 1),
+        kvp(codec::key_of(f::kEdit), 1));
+}
+
+[[nodiscard]] mongocxx::options::find media_projection() {
+    mongocxx::options::find options{};
+    options.projection(record_fields());
     return options;
 }
+
+// Thrown inside a transaction to abort it with a Failure, and caught by the
+// method that started the transaction.
+struct AbortTransaction final : std::exception {
+    explicit AbortTransaction(Failure f) noexcept : failure{f} {}
+    Failure failure;
+};
+
+// The largest recipe a row may hold: the codec's own worst case, so a stored
+// value past it is corruption rather than a recipe.
+constexpr std::size_t kMaxStoredRecipeBytes =
+    3 + 8 + 2 + images::kMaxEditStrokes * 9 + images::kMaxEditPoints * 4;
 
 [[nodiscard]] Result<std::vector<images::VariantRecord>> decode_variants(
     const bsoncxx::document::view& doc) {
@@ -161,53 +182,137 @@ constexpr std::string_view kUploaderIpRef = "$uip";
         if (!read) { return read.error(); }
         record.uploader_ip = ip;
     }
+
+    const Result<std::optional<Uuid>> source = codec::read_optional_uuid(doc, f::kSource);
+    if (!source) { return source.error(); }
+    record.source = source.value();
+    auto edit = doc.find(codec::key_of(f::kEdit));
+    if (edit != doc.end()) {
+        if (edit->type() != bsoncxx::type::k_binary) { return fail(ErrorCode::Internal, f::kEdit); }
+        const bsoncxx::types::b_binary recipe = edit->get_binary();
+        if (recipe.size == 0 || recipe.size > kMaxStoredRecipeBytes) {
+            return fail(ErrorCode::Internal, f::kEdit);
+        }
+        record.edit.assign(recipe.bytes, recipe.bytes + recipe.size);
+    }
     return record;
+}
+
+// The document a new row is, shared by the ordinary insert and an edit's.
+[[nodiscard]] bsoncxx::document::value media_document(const NewMedia& media) {
+    bsoncxx::builder::basic::document doc;
+    codec::append_uuid(doc, f::kId, media.id);
+    doc.append(kvp(codec::key_of(f::kNamespace), ns_value(media.ns)));
+    codec::append_digest(doc, f::kSha256, media.sha256);
+    codec::append_uuid(doc, f::kOwner, media.owner);
+    // OMITTED when absent. The {ns, ip} index is partial on this field
+    // existing, and a null on every account-backed upload would put one
+    // entry per row into an index that exists for the minority of rows that
+    // have an address at all.
+    if (media.uploader_ip.has_value()) {
+        doc.append(kvp(codec::key_of(f::kUploaderIp), codec::bytes_bin(*media.uploader_ip)));
+    }
+    codec::append_int64(doc, f::kBytes, static_cast<std::int64_t>(media.bytes));
+    doc.append(kvp(codec::key_of(f::kWidth),
+                   bsoncxx::types::b_int32{static_cast<std::int32_t>(media.width)}));
+    doc.append(kvp(codec::key_of(f::kHeight),
+                   bsoncxx::types::b_int32{static_cast<std::int32_t>(media.height)}));
+    codec::append_enum(doc, f::kMime, media.mime);
+    doc.append(kvp(codec::key_of(f::kRefs), bsoncxx::types::b_int32{0}));
+    doc.append(kvp(codec::key_of(f::kVariants), [&media](sub_array rows) {
+        for (const images::VariantRecord& variant : media.variants) {
+            rows.append([&variant](sub_document row) {
+                row.append(kvp(codec::key_of(f::kVariantWidth),
+                               bsoncxx::types::b_int32{variant.width}));
+                row.append(kvp(codec::key_of(f::kVariantHeight),
+                               bsoncxx::types::b_int32{variant.height}));
+                row.append(kvp(codec::key_of(f::kVariantFormat),
+                               bsoncxx::types::b_int32{
+                                   static_cast<std::int32_t>(variant.format)}));
+                row.append(kvp(codec::key_of(f::kVariantBytes),
+                               bsoncxx::types::b_int64{
+                                   static_cast<std::int64_t>(variant.bytes)}));
+            });
+        }
+    }));
+    codec::append_time(doc, f::kCreatedAt, db::now_ms());
+    // An edit's fields, OMITTED otherwise: the unique {ns, src, esha} index is
+    // partial on `src` existing, and every upload in the namespace would
+    // otherwise collide on a null pair.
+    if (media.source.has_value() && media.edit_sha.has_value() && !media.edit.empty()) {
+        codec::append_uuid(doc, f::kSource, *media.source);
+        doc.append(kvp(codec::key_of(f::kEdit),
+                       bsoncxx::types::b_binary{bsoncxx::binary_sub_type::k_binary,
+                                                static_cast<std::uint32_t>(media.edit.size()),
+                                                media.edit.data()}));
+        codec::append_digest(doc, f::kEditSha, *media.edit_sha);
+    }
+    return doc.extract();
+}
+
+[[nodiscard]] mongocxx::options::find_one_and_delete claim_options() {
+    mongocxx::options::find_one_and_delete options{};
+    // The row is needed to enumerate the files: variants are unlinked from
+    // this list, never from a readdir glob. And its source, which the claim
+    // releases.
+    options.projection(record_fields());
+    return options;
 }
 
 }  // namespace
 
 Status MediaRepository::insert(mongocxx::client& client, const NewMedia& media) const {
     return repo::guarded([&]() -> Status {
-        bsoncxx::builder::basic::document doc;
-        codec::append_uuid(doc, f::kId, media.id);
-        doc.append(kvp(codec::key_of(f::kNamespace), ns_value(media.ns)));
-        codec::append_digest(doc, f::kSha256, media.sha256);
-        codec::append_uuid(doc, f::kOwner, media.owner);
-        // OMITTED when absent. The {ns, ip} index is partial on this field
-        // existing, and a null on every account-backed upload would put one
-        // entry per row into an index that exists for the minority of rows that
-        // have an address at all.
-        if (media.uploader_ip.has_value()) {
-            doc.append(kvp(codec::key_of(f::kUploaderIp), codec::bytes_bin(*media.uploader_ip)));
-        }
-        codec::append_int64(doc, f::kBytes, static_cast<std::int64_t>(media.bytes));
-        doc.append(kvp(codec::key_of(f::kWidth),
-                       bsoncxx::types::b_int32{static_cast<std::int32_t>(media.width)}));
-        doc.append(kvp(codec::key_of(f::kHeight),
-                       bsoncxx::types::b_int32{static_cast<std::int32_t>(media.height)}));
-        codec::append_enum(doc, f::kMime, media.mime);
-        doc.append(kvp(codec::key_of(f::kRefs), bsoncxx::types::b_int32{0}));
-        doc.append(kvp(codec::key_of(f::kVariants), [&media](sub_array rows) {
-            for (const images::VariantRecord& variant : media.variants) {
-                rows.append([&variant](sub_document row) {
-                    row.append(kvp(codec::key_of(f::kVariantWidth),
-                                   bsoncxx::types::b_int32{variant.width}));
-                    row.append(kvp(codec::key_of(f::kVariantHeight),
-                                   bsoncxx::types::b_int32{variant.height}));
-                    row.append(kvp(codec::key_of(f::kVariantFormat),
-                                   bsoncxx::types::b_int32{
-                                       static_cast<std::int32_t>(variant.format)}));
-                    row.append(kvp(codec::key_of(f::kVariantBytes),
-                                   bsoncxx::types::b_int64{
-                                       static_cast<std::int64_t>(variant.bytes)}));
-                });
-            }
-        }));
-        codec::append_time(doc, f::kCreatedAt, db::now_ms());
-
         mongocxx::collection media_collection = bind(client);
-        media_collection.insert_one(doc.view());
+        media_collection.insert_one(media_document(media).view());
         return ok();
+    });
+}
+
+Status MediaRepository::insert_edit(mongocxx::client& client, mongocxx::client_session& session,
+                                    const NewMedia& media) const {
+    return repo::guarded_in_transaction([&]() -> Status {
+        mongocxx::collection media_collection = bind(client);
+        media_collection.insert_one(session, media_document(media).view());
+        if (!media.source.has_value()) { return ok(); }
+        // The reference the edit holds on its source, in the SAME transaction
+        // as the row that holds it (docs/07-filesystem.md §7).
+        const auto result = media_collection.update_one(
+            session,
+            make_document(kvp(codec::key_of(f::kId), codec::uuid_bin(*media.source)),
+                          kvp(codec::key_of(f::kNamespace), ns_value(media.ns)))
+                .view(),
+            make_document(kvp("$inc", make_document(kvp(codec::key_of(f::kRefs),
+                                                        bsoncxx::types::b_int32{1}))))
+                .view());
+        // The source vanished between the lookup and this write: the edit
+        // would hold a reference on nothing, which is the one state this
+        // transaction exists to rule out.
+        if (!result.has_value() || result->matched_count() == 0) {
+            return fail(ErrorCode::NotFound, f::kSource);
+        }
+        return ok();
+    });
+}
+
+Result<std::optional<MediaRecord>> MediaRepository::find_edit(
+    mongocxx::client& client, fs::Ns ns, const Uuid& source,
+    const crypto::Digest256& edit_sha) const {
+    return repo::guarded([&]() -> Result<std::optional<MediaRecord>> {
+        mongocxx::collection media_collection = bind(client);
+        // The field order is the index's, {ns, src, esha}, and the `src`
+        // equality is what lets the planner prove this is inside the partial
+        // index's `src` exists filter.
+        const auto found = media_collection.find_one(
+            make_document(kvp(codec::key_of(f::kNamespace), ns_value(ns)),
+                          kvp(codec::key_of(f::kSource), codec::uuid_bin(source)),
+                          kvp(codec::key_of(f::kEditSha), codec::digest_bin(edit_sha)))
+                .view(),
+            media_projection());
+        if (!found) { return std::optional<MediaRecord>{}; }
+        Result<MediaRecord> record = decode(found->view());
+        if (!record) { return record.error(); }
+        return std::optional<MediaRecord>{std::move(record).value()};
     });
 }
 
@@ -228,14 +333,25 @@ Result<std::optional<MediaRecord>> MediaRepository::find(mongocxx::client& clien
 }
 
 Result<std::optional<MediaRecord>> MediaRepository::find_by_hash(
-    mongocxx::client& client, fs::Ns ns, const crypto::Digest256& sha256) const {
+    mongocxx::client& client, fs::Ns ns, const Uuid& owner,
+    const crypto::Digest256& sha256) const {
+    // Nothing is ever reused, so there is nothing to ask. Answering without a
+    // round trip is also the only way the answer cannot depend on what exists.
+    if (ns.dedupe() == fs::Dedupe::None) { return std::optional<MediaRecord>{}; }
     return repo::guarded([&]() -> Result<std::optional<MediaRecord>> {
+        bsoncxx::builder::basic::document filter;
+        filter.append(kvp(codec::key_of(f::kNamespace), ns_value(ns)));
+        filter.append(kvp(codec::key_of(f::kSha256), codec::digest_bin(sha256)));
+        // The owner rides the {ns, sha} index as a residual predicate rather than
+        // as a third key: in an owner-scoped namespace the rows sharing a hash
+        // are one per owner who uploaded those bytes, so the fetch it costs is
+        // bounded by that, and widening a declared index is a migration every
+        // consuming application would have to run for no measurable gain.
+        if (ns.dedupe() == fs::Dedupe::Owner) { codec::append_uuid(filter, f::kOwner, owner); }
+        filter.append(kvp(codec::key_of(f::kSource),
+                          make_document(kvp("$exists", bsoncxx::types::b_bool{false}))));
         mongocxx::collection media_collection = bind(client);
-        const auto found = media_collection.find_one(
-            make_document(kvp(codec::key_of(f::kNamespace), ns_value(ns)),
-                          kvp(codec::key_of(f::kSha256), codec::digest_bin(sha256)))
-                .view(),
-            media_projection());
+        const auto found = media_collection.find_one(filter.view(), media_projection());
         if (!found) { return std::optional<MediaRecord>{}; }
         Result<MediaRecord> record = decode(found->view());
         if (!record) { return record.error(); }
@@ -266,78 +382,102 @@ Status MediaRepository::adjust_refs(mongocxx::client& client, mongocxx::client_s
     });
 }
 
+Result<std::optional<MediaRecord>> MediaRepository::claim_releasing_source(
+    mongocxx::client& client, const bsoncxx::document::view& filter, bool& corrupt) const {
+    corrupt = false;
+    Result<std::optional<MediaRecord>> outcome = std::optional<MediaRecord>{};
+    try {
+        auto session = client.start_session();
+        repo::in_transaction(session, [&](mongocxx::client_session* txn) {
+            outcome = repo::guarded_in_transaction([&]() -> Result<std::optional<MediaRecord>> {
+                mongocxx::collection media_collection = bind(client);
+                const auto removed =
+                    media_collection.find_one_and_delete(*txn, filter, claim_options());
+                if (!removed) { return std::optional<MediaRecord>{}; }
+                // A row that does not decode is still claimed, and the claim
+                // still commits: it is corruption rather than something a retry
+                // fixes, and aborting would hand the sweeper the same row on
+                // every pass forever. Its source cannot be read, so it is not
+                // released — the one leak a corrupt row is allowed to cost.
+                Result<MediaRecord> record = decode(removed->view());
+                if (!record) {
+                    corrupt = true;
+                    return record.error();
+                }
+                const std::optional<Uuid> source = record.value().source;
+                if (source.has_value()) {
+                    media_collection.update_one(
+                        *txn,
+                        make_document(kvp(codec::key_of(f::kId), codec::uuid_bin(*source)),
+                                      kvp(codec::key_of(f::kNamespace),
+                                          ns_value(record.value().ns)))
+                            .view(),
+                        make_document(kvp("$inc", make_document(kvp(
+                                                      codec::key_of(f::kRefs),
+                                                      bsoncxx::types::b_int32{-1}))))
+                            .view());
+                    // A source already gone matches nothing, and that is fine:
+                    // the reference being released has nothing left to hold.
+                }
+                return std::optional<MediaRecord>{std::move(record).value()};
+            });
+            // A driver failure — not a decode failure, which is handled above —
+            // must not commit a claim whose release did not happen.
+            if (!outcome && !corrupt) {
+                throw AbortTransaction{outcome.error()};
+            }
+        });
+    } catch (const AbortTransaction& aborted) {
+        return aborted.failure;
+    } catch (const mongocxx::exception&) {
+        return fail(ErrorCode::ServiceUnavailable);
+    }
+    return outcome;
+}
+
 Result<std::optional<MediaRecord>> MediaRepository::delete_if_unreferenced(
     mongocxx::client& client, fs::Ns ns, const Uuid& id) const {
-    return repo::guarded([&]() -> Result<std::optional<MediaRecord>> {
-        bsoncxx::builder::basic::document filter;
-        codec::append_uuid(filter, f::kId, id);
-        filter.append(kvp(codec::key_of(f::kNamespace), ns_value(ns)));
-        // The count is in the FILTER. A concurrent attach that lands first
-        // leaves this matching nothing, and the caller learns it must not
-        // unlink — which is the whole interlock, and it has no window because
-        // there is no separate check.
-        filter.append(kvp(codec::key_of(f::kRefs), bsoncxx::types::b_int32{0}));
-
-        mongocxx::options::find_one_and_delete options{};
-        // The row is needed to enumerate the files: variants are unlinked from
-        // this list, never from a readdir glob.
-        options.projection(make_document(
-            kvp(codec::key_of(f::kNamespace), 1), kvp(codec::key_of(f::kSha256), 1),
-            kvp(codec::key_of(f::kOwner), 1), kvp(codec::key_of(f::kUploaderIp), 1),
-            kvp(codec::key_of(f::kBytes), 1), kvp(codec::key_of(f::kWidth), 1),
-            kvp(codec::key_of(f::kHeight), 1), kvp(codec::key_of(f::kMime), 1),
-            kvp(codec::key_of(f::kRefs), 1), kvp(codec::key_of(f::kVariants), 1),
-            kvp(codec::key_of(f::kCreatedAt), 1)));
-
-        mongocxx::collection media_collection = bind(client);
-        const auto removed = media_collection.find_one_and_delete(filter.view(), options);
-        if (!removed) { return std::optional<MediaRecord>{}; }
-        Result<MediaRecord> record = decode(removed->view());
-        if (!record) { return record.error(); }
-        return std::optional<MediaRecord>{std::move(record).value()};
-    });
+    bsoncxx::builder::basic::document filter;
+    codec::append_uuid(filter, f::kId, id);
+    filter.append(kvp(codec::key_of(f::kNamespace), ns_value(ns)));
+    // The count is in the FILTER. A concurrent attach that lands first leaves
+    // this matching nothing, and the caller learns it must not unlink — which is
+    // the whole interlock, and it has no window because there is no separate
+    // check.
+    filter.append(kvp(codec::key_of(f::kRefs), bsoncxx::types::b_int32{0}));
+    bool corrupt = false;
+    return claim_releasing_source(client, filter.view(), corrupt);
 }
 
 Result<std::optional<MediaRecord>> MediaRepository::claim_unreferenced(
     mongocxx::client& client, db::TimeMs older_than) const {
-    return repo::guarded([&]() -> Result<std::optional<MediaRecord>> {
-        bsoncxx::builder::basic::document filter;
-        filter.append(kvp(codec::key_of(f::kRefs), bsoncxx::types::b_int32{0}));
-        // The grace period. A row created moments ago and not yet attached is an
-        // upload whose owning document is still being written, not an orphan.
-        filter.append(kvp(codec::key_of(f::kCreatedAt), [older_than](sub_document sub) {
-            sub.append(kvp("$lt", codec::time_date(older_than)));
-        }));
+    bsoncxx::builder::basic::document filter;
+    filter.append(kvp(codec::key_of(f::kRefs), bsoncxx::types::b_int32{0}));
+    // The grace period. A row created moments ago and not yet attached is an
+    // upload whose owning document is still being written, not an orphan.
+    filter.append(kvp(codec::key_of(f::kCreatedAt), [older_than](sub_document sub) {
+        sub.append(kvp("$lt", codec::time_date(older_than)));
+    }));
 
-        mongocxx::options::find_one_and_delete options{};
-        options.projection(make_document(
-            kvp(codec::key_of(f::kNamespace), 1), kvp(codec::key_of(f::kSha256), 1),
-            kvp(codec::key_of(f::kOwner), 1), kvp(codec::key_of(f::kUploaderIp), 1),
-            kvp(codec::key_of(f::kBytes), 1), kvp(codec::key_of(f::kWidth), 1),
-            kvp(codec::key_of(f::kHeight), 1), kvp(codec::key_of(f::kMime), 1),
-            kvp(codec::key_of(f::kRefs), 1), kvp(codec::key_of(f::kVariants), 1),
-            kvp(codec::key_of(f::kCreatedAt), 1)));
-
-        mongocxx::collection media_collection = bind(client);
-        const auto claimed = media_collection.find_one_and_delete(filter.view(), options);
-        if (!claimed) { return std::optional<MediaRecord>{}; }
-        Result<MediaRecord> record = decode(claimed->view());
-        if (!record) {
-            // The row is already gone and its files are not: counted as a
-            // failure because that is exactly the state the sweep exists to
-            // remove, and it is invisible from anywhere else.
-            analytics::count(analytics::Internal::OrphanFilesSwept,
-                             analytics::SweepOutcome::Failed);
-            return record.error();
-        }
+    bool corrupt = false;
+    Result<std::optional<MediaRecord>> claimed =
+        claim_releasing_source(client, filter.view(), corrupt);
+    if (!claimed && corrupt) {
+        // The row is already gone and its files are not: counted as a failure
+        // because that is exactly the state the sweep exists to remove, and it
+        // is invisible from anywhere else.
+        analytics::count(analytics::Internal::OrphanFilesSwept, analytics::SweepOutcome::Failed);
+        return claimed;
+    }
+    if (claimed && claimed.value().has_value()) {
         // ONE claim is one orphan swept. The unlink that follows is best effort
         // by design — whatever survives it is an orphan with no row, which is
         // what the next sweep collects — so the row deletion is the sweep's unit
         // of work and the only place it can be counted exactly once.
         analytics::count(analytics::Internal::OrphanFilesSwept,
                          analytics::SweepOutcome::Deleted);
-        return std::optional<MediaRecord>{std::move(record).value()};
-    });
+    }
+    return claimed;
 }
 
 Result<std::vector<MediaRecord>> MediaRepository::list_namespace(

@@ -45,10 +45,35 @@ EventSink::Outcome EventSink::offer(const Offer& offered) noexcept {
         return Outcome::RefusedConsent;
     }
 
+    // 2. ENTITY ADMISSION, at the same door. An unknown code (nullptr spec) and
+    //    an event whose spec declares no Entity dimension both carry no entity
+    //    onward — there is nothing to admit either way, which is the direction
+    //    an unrecognised code already fails in (event_requires_consent above).
+    Uuid entity = kNilUuid;
+    if (const EventSpec* spec = event_spec(events_, offered.code); spec != nullptr) {
+        if (const DimensionSpec* dimension = entity_dimension_of(*spec);
+            dimension != nullptr && !is_nil(offered.entity)) {
+            bool admitted = false;
+            if (config_.entity_admission) {
+                try {
+                    admitted =
+                        config_.entity_admission(dimension->name, offered.code, offered.entity);
+                } catch (...) {
+                    // offer() is itself noexcept: an exception escaping the
+                    // application's hook must not reach std::terminate. Fails
+                    // closed, the same direction an unset hook already fails.
+                    admitted = false;
+                }
+            }
+            if (!admitted) { return Outcome::RefusedEntity; }
+            entity = offered.entity;
+        }
+    }
+
     const db::TimeMs at = db::now_ms();
     const DayNumber day = day_of(at);
     const VisitorId session = visitor_id(offered.address, day);
-    // 2. A VISITOR. All-zero means no pepper is installed, and an unkeyed digest
+    // 3. A VISITOR. All-zero means no pepper is installed, and an unkeyed digest
     //    of a 32-bit address space is reversible from a database dump — so this
     //    records nothing rather than recording something that looks fine.
     if (is_anonymous_visitor(session)) { return Outcome::NoVisitor; }
@@ -59,7 +84,7 @@ EventSink::Outcome EventSink::offer(const Offer& offered) noexcept {
         const std::lock_guard<std::mutex> held{mutex_};
         if (stopped_) { return Outcome::Stopped; }
 
-        // 3. SAMPLING, and only above the high-water mark. Below it the sink is
+        // 4. SAMPLING, and only above the high-water mark. Below it the sink is
         //    keeping up and there is nothing to trade away.
         if (buffered_.size() >= config_.high_water_rows &&
             !session_is_sampled_in(session, config_.sample_denominator)) {
@@ -67,8 +92,8 @@ EventSink::Outcome EventSink::offer(const Offer& offered) noexcept {
             return Outcome::SampledOut;
         }
 
-        const Event event{offered.code, offered.dimensions, session, offered.subject};
-        // 4. The buffer's classify-and-shed policy.
+        const Event event{offered.code, offered.dimensions, session, offered.subject, entity};
+        // 5. The buffer's classify-and-shed policy.
         const EventBuffer::Admission admission = buffered_.offer(event, at);
         if (admission == EventBuffer::Admission::Refused) { return Outcome::Dropped; }
 

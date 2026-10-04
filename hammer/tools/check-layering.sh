@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The layer graph (ENGINEERING_RULES.md §1, docs/00-architecture.md §2), enforced per import.
+# The layer graph (CLAUDE.md §1, docs/00-architecture.md §2), enforced per import.
 #
 # anvil gets this for free: its three targets are link targets, so an accidental
 # dependency from a validator onto a repository is a LINK ERROR. TypeScript has
@@ -11,10 +11,18 @@
 #   core    imports NOTHING. No layer, no DOM, no fetch. It is the layer that
 #           stays testable with no environment at all, and it stops being that on
 #           the first import.
+#   crypto  core                 (its own entry point: only a login screen hashes)
 #   wire    core
 #   state   core, wire
 #   dom     core, state          (a component drives a store, never a socket)
 #   chart   core, state          (its own entry point: a dashboard is a minority)
+#   prehash core, crypto, state  (two entry points: the page's half and the worker's)
+#   accounts core, wire, state, prehash  (the account flows' client; only sign-in screens)
+#   edit    core, wire, dom      (the image editor; only screens that edit media)
+#   chat    core, wire, state    (conversations; no document, because a service
+#                                worker loads it to word an encrypted push)
+#   chat-e2ee core, crypto, wire, state, chat  (the vault and the protocol; the
+#                                same service worker loads it)
 #
 #           Both need a document and neither may reach the GLOBAL one — it
 #           arrives through the element they were asked to mount in. See the
@@ -70,10 +78,16 @@ layer_of() {
 allowed_for() {
     case "$1" in
         core)    printf '' ;;
+        crypto)  printf 'core' ;;
         wire)    printf 'core' ;;
         state)   printf 'core wire' ;;
         dom)     printf 'core state' ;;
         chart)   printf 'core state' ;;
+        prehash) printf 'core crypto state' ;;
+        accounts) printf 'core wire state prehash' ;;
+        edit)    printf 'core wire dom' ;;
+        chat)    printf 'core wire state' ;;
+        chat-e2ee) printf 'core crypto wire state chat' ;;
         react)   printf 'core wire state dom chart' ;;
         codegen) printf 'core' ;;
         *)       printf '__unknown__' ;;
@@ -138,7 +152,7 @@ done
 # `document[` — rather than as the bare word, and that is the same lesson from
 # the other direction. `document` is this repository's own word for the thing an
 # optimistic write confirms against and a versioned write carries the version of
-# (ENGINEERING_RULES.md §6), so `readonly document: T` is a field name in a layer that has
+# (CLAUDE.md §6), so `readonly document: T` is a field name in a layer that has
 # never seen a DOM. Matching the word made the check fire on the vocabulary
 # rather than on the defect.
 #
@@ -192,6 +206,9 @@ check_globals() {
 kGlobalValue='(^|[^.A-Za-z0-9_$])(document|window|navigator) *[.[]'
 
 check_globals core  "$kGlobalValue"'|\b(EventSource|BroadcastChannel)\b|\bfetch\('
+# The same as core's: an algorithm that reached a document or the network would
+# be one a worker could not run.
+check_globals crypto "$kGlobalValue"'|\b(EventSource|BroadcastChannel)\b|\bfetch\('
 check_globals wire  "$kGlobalValue"'|\bHTMLElement\b'
 check_globals state "$kGlobalValue"'|\bHTMLElement\b'
 
@@ -203,7 +220,7 @@ check_globals state "$kGlobalValue"'|\bHTMLElement\b'
 # element it was asked to mount in (`dom/mount.ts`), so a test supplies its own
 # instead of racing every other test in the file, and the same component renders
 # into a document that is not the tab's — an editor preview, a print view, a
-# frame — without a branch. That is `ENGINEERING_RULES.md` §3.3 applied to the one singleton
+# frame — without a branch. That is `CLAUDE.md` §3.3 applied to the one singleton
 # this layer cannot avoid needing.
 #
 # `mount.ownerDocument` does not match, and deliberately: the pattern is
@@ -211,6 +228,23 @@ check_globals state "$kGlobalValue"'|\bHTMLElement\b'
 # supposed to arrive.
 check_globals dom   "$kGlobalValue"
 check_globals chart "$kGlobalValue"
+# Half of it runs in a worker, where there is no document to reach, and the
+# salt call is the application's, so it never needs the network itself.
+check_globals accounts "$kGlobalValue"'|\bHTMLElement\b|\bfetch\('
+check_globals prehash "$kGlobalValue"'|\bHTMLElement\b|\bfetch\('
+# The editor builds elements and needs a document, taken from its mount point as
+# every component's is. It sends its recipe through the client the application
+# hands it, so it never needs the network itself.
+check_globals edit "$kGlobalValue"'|\bfetch\('
+# Chat has no document at all, because the push path runs it in a service
+# worker, where there is none (docs/05-chat.md §2). The locks and the channel it
+# coordinates tabs with are injected, as the leader's are, and every request
+# goes through the client the application hands it.
+check_globals chat "$kGlobalValue"'|\bHTMLElement\b|\b(EventSource|BroadcastChannel)\b|\bfetch\('
+# The same for the encrypted half, for the same reason, and its storage and
+# locks arrive as parameters: a vault that read `navigator.locks` itself is a
+# vault two tests in one process would share.
+check_globals chat-e2ee "$kGlobalValue"'|\bHTMLElement\b|\b(EventSource|BroadcastChannel)\b|\bfetch\('
 
 # The adapter is ABOVE the components and still may not reach a document: it
 # binds stores to a framework's lifetime and renders nothing at all. A hook that

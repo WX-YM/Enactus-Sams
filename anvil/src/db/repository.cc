@@ -82,7 +82,7 @@ Failure translate(const mongocxx::operation_exception& error) noexcept {
     // An Internal from here means a server error this layer does not model, and
     // the caller returns an opaque 500. Without this line that 500 is invisible:
     // the response carries no detail by design, so the log is the ONLY place the
-    // cause can exist (ENGINEERING_RULES.md §5). The code is logged, never the message —
+    // cause can exist (CLAUDE.md §5). The code is logged, never the message —
     // a driver message can quote the offending document.
     LOG_ERROR << "unmodelled MongoDB error, server code " << server_code_of(raw->view());
     return fail(ErrorCode::Internal);
@@ -99,7 +99,7 @@ Failure translate(const mongocxx::exception& error) noexcept {
     // The base type covers client-side failures — URI, authentication, server
     // selection — none of which reached a server, so they read as unavailable
     // rather than internal. error is unused beyond its type: its message is for
-    // the server-side log, never for the caller (ENGINEERING_RULES.md §5).
+    // the server-side log, never for the caller (CLAUDE.md §5).
     static_cast<void>(error);
     return fail(ErrorCode::ServiceUnavailable);
 }

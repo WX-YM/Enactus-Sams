@@ -3,7 +3,7 @@
 // The descriptor holds what the server knows: names, shapes and bounds
 // (`docs/01-seams.md` §13). Three things it cannot know are the application's,
 // and each of them is the shape of a table rather than a table — a type hammer
-// ships is machinery, a table hammer populates is a bug (`ENGINEERING_RULES.md` §1).
+// ships is machinery, a table hammer populates is a bug (`CLAUDE.md` §1).
 //
 //   COPY          words are an audience decision, and this library ships no
 //                 string in any language. An English default is a string that
@@ -42,7 +42,7 @@ export type Copy<Locale extends string, Code extends string, Reason extends stri
 // The parts of one component, named by the component and spelled by the
 // application. The part union belongs to whichever component declares it —
 // hammer ships structure, behaviour, ARIA and direction, and not one class name
-// (`ENGINEERING_RULES.md` §1, §9).
+// (`CLAUDE.md` §1, §9).
 export type ClassNames<Part extends string> = Readonly<Record<Part, string>>;
 
 // Which resources a mutation makes stale, by route id.

@@ -142,14 +142,17 @@ still cannot assemble `w640.avif` because it has never been told either half.
 descriptor gets new numbers against the same role names, and the paths it already
 holds keep working while it does.
 
-## 5. Cropping
+## 5. Cropping, and every other edit
 
-A crop is stored as **parameters on the binding**, normalised to [0, 1] — never
-baked into a new master.
+An edit is a canonical recipe rendered once into a **new object** under a new id, holding a
+reference on its source. That is [`21-image-edits.md`](21-image-edits.md).
 
-`apply_crop` re-derives the whole variant set from the master through the rect. So
-a crop is reversible, a re-crop does not compound, and the master is never the
-output of an earlier edit.
+This section used to say a crop was stored as parameters on the binding and re-derived the
+variants in place. Nothing ever stored the parameters, and the re-derivation wrote its result
+over the source's own variant files: a deduplicated upload shares those files with every
+document holding the same bytes, so cropping one cropped all of them. `apply_crop` is gone,
+and the property worth keeping, that no edit ever writes to a master, is now pinned against
+the edit path.
 
 ## 6. Serving
 
@@ -221,7 +224,7 @@ caller ever asked to be handed a multi-megabyte master where a 90 KB variant
 existed — and leaving it would have meant every application writing the same
 second question after every call, which is the duplication [§1 of
 `01-seams.md`](01-seams.md) exists to prevent. It does change the behaviour of a
-published function, so it is a **behaviour change under ENGINEERING_RULES.md §9.3** and
+published function, so it is a **behaviour change under CLAUDE.md §9.3** and
 carries a changelog line.
 
 Found by the first application built on this library, on a machine whose libvips

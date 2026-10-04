@@ -5,7 +5,7 @@
 // the decode knows and the unions the call site spells is the thing being
 // asserted: a hand-written set would agree with itself and with nothing else.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ErrorCode, ValidationReason } from "../testapp/api/hammer.generated.js";
 import {

@@ -19,36 +19,6 @@
 
 namespace {
 
-// Drops this process's two scratch databases when the binary is finished.
-//
-// `drop_scratch_databases` has existed since the fixture did, and its comment
-// said it was "registered by whichever suite owns the process" — but nothing
-// registered it, so every run of this binary left two databases behind with
-// fourteen collections and their indexes in each. Hundreds of runs later that is
-// thousands of collections, and docs/13 §1 is explicit about what that costs: a
-// WiredTiger file plus one per index, persistent in-memory metadata per table,
-// and a slower `listCollections` every time anything starts. It is also the one
-// consumer of this cluster that grows without bound.
-//
-// Registered HERE, in exactly one translation unit, because a static initialiser
-// in the header would register one environment per TU that included it.
-//
-// It runs after the last test in the process, which means it does not run when
-// the binary is killed — so this reduces the leak rather than eliminating it. A
-// cleanup that cannot survive SIGKILL is the normal case, and the alternative (a
-// sweep of every `anvil_t_*` database at startup) would race a concurrently
-// running suite for databases that are not its own.
-class ScratchDatabaseCleanup final : public ::testing::Environment {
-public:
-    void TearDown() override {
-        if (!anvil::testfixture::pool_ready()) { return; }
-        anvil::testfixture::drop_scratch_databases();
-    }
-};
-
-const ::testing::Environment* kCleanup =
-    ::testing::AddGlobalTestEnvironment(new ScratchDatabaseCleanup{});
-
 TEST(DbFixture, ReportsWhetherADatabaseIsReachable) {
     if (!anvil::testfixture::pool_ready()) {
         GTEST_SKIP() << "no MongoDB at " << anvil::testfixture::test_uri()

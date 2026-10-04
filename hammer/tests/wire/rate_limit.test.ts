@@ -5,7 +5,7 @@
 // one other: it is the MONOTONIC clock, and a bucket driven by the wall clock
 // refills by an hour when the operating system corrects the device's time.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { RateLimiter } from "../../src/wire/rate_limit.js";
 

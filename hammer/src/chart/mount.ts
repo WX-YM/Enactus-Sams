@@ -1,7 +1,7 @@
 // The same four things `dom/mount.ts` holds, for a layer that may not import it.
 //
 // `hammer/chart` is its own entry point so that an application with no dashboard
-// pays nothing for one (`ENGINEERING_RULES.md` §2.1), and `tools/check-layering.sh` allows
+// pays nothing for one (`CLAUDE.md` §2.1), and `tools/check-layering.sh` allows
 // it `core` and `state` — not `dom`. If it reached across, every bundle with a
 // chart in it would carry the form renderer, the bell and the insertion site.
 //

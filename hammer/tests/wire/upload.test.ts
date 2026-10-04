@@ -9,7 +9,7 @@
 // REFUSED for moved to `tests/core/upload_bounds.test.ts` along with the bounds
 // themselves, which the layer that draws the control also has to reach.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import {
     checkUpload,

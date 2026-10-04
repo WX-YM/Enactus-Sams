@@ -11,6 +11,7 @@
 // same envelope.
 
 #include "anvil_app_jobs.h"
+#include "chat_push.h"
 
 namespace anvil::config {
 
@@ -25,6 +26,14 @@ timer::JobOutcome fanout_handler(const timer::JobRunContext& ctx) noexcept {
     // a denial of service against our own database.
     if (ctx.args.empty()) { return timer::JobOutcome::Failed; }
     return timer::JobOutcome::Done;
+}
+
+timer::JobOutcome chat_push_handler(const timer::JobRunContext& ctx) noexcept {
+    const chat::ChatPush* push = testapp::installed_chat_push().load(std::memory_order_acquire);
+    // Claimed before boot finished building the push: not a malformed job, and
+    // in a moment it will run.
+    if (push == nullptr) { return timer::JobOutcome::Retry; }
+    return push->run(ctx);
 }
 
 }  // namespace anvil::config

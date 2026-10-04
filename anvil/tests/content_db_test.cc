@@ -492,7 +492,7 @@ TEST_F(SectionDb, ASlotHoldingSomethingThatIsNotAMediaIdCountsAsUnbound) {
     using bsoncxx::builder::basic::sub_document;
 
     const Uuid real_id = anvil::uuid::generate_v7();
-    // The id as a STRING — the 36-character spelling ENGINEERING_RULES.md §2.3 bans, which
+    // The id as a STRING — the 36-character spelling CLAUDE.md §2.3 bans, which
     // is exactly what a migration written without reading it produces. Bound to
     // a local because the view appended below borrows it.
     const std::string id_as_text = anvil::uuid::to_string(real_id);

@@ -270,7 +270,7 @@ TEST(PoolIsolation, ASaturatedAnalyticsPoolDoesNotDelayAnAuditFlush) {
     // (docs/17-analytics.md §10).
     //
     // Every task below captures a shared_ptr BY VALUE, never the test's stack
-    // (ENGINEERING_RULES.md §3.3). A blocker outliving the test body and reading a
+    // (CLAUDE.md §3.3). A blocker outliving the test body and reading a
     // reference to a dead frame is the exact use-after-free the rule is about,
     // and ASan reports it as one.
     struct Shared final {

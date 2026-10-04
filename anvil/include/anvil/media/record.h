@@ -55,6 +55,17 @@ inline constexpr std::string_view kMime = "m";
 inline constexpr std::string_view kRefs = "refs";
 inline constexpr std::string_view kVariants = "var";
 inline constexpr std::string_view kCreatedAt = "created_at";
+// An EDIT's three fields (docs/21-image-edits.md §3), omitted on a row that is
+// not one — the same rule as `uip`, and for the same reason: the unique
+// {ns, src, esha} index is partial on `src` existing.
+//
+// `src` is the source's id, so the editor reopens the source rather than the
+// result. `edit` is the canonical recipe, so it reopens with the recipe loaded.
+// `esha` is the SHA-256 of those bytes, the key that makes the same edit of the
+// same source one object without any client-supplied key at all.
+inline constexpr std::string_view kSource = "src";
+inline constexpr std::string_view kEdit = "edit";
+inline constexpr std::string_view kEditSha = "esha";
 // Sub-keys of one variant row.
 inline constexpr std::string_view kVariantWidth = "w";
 inline constexpr std::string_view kVariantHeight = "h";
@@ -75,7 +86,7 @@ inline constexpr std::int32_t kPinnedRefs = 1'000'000;
 
 // What the serving path needs, and nothing more. Projected rather than read
 // whole: returning a large document to serve one file costs network, BSON decode
-// CPU and heap on every media request (ENGINEERING_RULES.md §7).
+// CPU and heap on every media request (CLAUDE.md §7).
 struct MediaRecord final {
     std::vector<images::VariantRecord>          variants;
     crypto::Digest256                           sha256;
@@ -96,6 +107,12 @@ struct MediaRecord final {
     std::int32_t                                refs;
     fs::Ns                                      ns;
     fs::Mime                                    mime;
+    // An edit's canonical recipe, EMPTY on a row that is not an edit.
+    std::vector<std::uint8_t>                   edit{};
+    // The object this one was rendered from, ABSENT on a row that is not an
+    // edit and on a detached one. A row carrying it holds one reference on
+    // that source (docs/21-image-edits.md §3.2).
+    std::optional<Uuid>                         source{};
 };
 
 // NEAR the pin, not at or above it. A pinned row can read BELOW the pin — a
@@ -139,6 +156,11 @@ struct NewMedia final {
     std::uint32_t                               height;
     fs::Ns                                      ns;
     fs::Mime                                    mime;
+    // An edit's three fields. All present or all absent: MediaRepository::
+    // insert_edit is the only writer that sets them.
+    std::vector<std::uint8_t>                   edit{};
+    std::optional<Uuid>                         source{};
+    std::optional<crypto::Digest256>            edit_sha{};
 };
 
 // One address, and what it has sent into one namespace. The unit an abuse screen

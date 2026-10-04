@@ -4,7 +4,7 @@
 // The lock is NOT what makes a step correct; idempotence is. What the lock buys
 // is that the wasted work and the write conflicts do not happen, and every
 // claim here is one find_one_and_update against an expiring lease — never
-// check-then-act (ENGINEERING_RULES.md §6).
+// check-then-act (CLAUDE.md §6).
 //
 // The crash is simulated by stopping where the crash would stop, rather than by
 // back-dating a ledger row: a back-dated row tests the reclaim path against a

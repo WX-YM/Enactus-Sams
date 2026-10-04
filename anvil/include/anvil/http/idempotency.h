@@ -107,7 +107,7 @@ enum class IdempotencyState : std::uint8_t {
 // server, including the rate limiter two stages earlier in the same request
 // pipeline. A replay cache is for the JSON a write route answers with; a route
 // whose response is a document belongs behind `X-Accel-Redirect`, not in here
-// (ENGINEERING_RULES.md §2.4).
+// (CLAUDE.md §2.4).
 inline constexpr std::size_t kMaxRetainedBodyBytes = 64 * 1024;
 
 // The bound on the client's key. It is attacker-supplied and it is hashed, so
@@ -123,7 +123,7 @@ inline constexpr std::size_t kIdempotencyTokenBytes = 16;
 
 // "idem:" and a 32-byte digest in hex. A fixed length, so the claim carries the
 // key in an array rather than in a heap string charged to every protected
-// request (ENGINEERING_RULES.md §2.1) — which is also why it is hex and not the base64url
+// request (CLAUDE.md §2.1) — which is also why it is hex and not the base64url
 // the rate limiter's keys use: base64url_encode returns a std::string, and the
 // spelling of a key that is never read by a human is worth nothing next to the
 // allocation.
@@ -163,7 +163,7 @@ struct IdempotencyConfig final {
 
 // What a claim found, and what the caller needs to finish it.
 //
-// Ordered largest-alignment-first (ENGINEERING_RULES.md §2.3).
+// Ordered largest-alignment-first (CLAUDE.md §2.3).
 struct IdempotencyClaim final {
     // The first attempt's response body. Non-empty only for Replay.
     std::string                                     body;

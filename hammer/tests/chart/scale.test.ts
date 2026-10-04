@@ -4,7 +4,7 @@
 // a metric that has not moved, a series with no data yet, and an axis whose
 // labels have to be readable rather than merely correct.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { extent, linear, ticks } from "../../src/chart/scale.js";
 

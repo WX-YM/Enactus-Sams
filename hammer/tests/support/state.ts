@@ -3,7 +3,7 @@
 // The same shape as the wire harness and for the same reason: everything is
 // built through the REFERENCE CONSUMER's generated module, so a seam that cannot
 // be satisfied from outside hammer fails here rather than in an application
-// (`ENGINEERING_RULES.md` §1). The clock is a number the test moves, because freshness is
+// (`CLAUDE.md` §1). The clock is a number the test moves, because freshness is
 // the whole subject of this suite and a suite that slept through a `max-age` is
 // a suite nobody runs.
 

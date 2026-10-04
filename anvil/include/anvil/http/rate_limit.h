@@ -55,7 +55,7 @@
 
 namespace anvil::http {
 
-// Ordered largest-alignment-first (ENGINEERING_RULES.md §2.3).
+// Ordered largest-alignment-first (CLAUDE.md §2.3).
 struct RateLimitRule final {
     // The BUCKET this rule counts into, and the whole of.
     //
@@ -120,7 +120,7 @@ struct RateLimitRule final {
 //
 // The rules themselves. There is no `kLoginPerIp` here, and there was: thirteen
 // constants lived in this header, five of them budgets for a subsystem of one
-// application — a subsystem anvil has never contained. A table anvil populates is a bug (ENGINEERING_RULES.md §1), and a table
+// application — a subsystem anvil has never contained. A table anvil populates is a bug (CLAUDE.md §1), and a table
 // of rate limits is the clearest case of it — a budget is a product decision
 // about one deployment's traffic, and a library that ships one has decided it for
 // every application at once.
@@ -192,7 +192,7 @@ public:
     using Clock = std::chrono::steady_clock;
 
     [[nodiscard]] BucketHit hit(std::string_view key, const RateLimitRule& rule,
-                                Clock::time_point now) noexcept;
+                                Clock::time_point now, std::uint64_t weight = 1) noexcept;
     void clear() noexcept;
 
 private:
@@ -222,6 +222,16 @@ public:
     [[nodiscard]] RateLimitVerdict check_account(std::string_view normalised_identifier,
                                                  const RateLimitRule& rule);
 
+    // The same, counting `weight` events at once: a budget measured in
+    // something other than requests, such as the BYTES an account may upload in
+    // a window, where one request is many events. A weight of zero is one.
+    // Refused when the weight would take the count past the rule; the weight is
+    // spent either way, so a refused upload of a gigabyte cannot be retried as
+    // if it cost nothing.
+    [[nodiscard]] RateLimitVerdict check_account_weighted(std::string_view normalised_identifier,
+                                                          const RateLimitRule& rule,
+                                                          std::uint64_t weight);
+
     // Exposed for the fallback's tests, and so a boot check can prove the local
     // bucket works before Redis is ever needed.
     [[nodiscard]] LocalBuckets& local() noexcept { return local_; }
@@ -230,7 +240,8 @@ public:
     RateLimiter& operator=(const RateLimiter&) = delete;
 
 private:
-    [[nodiscard]] RateLimitVerdict check(std::string_view key, const RateLimitRule& rule);
+    [[nodiscard]] RateLimitVerdict check(std::string_view key, const RateLimitRule& rule,
+                                         std::uint64_t weight = 1);
 
     LocalBuckets local_;
     // Whether the LAST answer came from the local bucket, so the log line is
@@ -241,7 +252,7 @@ private:
     //
     // Read with a plain load before any exchange on the healthy path. An
     // unconditional read-modify-write there would be a contended write to this
-    // line on every rate-limited request, which is the cost ENGINEERING_RULES.md §3.1 names
+    // line on every rate-limited request, which is the cost CLAUDE.md §3.1 names
     // for an atomic increment, paid to maintain a flag that almost never moves.
     std::atomic<bool> degraded_{false};
 };

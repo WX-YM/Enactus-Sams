@@ -17,6 +17,7 @@
 #ifdef ANVIL_HAS_VIPS
 
 #include "anvil/core/result.h"
+#include "anvil/crypto/digest.h"
 #include "anvil/fs/namespace.h"
 #include "anvil/fs/upload.h"
 #include "anvil/media/service.h"
@@ -29,8 +30,23 @@ namespace anvil::media {
 //
 // BLOCKING and CPU-bound. cpu_pool only — one of these on a db_pool thread makes
 // every query in the process wait behind a transcode, and one on a loop thread
-// stalls every connection that loop owns (ENGINEERING_RULES.md §4).
+// stalls every connection that loop owns (CLAUDE.md §4).
 [[nodiscard]] Result<ProcessedMedia> process(fs::Ns ns, const fs::UploadResult& upload);
+
+// What an edit's render produced, and the hash of its master's bytes — which
+// the row records like any other object's, and which nothing computed on the
+// way in because these bytes never arrived over a socket.
+struct RenderedMedia final {
+    ProcessedMedia    media;
+    crypto::Digest256 sha256;
+};
+
+// The render stage of an edit (docs/21-image-edits.md §6), under an id minted
+// here. The source's master is opened read-only; every file this writes is under
+// the new id, and on failure every one of them is removed before returning.
+//
+// BLOCKING and CPU-bound. cpu_pool only.
+[[nodiscard]] Result<RenderedMedia> render(fs::Ns ns, const PreparedEdit& edit);
 
 }  // namespace anvil::media
 

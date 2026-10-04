@@ -9,17 +9,23 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <atomic>
 #include <memory>
+#include <span>
+#include <stdexcept>
 #include <thread>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "anvil/auth/token.h"
 #include "anvil/core/uuid.h"
 #include "anvil/identity/authz.h"
 #include "anvil/identity/password_service.h"
+#include "anvil/identity/prehash_service.h"
 #include "anvil/identity/session_service.h"
 #include "anvil/identity/users.h"
 #include "app_fixture.h"
@@ -119,14 +125,27 @@ protected:
     return shared;
 }
 
-[[nodiscard]] SessionService make_service(SessionPolicy policy = {}) {
+[[nodiscard]] SessionService make_service(SessionPolicy policy = {},
+                                          anvil::identity::SessionsRevoked on_revoked = {}) {
     return SessionService{std::string{scratch_names().for_collection(kUsers)},
                           kSessions,
                           kUsers,
                           kPepper,
                           keys(),
                           authz(),
-                          policy};
+                          policy,
+                          std::move(on_revoked)};
+}
+
+// What a revocation hook was told, one entry per call.
+struct Revocation final {
+    Uuid              user;
+    std::vector<Uuid> sessions;
+};
+
+[[nodiscard]] std::vector<Uuid> sorted(std::vector<Uuid> ids) {
+    std::sort(ids.begin(), ids.end());
+    return ids;
 }
 
 // --- minting ----------------------------------------------------------------
@@ -436,6 +455,72 @@ TEST_F(AuthService, RevokingEverythingCostsOneEpochBumpAndNotOnePerSession) {
     EXPECT_EQ(after.value()->perm_epoch, before.value()->perm_epoch + 1);
 }
 
+TEST_F(AuthService, EveryRevocationNamesTheSessionsItEndedToTheHook) {
+    const UserAuthRecord user = create("hooked", UserType::Client);
+    std::vector<Revocation> told;
+    SessionPolicy policy{};
+    policy.max_concurrent_sessions = 3;
+    SessionService service = make_service(
+        policy, [&told](mongocxx::client&, const Uuid& user_id, std::span<const Uuid> ended) {
+            told.push_back(Revocation{user_id, {ended.begin(), ended.end()}});
+        });
+    const anvil::db::TimeMs now = anvil::db::now_ms();
+    const auto sign_in = [&](int i) {
+        const auto issued = service.create(db(), user, pack_ip("203.0.113.18"),
+                                           "browser " + std::to_string(i),
+                                           now + std::chrono::seconds{i});
+        EXPECT_TRUE(issued.ok());
+        return issued.ok() ? issued.value().session_id : Uuid{};
+    };
+
+    // A sign-out names its one session.
+    const Uuid first = sign_in(0);
+    ASSERT_TRUE(service.revoke(db(), first, user.id).ok());
+    ASSERT_EQ(told.size(), 1U);
+    EXPECT_EQ(told[0].user, user.id);
+    EXPECT_EQ(told[0].sessions, std::vector<Uuid>{first});
+
+    // An eviction past the cap names the one it pushed out.
+    const Uuid a = sign_in(1);
+    const Uuid b = sign_in(2);
+    const Uuid c = sign_in(3);
+    EXPECT_EQ(told.size(), 1U);
+    const Uuid d = sign_in(4);
+    ASSERT_EQ(told.size(), 2U);
+    EXPECT_EQ(told[1].sessions, std::vector<Uuid>{a});
+
+    // A password change names every session but the one it was made in.
+    ASSERT_EQ(service.revoke_others(db(), user.id, d).value(), 2);
+    ASSERT_EQ(told.size(), 3U);
+    EXPECT_EQ(sorted(told[2].sessions), sorted({b, c}));
+
+    // Signing out everywhere names what is left, and only that.
+    ASSERT_EQ(service.revoke_all(db(), user.id).value(), 1);
+    ASSERT_EQ(told.size(), 4U);
+    EXPECT_EQ(told[3].sessions, std::vector<Uuid>{d});
+
+    // Nothing left to end is nothing to say.
+    ASSERT_EQ(service.revoke_all(db(), user.id).value(), 0);
+    EXPECT_EQ(told.size(), 4U);
+}
+
+TEST_F(AuthService, AHookThatThrowsDoesNotFailTheRevocation) {
+    const UserAuthRecord user = create("throwing", UserType::Client);
+    SessionService service =
+        make_service({}, [](mongocxx::client&, const Uuid&, std::span<const Uuid>) {
+            throw std::runtime_error{"the chat database is down"};
+        });
+    const anvil::db::TimeMs now = anvil::db::now_ms();
+    ASSERT_TRUE(service.create(db(), user, pack_ip("203.0.113.19"), kUserAgent, now).ok());
+
+    // The sessions are revoked and the epoch bumped before the hook is asked,
+    // and what follows a sign-out must not be able to fail it.
+    const auto revoked = service.revoke_all(db(), user.id);
+    ASSERT_TRUE(revoked.ok());
+    EXPECT_EQ(revoked.value(), 1);
+    EXPECT_TRUE(service.list(db(), user.id, Uuid{}, now).value().empty());
+}
+
 TEST_F(AuthService, TheSessionListingDisclosesNeitherTheAddressNorTheUserAgent) {
     const UserAuthRecord user = create("listing", UserType::Client);
     SessionService service = make_service();
@@ -499,6 +584,80 @@ TEST(PasswordServiceShedding, ShedsThroughTheReturnValueAndNeverReEntrantly) {
         std::this_thread::yield();
     }
     EXPECT_EQ(callbacks.load() + shed.load(), kAttempts);
+}
+
+// --- client prehash (docs/05 §12) --------------------------------------------------
+
+namespace {
+
+[[nodiscard]] anvil::auth::PrehashPolicy prehash_test_policy() {
+    anvil::crypto::Key256 pepper;
+    anvil::crypto::Key256 salt_key;
+    pepper.mutable_span()[0] = 1;
+    salt_key.mutable_span()[0] = 2;
+    return anvil::auth::PrehashPolicy{
+        .client = {.memory_kib = 8192, .iterations = 2, .parallelism = 1},
+        .server = anvil::auth::PrehashKeyedDigestStage{.key_id = "k1", .key = std::move(pepper)},
+        .retired_peppers = {},
+        .salt_key = std::move(salt_key),
+    };
+}
+
+// Blocks the test thread, never a pool thread, until `done` flips.
+void wait_for(const std::atomic<bool>& done) {
+    while (!done.load(std::memory_order_acquire)) { std::this_thread::yield(); }
+}
+
+}  // namespace
+
+TEST(PrehashService, EnrollsAndVerifiesOffTheCallingThread) {
+    ASSERT_TRUE(anvil::testfixture::pools_ready());
+    const anvil::identity::PrehashService service{prehash_test_policy()};
+
+    anvil::auth::PrehashKey k;
+    k.mutable_span()[7] = 0x5A;
+    anvil::auth::PrehashKey same;
+    same.mutable_span()[7] = 0x5A;
+
+    const std::thread::id caller = std::this_thread::get_id();
+    std::string record;
+    std::thread::id ran_on;
+    std::atomic<bool> enrolled{false};
+    ASSERT_TRUE(service.enroll_async(
+        std::move(k), service.hasher().answer_for(std::nullopt, 0, "user@example.com"),
+        [&](anvil::identity::PrehashService::EnrollResult result) {
+            ran_on = std::this_thread::get_id();
+            record = result.ok() ? result.value() : std::string{};
+            enrolled.store(true, std::memory_order_release);
+        }));
+    wait_for(enrolled);
+    EXPECT_NE(ran_on, caller) << "a callback on the caller's stack breaks the shedding contract";
+    ASSERT_FALSE(record.empty());
+
+    anvil::crypto::VerifyOutcome outcome = anvil::crypto::VerifyOutcome::Malformed;
+    std::atomic<bool> verified{false};
+    ASSERT_TRUE(service.verify_async(record, std::move(same),
+                                     [&](anvil::identity::PrehashService::VerifyResult result) {
+                                         if (result.ok()) { outcome = result.value().outcome; }
+                                         verified.store(true, std::memory_order_release);
+                                     }));
+    wait_for(verified);
+    EXPECT_EQ(outcome, anvil::crypto::VerifyOutcome::Match);
+}
+
+TEST(PrehashService, AMissingAccountIsAMismatchAfterTheSameWork) {
+    ASSERT_TRUE(anvil::testfixture::pools_ready());
+    const anvil::identity::PrehashService service{prehash_test_policy()};
+
+    anvil::crypto::VerifyOutcome outcome = anvil::crypto::VerifyOutcome::Match;
+    std::atomic<bool> verified{false};
+    ASSERT_TRUE(service.verify_async({}, anvil::auth::PrehashKey{},
+                                     [&](anvil::identity::PrehashService::VerifyResult result) {
+                                         if (result.ok()) { outcome = result.value().outcome; }
+                                         verified.store(true, std::memory_order_release);
+                                     }));
+    wait_for(verified);
+    EXPECT_EQ(outcome, anvil::crypto::VerifyOutcome::Mismatch);
 }
 
 }  // namespace

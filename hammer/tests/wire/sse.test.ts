@@ -5,7 +5,7 @@
 // a socket feeds it — in chunks that do not respect frame boundaries, which is
 // the case a parser written against whole frames gets wrong.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { FetchLike } from "../../src/wire/client.js";
 import { leadership } from "../../src/wire/leader.js";
@@ -433,7 +433,7 @@ describe("closing", () => {
 describe("the dedupe ring this module ships", () => {
     // Bounded, and the bound is the whole point: a tab stays open for days, and
     // a set of every event id it has ever seen is a leak with a slow fuse
-    // (`ENGINEERING_RULES.md` §2.3). Sixty-four is the reconnect replay window — enough
+    // (`CLAUDE.md` §2.3). Sixty-four is the reconnect replay window — enough
     // that a resume does not re-deliver, small enough that the memory is a
     // rounding error.
     it("is sixty-four slots, and is published so a caller can widen it", () => {

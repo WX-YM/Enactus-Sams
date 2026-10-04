@@ -26,10 +26,37 @@ namespace testapp {
 
 namespace ac = anvil::accesscontrol;
 
-inline constexpr std::array<ac::RoutePolicy, 14> kRoutes{{
+inline constexpr std::array<ac::RoutePolicy, 69> kRoutes{{
     // Public: no token required, normal HTTP semantics on failure.
     {anvil::PermSet{}, "/login",
      ac::RouteAccess::Public, ac::RouteMethod::Post},
+
+    // Public, and both must be: a client asks for its salt BEFORE it has any
+    // credential, and registration is how it gets one (docs/05 §12). Neither
+    // discloses whether an account exists — the salt route answers every
+    // identifier with 200 and a stable salt, and registration answers a
+    // duplicate byte-identically to a fresh one.
+    {anvil::PermSet{}, "/auth/prehash",
+     ac::RouteAccess::Public, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/signup",
+     ac::RouteAccess::Public, ac::RouteMethod::Post},
+
+    // The rest of the built-in account flows (accounts.h). Public, because each
+    // is how somebody WITHOUT a session proves an address or recovers one; none
+    // of them answers differently for an address that has no account.
+    {anvil::PermSet{}, "/auth/verify",
+     ac::RouteAccess::Public, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/auth/resend",
+     ac::RouteAccess::Public, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/auth/reset",
+     ac::RouteAccess::Public, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/auth/reset/confirm",
+     ac::RouteAccess::Public, ac::RouteMethod::Post},
+
+    // A password change is the one flow that needs a session: it is made from
+    // inside one, and it ends every OTHER one.
+    {anvil::PermSet{}, "/auth/password",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
 
     // Public, and it must be: its credential is the refresh cookie, and the
     // access token is EXPIRED at exactly the moment this is called. Gating it on
@@ -74,6 +101,16 @@ inline constexpr std::array<ac::RoutePolicy, 14> kRoutes{{
      ac::RouteAccess::Guarded, ac::RouteMethod::Get},
     {anvil::perm_mask(Perm::MediaDelete), "/media/{ns}/{id}",
      ac::RouteAccess::Guarded, ac::RouteMethod::Delete},
+
+    // Image edits (docs/21-image-edits.md §6), under their own prefix rather
+    // than under `/media/{ns}/{id}/…`: every GET there is a ROLE, and an edit
+    // route beneath it would be one role name away from being answered by the
+    // public object handler. Making an edit and reading one back share the
+    // authority an upload needs, because an edit is an upload the server draws.
+    {anvil::perm_mask(Perm::MediaUpload), "/media-edits/{ns}/{id}",
+     ac::RouteAccess::Guarded, ac::RouteMethod::Post},
+    {anvil::perm_mask(Perm::MediaUpload), "/media-edits/{ns}/{id}",
+     ac::RouteAccess::Guarded, ac::RouteMethod::Get},
 
     // Serving a stored object, and the reason it is declared at all: the grammar
     // `GET /media/{ns}/{id}/{role}` is settled in docs/08-images.md §4 and no
@@ -128,6 +165,133 @@ inline constexpr std::array<ac::RoutePolicy, 14> kRoutes{{
     // against.
     {anvil::perm_mask(Perm::AuditRead), "/ws/audit",
      ac::RouteAccess::Stealth, ac::RouteMethod::Get},
+
+    // Conversations (docs/22-chat.md §9). Authenticated and no bit: taking part
+    // needs nothing beyond being signed in, because MEMBERSHIP is what decides,
+    // and the handler answers a non-member with the stealth 404 itself. Creating
+    // a group or a channel needs a bit, but which one depends on the kind in the
+    // body, so the kind table checks it rather than this one.
+    {anvil::PermSet{}, "/chat/conversations",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/direct/{user}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Put},
+    {anvil::PermSet{}, "/chat/conversations",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    {anvil::PermSet{}, "/chat/conversations/{c}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    {anvil::PermSet{}, "/chat/conversations/{c}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Patch},
+    {anvil::PermSet{}, "/chat/conversations/{c}/timer",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Put},
+    {anvil::PermSet{}, "/chat/conversations/{c}/members",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    {anvil::PermSet{}, "/chat/conversations/{c}/members",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/conversations/{c}/members/{user}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Patch},
+    {anvil::PermSet{}, "/chat/conversations/{c}/members/{user}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Delete},
+    {anvil::PermSet{}, "/chat/conversations/{c}/messages",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/conversations/{c}/messages",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    {anvil::PermSet{}, "/chat/conversations/{c}/messages/{seq}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Patch},
+    {anvil::PermSet{}, "/chat/conversations/{c}/messages/{seq}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Delete},
+    {anvil::PermSet{}, "/chat/conversations/{c}/messages/{seq}/reaction",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Put},
+    {anvil::PermSet{}, "/chat/conversations/{c}/messages/{seq}/readers",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    {anvil::PermSet{}, "/chat/conversations/{c}/receipts",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/conversations/{c}/preferences",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Patch},
+    {anvil::PermSet{}, "/chat/conversations/{c}/invites",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/conversations/{c}/invites",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Delete},
+    {anvil::PermSet{}, "/chat/join",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/conversations/{c}/follow",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/blocks/{user}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Put},
+    {anvil::PermSet{}, "/chat/blocks/{user}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Delete},
+    // The chat socket (docs/22-chat.md §8.2): an upgrade, so a GET, and
+    // lowercase for the reason the two above say. Authenticated with no bit,
+    // like every other chat route: what it pushes is decided per conversation
+    // by membership, when the wake is published.
+    {anvil::PermSet{}, "/chat/socket",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    // Presence (docs/22-chat.md §8.3), answered per viewer by the application's
+    // hook; with presence off it answers as this route not existing.
+    {anvil::PermSet{}, "/chat/presence/{user}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    // Devices, keys and the per-device queue (docs/22-chat.md §7.3–§7.6).
+    // Authenticated with no bit: a device is the account's own, a claim is
+    // decided by sharing an encrypted conversation, and the handlers refuse
+    // everything else themselves. What a session alone cannot do (a first
+    // device without a fresh sign-in, a later one without an existing device's
+    // signature) is enforced by the service, not by a bit.
+    {anvil::PermSet{}, "/chat/devices",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    {anvil::PermSet{}, "/chat/devices",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Put},
+    {anvil::PermSet{}, "/chat/devices/link",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/devices/{device}",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Delete},
+    {anvil::PermSet{}, "/chat/keys",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/conversations/{c}/keys/claim",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/conversations/{c}/devices",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    {anvil::PermSet{}, "/chat/device-queue",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    {anvil::PermSet{}, "/chat/device-queue",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Delete},
+
+    // Presence for a page of accounts at once, each still asked of the hook.
+    {anvil::PermSet{}, "/chat/presence",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Get},
+    // A device replacing its own signed prekey and last-resort key.
+    {anvil::PermSet{}, "/chat/devices/{device}/keys",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Put},
+    // The link relay (docs/22-chat.md §7.3.1): a new device leaves its keys,
+    // an approver of the same account reads them and signs, the new device
+    // collects. Every token is in a BODY, never a path, which is in every
+    // access log; reading and collecting are POSTs for that reason only.
+    {anvil::PermSet{}, "/chat/link-requests",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/link-requests/read",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/link-requests/approve",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::PermSet{}, "/chat/link-requests/collect",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    // Staff review of a conversation they are not in (docs/22-chat.md §9.2).
+    // STEALTH behind a bit of this application's, so the paths reach only a
+    // holder's route table; the handler records every read in the audit log
+    // before it shows anything.
+    {anvil::perm_mask(Perm::ChatReview), "/chat/review/{c}",
+     ac::RouteAccess::Stealth, ac::RouteMethod::Get},
+    {anvil::perm_mask(Perm::ChatReview), "/chat/review/{c}/messages",
+     ac::RouteAccess::Stealth, ac::RouteMethod::Get},
+    // A member reports messages to staff. Authenticated: membership decides.
+    {anvil::PermSet{}, "/chat/conversations/{c}/reports",
+     ac::RouteAccess::Authenticated, ac::RouteMethod::Post},
+    {anvil::perm_mask(Perm::ChatReview), "/chat/reports",
+     ac::RouteAccess::Stealth, ac::RouteMethod::Get},
+    // A chat attachment, served from the media origin by its grant
+    // (docs/22-chat.md §6.1). Public, and protected by its handler, for the
+    // preview's reason: the credential is the grant in the path, which the
+    // access filter does not know how to read, and the session cookie never
+    // reaches this origin anyway.
+    {anvil::PermSet{}, "/m/{grant}/{role}",
+     ac::RouteAccess::Public, ac::RouteMethod::Get},
 }};
 
 // Every stealth route requires a permission. A stealth route that required none

@@ -13,7 +13,7 @@
 // focusable at a time, arrows move both the focus and which row that is, and
 // Home and End reach the ends. `tabindex` is 0 on one row and -1 on the rest,
 // and never a positive number — a positive `tabindex` reorders the whole page
-// around this component (`ENGINEERING_RULES.md` §9).
+// around this component (`CLAUDE.md` §9).
 //
 // --- opening a notification marks it read, and that is idempotent -----------
 //

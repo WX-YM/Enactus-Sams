@@ -3,7 +3,7 @@
 //
 // `skip(n)` is O(n) server-side, so anvil does not offer an offset and hammer
 // has no way to express one — `core/cursor.ts` carries no field that is a
-// position and no function that takes a number as one (`ENGINEERING_RULES.md` §7). What
+// position and no function that takes a number as one (`CLAUDE.md` §7). What
 // follows from that is the whole shape of this control: there is a "more", there
 // is no "page 7", and there is no total, because a total is a `COUNT(*)` over
 // the same table the cursor exists to avoid walking.

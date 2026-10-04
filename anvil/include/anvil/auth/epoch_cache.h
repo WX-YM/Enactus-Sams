@@ -94,7 +94,7 @@ public:
 
 private:
     // 40 bytes, ordered largest-alignment-first so there is no interior padding
-    // (ENGINEERING_RULES.md §2.3).
+    // (CLAUDE.md §2.3).
     struct Slot final {
         std::uint64_t     epoch;
         Clock::time_point expires_at;

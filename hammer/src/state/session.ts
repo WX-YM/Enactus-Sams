@@ -3,7 +3,7 @@
 //
 // It holds no credential and cannot: anvil's tokens are `__Host-` cookies with
 // `HttpOnly`, so every screen hammer ships around them is a screen driving a
-// credential it is unable to read (`ENGINEERING_RULES.md` §9). What it holds is the
+// credential it is unable to read (`CLAUDE.md` §9). What it holds is the
 // decoded session VIEW — a 128-bit permission set, the holder-scoped route
 // table, and the descriptor hash the server was built from — and all of it is
 // memory-only and dies with the tab (`docs/00-architecture.md` §7).
@@ -57,7 +57,7 @@ import { Store } from "./store.js";
 // the two would otherwise each need the other first.
 export type SessionRead = (signal: AbortSignal) => Promise<Result<unknown, HammerError>>;
 
-// One shape, every property declared (`ENGINEERING_RULES.md` §2.3). `status` discriminates
+// One shape, every property declared (`CLAUDE.md` §2.3). `status` discriminates
 // so that a screen can narrow; `view` is null in two of the three members and
 // the union says which.
 export type SessionState =
@@ -116,7 +116,7 @@ export type SessionStoreConfig = {
     // store with no table decodes every session to no permissions, and the
     // symptom is a screen with every non-route affordance missing and nothing
     // to explain it. A thing an application must supply fails at type-check
-    // time or it fails at 3am (`ENGINEERING_RULES.md` §1).
+    // time or it fails at 3am (`CLAUDE.md` §1).
     readonly permissionBits: PermissionBits;
 
     // Where the identity comes from. The session payload's shape past the three
@@ -148,7 +148,7 @@ export class SessionStore {
     // Told once, after the client that will do the reading exists. A second call
     // is programmer error rather than a reconfiguration: two readers is two
     // opinions about who is signed in, which is the thing this store exists to
-    // be the single one of (`ENGINEERING_RULES.md` §3.3).
+    // be the single one of (`CLAUDE.md` §3.3).
     readsFrom(read: SessionRead): void {
         if (this.read !== null) {
             throw new Error("the session store already has a reader");

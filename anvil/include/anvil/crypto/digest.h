@@ -5,7 +5,7 @@
 // Token storage uses sha256_with_pepper, not a slow KDF. Tokens carry >= 128
 // bits of CSPRNG entropy, so there is nothing to brute-force and a slow hash on
 // the lookup path is a denial-of-service vector rather than a defence
-// (ENGINEERING_RULES.md §5). Passwords are the opposite case and use Argon2id.
+// (CLAUDE.md §5). Passwords are the opposite case and use Argon2id.
 
 #include <cstdint>
 #include <memory>
@@ -47,7 +47,7 @@ namespace anvil::crypto {
 // alternative to THAT is holding the whole body in memory, which is the exact
 // copy the architecture exists to avoid.
 //
-// One resource, RAII, rule of zero (ENGINEERING_RULES.md §3.3). Move-only, because two
+// One resource, RAII, rule of zero (CLAUDE.md §3.3). Move-only, because two
 // handles to one OpenSSL context is a double free.
 class Sha256Stream final {
 public:

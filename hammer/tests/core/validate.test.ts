@@ -3,7 +3,7 @@
 // library because the library has none: the vocabulary is the descriptor's, and
 // a union in hammer would be a second copy of a table that grows server-side.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import {
     all,

@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // The gates, and the login flow's credential discipline.
 //
@@ -7,12 +6,12 @@
 // (`docs/16-test-plan.md`). What is asserted is what is ON SCREEN and what comes
 // off it, which is the whole of what these components decide.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClassNames } from "../../src/core/tables.js";
 import { fail, ok } from "../../src/core/result.js";
-import { renderLogin, renderPermissionGate, renderSessionGate } from "../../src/dom/auth.js";
-import type { AuthPart } from "../../src/dom/auth.js";
+import { renderAccountForm, renderLogin, renderPermissionGate, renderSessionGate, renderSignup } from "../../src/dom/auth.js";
+import type { AuthPart, Prepare } from "../../src/dom/auth.js";
 import type { FormCopy, FormPart } from "../../src/dom/form.js";
 import { Form } from "../../src/state/forms.js";
 import type { FieldDefinition, FieldTypeSpec } from "../../src/state/forms.js";
@@ -411,3 +410,229 @@ describe("the login flow", () => {
         app.host.remove();
     });
 });
+
+// The step between a form and its call, where a client-prehash application
+// swaps the password for a credential (`docs/01-seams.md` §21). Driven with a
+// stand-in `prepare` here: what matters in this layer is what is SENT, what is
+// kept, and what is said — the derivation itself is `hammer/prehash`'s suite.
+describe("the prepare step, on the login and the signup form", () => {
+    type Send = (
+        body: Readonly<Record<string, unknown>>,
+        signal: AbortSignal,
+    ) => Promise<ReturnType<typeof ok<unknown>> | ReturnType<typeof fail<never>>>;
+
+    function screen(which: "login" | "signup", send: Send, prepare?: Prepare<Reason>) {
+        const form = new Form<Reason>({
+            fields: [
+                { key: "email", type: spec(), required: true },
+                { key: "secret", type: spec(null), required: true },
+            ],
+            reasons: {
+                required: "REQUIRED",
+                tooLong: "TOO_LONG",
+                badFormat: "BAD_FORMAT",
+                notAllowed: "NOT_ALLOWED",
+            },
+        });
+        const host = document.createElement("div");
+        document.body.append(host);
+        const shared = {
+            form,
+            fields: [
+                { key: "email", label: "Email" },
+                { key: "secret", label: "Password" },
+            ],
+            classes: kAuthClasses,
+            formClasses: kFormClasses,
+            copy: kCopy,
+            reasons: kReasons,
+            errors: { prehash: "Could not prepare your password.", UNAUTHENTICATED: "No match." },
+            ...(prepare === undefined ? {} : { prepare }),
+        };
+        const view =
+            which === "login"
+                ? renderLogin(host, { ...shared, signIn: send as never })
+                : renderSignup(host, { ...shared, signUp: send as never });
+        form.set("email", "a@b.test");
+        form.set("secret", "hunter2");
+        return {
+            form,
+            host,
+            view,
+            submit: () => host.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true })),
+            close: () => {
+                view.close();
+                host.remove();
+            },
+        };
+    }
+
+    async function turns(n = 6): Promise<void> {
+        for (let i = 0; i < n; i += 1) {
+            await Promise.resolve();
+        }
+    }
+
+    // Replaces the secret with a credential, as `Prehasher.prepare` does.
+    const swap: Prepare<Reason> = async (body) => {
+        const { secret: _secret, ...rest } = body;
+        return ok({ ...rest, credential: "derived" });
+    };
+
+    for (const which of ["login", "signup"] as const) {
+        it(`${which}: sends the prepared body, never the secret`, async () => {
+            const sent: Record<string, unknown>[] = [];
+            const app = screen(
+                which,
+                async (body) => {
+                    sent.push({ ...body });
+                    return ok(undefined);
+                },
+                swap,
+            );
+            app.submit();
+            await turns();
+            expect(sent).toEqual([{ email: "a@b.test", credential: "derived" }]);
+            // And the form no longer holds it either, once the call succeeded.
+            expect(app.form.field("secret")?.value).toBeNull();
+            app.close();
+        });
+
+        it(`${which}: a failed prepare sends nothing, says so, and keeps the input to retry`, async () => {
+            let calls = 0;
+            const app = screen(
+                which,
+                async () => {
+                    calls += 1;
+                    return ok(undefined);
+                },
+                async () => fail({ kind: "prehash", cause: "out-of-memory" }),
+            );
+            app.submit();
+            await turns();
+            expect(calls).toBe(0);
+            expect(app.host.querySelector(".a-error")?.textContent).toBe("Could not prepare your password.");
+            expect(app.form.store.get().submitting).toBe(false);
+            expect(app.form.field("secret")?.value).toBe("hunter2");
+            app.close();
+        });
+    }
+
+    it("hands prepare the screen's signal, and sends nothing once the screen has gone", async () => {
+        let seen: AbortSignal | null = null;
+        let release: () => void = () => undefined;
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let calls = 0;
+        const app = screen(
+            "login",
+            async () => {
+                calls += 1;
+                return ok(undefined);
+            },
+            async (body, signal) => {
+                seen = signal;
+                await held;
+                return swap(body, signal);
+            },
+        );
+        app.submit();
+        await turns(2);
+        app.view.close();
+        release();
+        await turns();
+
+        expect((seen as unknown as AbortSignal).aborted).toBe(true);
+        expect(calls).toBe(0);
+        app.host.remove();
+    });
+
+    it("signup reports the server's words exactly as the login does", async () => {
+        const app = screen("signup", async () =>
+            fail({ kind: "server", code: "UNAUTHENTICATED", status: 401, requestId: null, fields: null } as never),
+        );
+        app.submit();
+        await turns();
+        expect(app.host.querySelector(".a-error")?.textContent).toBe("No match.");
+        expect(app.host.querySelector(".a-error")?.getAttribute("role")).toBe("alert");
+        app.close();
+    });
+});
+
+describe("the account form, and a refusal made before anything was sent", () => {
+    function screen(send: Parameters<typeof renderAccountForm<Reason>>[1]["send"]) {
+        const form = new Form<Reason>({
+            fields: [
+                { key: "identifier", type: spec(), required: true },
+                { key: "code", type: spec(null), required: true },
+            ],
+            reasons: { required: "REQUIRED", tooLong: "TOO_LONG", badFormat: "BAD_FORMAT", notAllowed: "NOT_ALLOWED" },
+        });
+        const host = document.createElement("div");
+        document.body.append(host);
+        const view = renderAccountForm(host, {
+            form,
+            fields: [
+                { key: "identifier", label: "Email" },
+                { key: "code", label: "Code" },
+            ],
+            classes: kAuthClasses,
+            formClasses: kFormClasses,
+            copy: kCopy,
+            reasons: kReasons,
+            errors: {
+                account: "That did not work.",
+                "account.secret-too-short": "Use at least twelve characters.",
+            },
+            send,
+        });
+        form.set("identifier", "a@b.test");
+        form.set("code", "123456");
+        return {
+            form,
+            host,
+            submit: () => host.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true })),
+            close: () => {
+                view.close();
+                host.remove();
+            },
+        };
+    }
+
+    async function turns(n = 6): Promise<void> {
+        for (let i = 0; i < n; i += 1) {
+            await Promise.resolve();
+        }
+    }
+
+    it("sends what the form holds and drops the code once it has been used", async () => {
+        const sent: Record<string, unknown>[] = [];
+        const app = screen(async (body) => {
+            sent.push({ ...body });
+            return ok(undefined);
+        });
+        app.submit();
+        await turns();
+        expect(sent).toEqual([{ identifier: "a@b.test", code: "123456" }]);
+        expect(app.form.field("code")?.value).toBeNull();
+        app.close();
+    });
+
+    it("words a refusal by its cause before its kind", async () => {
+        const app = screen(async () => fail({ kind: "account", cause: "secret-too-short" }));
+        app.submit();
+        await turns();
+        expect(app.host.querySelector(".a-error")?.textContent).toBe("Use at least twelve characters.");
+        app.close();
+    });
+
+    it("falls back to the kind when the cause has no words of its own", async () => {
+        const app = screen(async () => fail({ kind: "account", cause: "secret-too-long" }));
+        app.submit();
+        await turns();
+        expect(app.host.querySelector(".a-error")?.textContent).toBe("That did not work.");
+        app.close();
+    });
+});
+

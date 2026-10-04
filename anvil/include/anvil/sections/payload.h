@@ -123,6 +123,13 @@ struct SerializedSection final {
 // returned by the API get rendered.
 [[nodiscard]] std::string serialize_image_specs(const SectionSpec& spec);
 
+// One section's shape — `{key, path, fields, images}` — exactly as
+// serialize_registry() writes each element of its array. Public so that anything
+// else describing section-shaped content to an editor (anvil/entries) emits the
+// same bytes the section editor already reads, rather than a second writer that
+// drifts the first time a FieldSpec member is added.
+void append_shape_json(std::string& out, const SectionSpec& spec);
+
 // The whole schema, so a staff editor is GENERATED rather than written twice. A
 // hard-coded field list is a second copy that drifts the first time a field is
 // added, and the failure lands on a staff member typing into a box the server

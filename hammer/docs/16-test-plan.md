@@ -15,14 +15,32 @@ an environment with something in another.
 | `core` | none — no DOM, no `fetch` | `unit` | Pure computation. Fast enough to run on every save, which is the point of the layer split; if it needs a DOM, the layering is wrong and this is where that shows |
 | `wire` | a `fetch` stand-in and a fake clock | `unit` | Drives retry, backoff and expiry through simulated time. Real timers make a backoff test either slow or flaky, and flaky is worse |
 | `state` | the `wire` stand-in plus a fake `BroadcastChannel` | `unit` | Multi-tab behaviour is two store instances in one process; that is the only way to make the refresh race deterministic |
-| `dom` | a document, **under a CSP with no `unsafe-inline`** | `dom` | Needs a document, and needs a policy. A component that sets an inline style passes every other suite |
-| `react` | a document, plus `react` and `react-dom` as dev-only peers | `dom` | Needs a renderer, which no other suite may have: a store that can only be asserted through a framework is a store whose behaviour has moved into the adapter |
+| `dom` | a real Chromium page, **under the deployment CSP, no `unsafe-inline`** | `dom` | Needs a document, and needs a policy actually enforced rather than asserted against a stand-in that enforces nothing |
+| `react` | the same Chromium page, plus `react` and `react-dom` as dev-only peers | `dom` | Needs a renderer, which no other suite may have: a store that can only be asserted through a framework is a store whose behaviour has moved into the adapter |
 | `contract` | none — it reads two recorded artefacts | `unit` | The only suite whose fixtures came from anvil rather than from this repository. It asserts agreement with the other participant, so a stand-in in it would assert nothing at all |
 | `browser` | a real Chromium, a real origin, a real CSP header | `browser` | Excluded from the default run. A policy is enforced by a browser or it is not enforced, and no fake document enforces one |
 | `live` | a real browser, two contexts, a live anvil | `live` | Excluded from the default run. It is the only place cookies, origins and the leader lock are real |
 
 Plus the scripts in `tools/`, which run as part of `npm run check`, because they enforce
 source rules no unit test can express.
+
+**The runner is `node:test`, not a third-party one** (`CLAUDE.md` §12, docs/15-tasks.md Phase 8
+B1). `tests/support/register.mjs` resolves the `hammer/*` specifiers a real consumer writes
+against this repository's own `src/`, the same map `tsconfig.json`'s `paths` carries, and
+compiles `.ts`/`.tsx` through `esbuild` — the same two jobs a bundler-aware test runner did
+before. `tests/support/test.ts` binds `describe`/`it`/the four hooks to `node:test` and adds
+`it.each`, in one file, so a later swap of the *backend* touches one module rather than eighty.
+Three `npm` scripts stand in for what were three configurations, one per suite grouping above
+that cannot share an environment with the default run: `npm run test` covers every suite in the
+table except `browser` and `live`; `npm run test:live` and `npm run test:browser` each name
+their own directory and both **fail rather than skip** with no server or no browser found,
+because a suite that quietly passes with neither is a suite whose green means nothing. `npm
+run test` itself now needs a Chromium for the same reason: the DOM and `react` suites run in
+one, driven by `tests/dom/in_browser.test.ts` (docs/15-tasks.md Phase 8 B2), which is why
+`npm run test` and `npm run check` fail rather than skip with none found. Every DOM and React
+test file is bundled by `esbuild` and served from a real origin under the deployment CSP
+(`docs/03-deployment.md` §3), the same policy the `browser` suite serves — a fake document that
+enforces nothing is what the `happy-dom` stopgap was, before Phase 8 B2 deleted it outright.
 
 **No mocking framework.** Dependencies are injected — the fetch function, the clock, the
 channel, the lock manager — so a test supplies a real object or a small hand-written
@@ -184,7 +202,7 @@ at once.
 | The bell announces an arrival in a live region without moving focus | An arrival that steals focus interrupts whatever the person was typing, which is a worse defect than a missed notification |
 | Every chart renders its data-table fallback, and the series is traversable by keyboard | A chart that exists only as pixels is a chart part of the audience cannot read |
 | No component contains a user-visible string | Over the SOURCE, by `tools/check-vocabulary.sh`, across `src/dom` and `src/chart`. It is §1's rule, and the only one a component author breaks by being helpful. It is **not** enumerated over the built output, and the reason is recorded rather than dropped: finding string literals in minified JavaScript needs a real parse — a regex literal can contain a quote, and `escapeAttribute` contains exactly one — so a hand-written scanner mistakes the code between two strings for a string, which is what it did. A dependency-free repository does not get a parser in its suite for one assertion, and a scanner wrong in the direction of passing is worse than none |
-| happy-dom's `DOMParser` executes scripts and a browser's does not | Recorded because it bounds what the suite can claim. A real parser builds a document with no browsing context; happy-dom attaches one to a window, so a `<script>` runs as the parser appends it. The sanitiser's dangerous cases assert the STRING it produces, which is the contract and is the same everywhere; that a real parser runs nothing is a phase-7 row |
+| ~~happy-dom's `DOMParser` executes scripts and a browser's does not~~ (history — Phase 8 B2) | The DOM suite ran against happy-dom's `DOMParser`, which attaches a browsing context to a window, so a `<script>` ran as the parser appended it; the sanitiser's dangerous cases asserted the STRING `sanitize` produced rather than round-tripping through the document for exactly that reason. Since Phase 8 B2 the suite runs in real Chromium, whose `DOMParser` builds a document with no browsing context — the bound this row recorded no longer applies, and `tests/dom/sanitized.test.ts`'s own cache-busting re-import cases now exercise the real parser directly |
 
 ---
 
@@ -194,7 +212,7 @@ at once.
 |---|---|
 | A resource opened by a hook is released on unmount, and under `StrictMode` the live-handle count nets to one while mounted and zero after | StrictMode's double invoke is the mount/unmount asymmetry React will eventually really do (an offscreen tree, a restored back/forward cache). A hook that leaks one handle per mount leaks a request and a store in a tab that stays open for days |
 | An address that changes releases the previous entry before opening the next | Otherwise a component renders one commit of the old address's body under the new address's parameters, which is the defect that looks like a caching bug and is not |
-| A mutation aborts what is in flight on unmount, and publishes nothing afterwards | Nothing outlives what created it (`ENGINEERING_RULES.md` §3.3): a request whose screen has gone holds a slot in the bounded queue that something visible is waiting for |
+| A mutation aborts what is in flight on unmount, and publishes nothing afterwards | Nothing outlives what created it (`CLAUDE.md` §3.3): a request whose screen has gone holds a slot in the bounded queue that something visible is waiting for |
 | A second run supersedes the first, and the older answer does not land last | A person who edited twice is looking at the second edit. The adapter decides what is on screen and nothing else |
 | The adapter's bundle is under a gzipped ceiling, imports nothing but `react`, and reaches the layers below it through `import type` and one constant | The rule is "it binds stores and holds no logic", and a sentence is not a check. Behaviour arrives in an adapter one helpful commit at a time, and each arrival is a second implementation of something the store below already does — reachable only by consumers who chose this framework |
 | No layer below `react` names `react` | A store that imported a hook would make `hammer/state` unusable without a framework, which is the whole premise of the adapter being a separate entry point |
@@ -231,8 +249,11 @@ Run against a real Chromium, driven from Node over a real origin that serves a r
 because it needs a browser binary on the machine, and it **fails rather than skips** when it
 cannot find one.
 
-`playwright-core` is the dev dependency rather than `playwright`, so nothing here downloads a
-browser: `HAMMER_BROWSER` names one, or the harness finds the system Chromium.
+`tests/browser/cdp.ts` is an in-repo DevTools Protocol client, over
+`--remote-debugging-pipe` rather than a `ws://` port (`docs/15-tasks.md` Phase 8 B3):
+nothing here downloads a browser or opens a socket anything else on the
+machine could connect to. `HAMMER_BROWSER` names an executable, or the
+harness finds the system Chromium.
 
 | Assertion | Why it must be a browser | Has run |
 |---|---|---|
@@ -328,6 +349,94 @@ asserts that a table arrived, which is the half that was never in doubt.
 **The ticks are what a run produces, not what the code claims.** Three rows are marked with the
 reason they cannot be produced rather than left blank, because a row nobody can explain is a row
 somebody eventually deletes. Each is a line in `docs/15-tasks.md` §Cross-repo.
+
+---
+
+## Phase 8 — dependencies
+
+The tree that builds hammer is under test the same way hammer is (`CLAUDE.md` §12). The
+checks live in `tools/`, not in a suite, because they judge the repository and not the
+library. Each one is driven against a violation before it is trusted.
+
+| Assertion | Development | Production |
+|---|---|---|
+| `dependencies` is empty, every peer is optional, no lockfile entry is non-dev | error | error |
+| Every `devDependencies` key is in a tier of `tools/dependency-policy.json` | error | error |
+| Every `devDependencies` spec is an exact version | error | error |
+| Every lockfile package under an allowed root is named in that root's `tree` | error | error |
+| `.npmrc` sets `ignore-scripts=true` | error | error |
+| A package under a tolerated root | warning, naming the root and its task row | **error** |
+| An install script not listed in the policy | warning | **error** |
+| `npm audit`, any severity | warning | **error** |
+| `npm audit` could not run | warning | **error**, because a gate that passes when the registry is unreachable passes whenever somebody wants it to |
+
+`npm run check` runs the development column and must stay offline-safe. `npm run
+check:production` runs the production column, and it was **red by design** until Phase 8 Part
+B emptied the tolerated tier. It named `vitest`, `happy-dom` and `playwright-core` until row B1
+retired the first, B3 the third and B2 the second — `tools/dependency-policy.json`'s
+`tolerated` object is now `{}`, and `npm run check:production` is green on a clean `npm ci`.
+
+Part B changed what ran the suites, not what they asserted. The test count is stated before
+and after each replacement and had to be equal. A test that could not be carried across is
+named in the commit body with the reason, never dropped silently. After B2 the DOM suite runs
+in Chromium, so the happy-dom caveats recorded in Phase 5 above stopped being bounds on the
+claim and became history — including one Phase 5 never anticipated: `src/dom/bell.ts`
+restored focus by reading `document.activeElement` AFTER hiding the popover, and a real
+browser blurs a hidden element's focus to `document.body` synchronously, which happy-dom never
+did. `tests/dom/bell.test.ts`'s own Escape case caught it on the suite's first run against
+Chromium.
+
+---
+
+## Phases 10–15 — chat
+
+The design is [`05-chat.md`](05-chat.md). Chat has more contracts with anvil than any other part
+of hammer (a frame grammar, a text validator, eleven response shapes, a device encoding, and a
+protocol), so this section opens with where each contract's truth comes from. None of them is a
+file written beside the code it checks.
+
+| Contract | Held to | From |
+|---|---|---|
+| `limits.chat` | `tests/testapp/hammer.descriptor.json`, format 4 | anvil's `testapp_emit_descriptor` |
+| Every chat answer's shape | bytes recorded off the reference server by the live suite | a running anvil |
+| The frame codec | anvil's golden frames, printed | anvil, once the cross-repo emitter lands |
+| The text validator | anvil's validator cases, printed | the same |
+| Device encodings, the link message, refused keys, the push payload | `testapp_emit_chat_vectors` | anvil, already printed |
+| X3DH, the ratchet, sender keys, the fingerprint | `tests/chat/oracle/` | a libsignal harness in a separate repository |
+| The framing around them | `tests/chat/framing/` | a third implementation written from 05 §9.15 |
+| Incremental SHA-256 | NIST CAVP | NIST |
+
+**Where each suite runs.** The protocol runs under `node:test`, because Node's WebCrypto has
+X25519, Ed25519, HKDF and AES, and every oracle vector is a pure function of its inputs. The
+vault does not: Node has no IndexedDB, and a stand-in for one is a database written for the
+suite. So the vault's transaction discipline is behind a narrow store interface with an
+in-memory implementation for the unit suite, and the real IndexedDB, the real locks and the real
+crash between two transactions run in the browser suite.
+
+| Assertion | Why |
+|---|---|
+| A burnt seq is crossed with no request beyond the catch-up that found it | A client that read a hole as loss would refetch forever around a seq that will never exist |
+| The cursor never moves on a wake, and a wake's seq above a dropped one does not skip it | The wake is a hint and the catch-up is the record. Moving on the hint skips the one message Redis dropped, forever |
+| Two catch-ups are never in flight for one conversation, and a burst of fifty wakes makes at most one catch-up per window | anvil inlines messages in wakes so a busy group does not turn into a database read per member per message. A client that caught up per wake would undo that |
+| A pending message, its answer, its wake and its catch-up converge on one row by `cid` | Three paths deliver one message. A count of rows is the visible symptom of getting it wrong |
+| Read is never reported for a hidden tab, and is the highest seq shown rather than the head | A read receipt from a tab nobody is looking at tells the sender a lie |
+| One `read_by` per open conversation per trigger, whatever is on screen | Ticks per message would be an N+1. The watermark makes the newest one answer all of them |
+| `create` is not retried after a lost answer, and `send` is, with the same body | One is a second group. The other is the same message |
+| A `4001` and a `4006` never reconnect; a `4005` refreshes through the leader before it does | The first loops two tabs against each other for ever, the second loops a broken client against the server, and the third reconnects into the same refusal |
+| Two tabs of one profile hold one socket | anvil closes a second socket of one session, and two tabs that each reconnected would trade it for ever |
+| Every reconnect's jitter comes from `crypto.getRandomValues` | A predictable jitter synchronises clients after a deploy, which is the herd it is there to scatter |
+| A message decrypted once is never decrypted again, by any tab or the service worker | The second decrypt fails, because the key was deleted after the first. A client that tried would mark a readable message undecryptable |
+| Two tabs sending at once never step one ratchet twice: every message decrypts exactly once on the peer | Two writers from one chain index reuse a message key, which breaks both messages' confidentiality |
+| A retried encrypted send is the same bytes, before and after a reload | Encrypting again would step the ratchet twice for one message |
+| A stale fence resends with the same `cid`, gives up after three rounds, and rotates the sender key when a device left | The `409` spent no seq, so the `cid` is unused. A device that left holds the old chain |
+| Registering a device with a stale sign-in signs nobody out | The defect the cross-repo row exists for. A second tab is open in the case and must still be signed in after |
+| A link whose timestamp came from a device clock a day out still links | The timestamp is the server's, from a `Date` header. The device clock is never asked |
+| A sign-out leaves no readable record in the vault, including when the tab closes mid-wipe | The vault key is deleted first, so every record is unreadable even if the database deletion never finishes |
+| No private key is extractable: `exportKey` on every stored key is refused | The property that ends a compromise with the page, as the `HttpOnly` cookie's does |
+| A decrypted message with a U+202E, an out-of-bounds mention or text past the kind's bound is `invalid` | Under encryption the server validates nothing, so the recipient's check is the only one there is |
+| Sealed media refuses a reordered, dropped, truncated or extended chunk, and a whole-file hash mismatch | Integrity has to be checked as the bytes arrive, without the whole file in memory |
+| The encrypted push shows the application's generic wording on every failure path, never nothing | A user-visible push that shows nothing is a push the browser holds against the origin |
+| `trust` and `unreviewedProtocol` are required, and omitting either fails to compile | Type-level. The first is a security property no default should hand an application. The second makes an unreviewed protocol something an application has to type out |
 
 ---
 

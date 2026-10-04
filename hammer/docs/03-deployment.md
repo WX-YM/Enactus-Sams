@@ -132,7 +132,7 @@ and the application's map is the one this section is about.
 
 ## 3. The CSP the DOM suite is written against
 
-hammer sets no inline style and no inline script (`ENGINEERING_RULES.md` §5), and its DOM suite runs under
+hammer sets no inline style and no inline script (`CLAUDE.md` §5), and its DOM suite runs under
 tripwires on every route to one. That work buys nothing unless the policy is actually served:
 
 ```
@@ -256,5 +256,9 @@ somewhere holding no session.
 - [ ] Hashed assets are `immutable`; `index.html` is `no-cache`; the session response is
       `private` (§4).
 - [ ] The previous build's assets survive the deploy long enough for an open tab (§4).
+- [ ] The hammer being deployed passed `npm run check:production` on a clean `npm ci`: no
+      runtime dependency, no tolerated dev package, no open advisory (`CLAUDE.md` §12). A
+      warning from `npm run check` is fine for development and is a refusal here. The same gate
+      runs in the SDK's release, alongside anvil's.
 - [ ] `Retry-After` is served on `429` and `503` — anvil does this in one place, and
       `wire/retry.ts` honours it exactly and invents nothing.

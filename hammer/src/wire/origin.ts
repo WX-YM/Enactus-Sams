@@ -24,7 +24,7 @@
 // monthly, and wrong in the dangerous direction the moment a copy goes stale —
 // a stale list calls `a.github.io` and `b.github.io` one site, which is exactly
 // the pair it exists to separate. A library with a zero-dependency rule
-// (`ENGINEERING_RULES.md` §5) does not carry that table and does not carry a guess.
+// (`CLAUDE.md` §5) does not carry that table and does not carry a guess.
 //
 // What it carries instead is the one comparison that needs no list — the
 // origins are equal — and, for a deployment that genuinely splits them, a
@@ -38,7 +38,7 @@
 // `location.origin` is a document's, and `src/wire/` may not name a document
 // (`tools/check-layering.sh`). It is also what a test has to vary in order to
 // drive any of this at all, which is the same reason the fetch, the clock and
-// the lock manager are injected rather than read (`ENGINEERING_RULES.md` §3.3).
+// the lock manager are injected rather than read (`CLAUDE.md` §3.3).
 
 import type { Result } from "../core/result.js";
 import { fail, ok } from "../core/result.js";
@@ -91,7 +91,7 @@ export type ApiOriginRequest = {
 
     // The registrable domain the application asserts both hosts share, or null
     // for a deployment that does not need one. Null rather than absent, for the
-    // reason every other nullable field here is (`ENGINEERING_RULES.md` §2.3).
+    // reason every other nullable field here is (`CLAUDE.md` §2.3).
     readonly site: string | null;
 };
 
@@ -105,7 +105,7 @@ function parse(text: string): URL | null {
         return new URL(text);
     } catch {
         // The one thing `new URL` does that this module must not: throw for an
-        // input that came from a configuration file (`ENGINEERING_RULES.md` §3.1).
+        // input that came from a configuration file (`CLAUDE.md` §3.1).
         return null;
     }
 }
@@ -155,7 +155,7 @@ function within(hostname: string, site: string): boolean {
 //
 // Called by `createClient`, which turns a failure here into a throw: a
 // misconfigured client is programmer error and is the one thing a throw is for
-// (`ENGINEERING_RULES.md` §3.1). It is a `Result` here so that the decision can be tested
+// (`CLAUDE.md` §3.1). It is a `Result` here so that the decision can be tested
 // without constructing one, and so the reason is a value rather than a string.
 export function defineApiOrigin(request: ApiOriginRequest): Result<ApiOrigin, ApiOriginError> {
     const api = asOrigin(request.apiOrigin);

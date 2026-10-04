@@ -6,7 +6,7 @@
 // counts live handles, because "48 MB times three kills the tab" is not a thing
 // a unit test can observe directly.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { WorkerPool, servePool } from "../../src/state/workers/pool.js";
 import type { WorkerScope } from "../../src/state/workers/pool.js";

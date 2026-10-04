@@ -1,7 +1,7 @@
 // The switch that stops a client attacking a server that is already down.
 //
 // Twenty tabs retrying independently is a self-inflicted denial of service
-// (`ENGINEERING_RULES.md` §6), and it arrives at the worst possible moment: a server that
+// (`CLAUDE.md` §6), and it arrives at the worst possible moment: a server that
 // is failing is a server whose capacity to answer a retry storm is exactly the
 // capacity it has already run out of. The breaker converts "every request in
 // this tab fails after a timeout" into "every request in this tab fails

@@ -38,7 +38,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { decodeEnvelope, errorVocabulary } from "../../src/wire/envelope.js";
 import type { ErrorCode, ValidationReason } from "../testapp/api/hammer.generated.js";

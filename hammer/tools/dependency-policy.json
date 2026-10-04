@@ -1,0 +1,54 @@
+{
+    "$comment": "CLAUDE.md §12 and docs/15-tasks.md Phase 8. Read by tools/check-dependencies.sh. A package is never added to the tolerated tier — it is either allowed under §12.2 or it does not come in.",
+
+    "allowed": {
+        "typescript": {
+            "why": "The compiler. Nothing built into Node performs static type-checking, and hammer's every guarantee in CLAUDE.md §3.1 (readonly, branded types, exhaustive unions) is enforced by this program and by no other.",
+            "owner": "Microsoft, a decade of stable major releases",
+            "replaces": "no built-in — the platform has no static type-checker; the alternative is untyped JavaScript",
+            "tree": ["typescript"]
+        },
+        "esbuild": {
+            "why": "The measuring bundler. Nothing in the platform bundles or minifies, and the byte budgets (tools/check-bundle-budget.sh), the tree-shaking assertions (tests/codegen/built_output.test.ts) and the markup-sink scan of a shipped bundle (tests/dom/bundle.test.ts) are all claims about exactly what a consumer's bundler emits. Zero JS dependencies; its own tree is the platform binary only.",
+            "owner": "Evan Wallace, in continuous release since 2020 and the bundler most consuming applications already run",
+            "replaces": "no built-in bundler or minifier exists in Node",
+            "tree": ["esbuild", "@esbuild/*"]
+        },
+        "react": {
+            "why": "The peer hammer/react adapts. An adapter tested without the library it adapts is tested against a belief about that library rather than the library itself.",
+            "owner": "Meta, a decade of stable major releases",
+            "replaces": "not applicable — this is the peer being adapted, not a stand-in for a platform primitive",
+            "tree": ["react"]
+        },
+        "react-dom": {
+            "why": "The renderer half of the same peer. hammer/react's hooks are exercised against real mount and unmount lifecycles, which is where a leaked subscription or a state update after unmount actually shows up.",
+            "owner": "Meta, a decade of stable major releases",
+            "replaces": "not applicable — this is the peer being adapted, not a stand-in for a platform primitive",
+            "tree": ["react-dom", "scheduler"]
+        },
+        "@types/react": {
+            "why": "Ambient declarations for the peer above. Nothing in the package executes; it is read by tsc and by nothing else.",
+            "owner": "the DefinitelyTyped project, published under the community's types-publisher bot",
+            "replaces": "no built-in — the platform ships no ambient types for a peer it does not itself provide",
+            "tree": ["@types/react", "csstype"]
+        },
+        "@types/react-dom": {
+            "why": "Ambient declarations for react-dom. Nothing in the package executes.",
+            "owner": "the DefinitelyTyped project, published under the community's types-publisher bot",
+            "replaces": "no built-in — the platform ships no ambient types for a peer it does not itself provide",
+            "tree": ["@types/react-dom"]
+        },
+        "@types/node": {
+            "why": "Ambient declarations for the Node APIs codegen and the tools/ scripts call (node:fs, node:path, node:crypto). Nothing in the package executes.",
+            "owner": "the DefinitelyTyped project, published under the community's types-publisher bot, tracking Node's own release line",
+            "replaces": "no built-in — Node ships no ambient TypeScript types for its own APIs",
+            "tree": ["@types/node", "undici-types"]
+        }
+    },
+
+    "tolerated": {},
+
+    "installScripts": {
+        "node_modules/esbuild": "postinstall downloads the platform binary; ignore-scripts disables it, and the pinned optional @esbuild/<platform> package supplies the same binary the script would have fetched"
+    }
+}

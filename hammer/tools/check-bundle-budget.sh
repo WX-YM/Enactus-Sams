@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Every entry point has a declared gzipped ceiling (ENGINEERING_RULES.md §2.1).
+# Every entry point has a declared gzipped ceiling (CLAUDE.md §2.1).
 #
 # A kilobyte of JavaScript is not a kilobyte of transfer. It is downloaded,
 # decompressed, parsed, compiled and held, and on a mid-range phone the
@@ -90,7 +90,8 @@ const external = Object.keys(pkg.peerDependencies ?? {});
 
 // The specifiers the entry points use on each other, mapped to source. A
 // self-contained bundle needs them resolved rather than left as imports, and
-// this is the same map `vitest.config.ts` and `tsconfig.json` carry.
+// this is the same map `tsconfig.json`'s `paths` carries and
+// `tests/support/register.mjs` derives from `exports` the same way.
 const alias = {};
 for (const [subpath, target] of Object.entries(pkg.exports ?? {})) {
     const source = sourceOf(target);

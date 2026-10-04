@@ -1,10 +1,9 @@
-// @vitest-environment happy-dom
 //
 // The section renderer, and the one thing that makes it more than a list of
 // values: one of those values is markup, and it reaches the DOM through the
 // single insertion site or it does not reach it at all.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClassNames } from "../../src/core/tables.js";
 import { renderSection } from "../../src/dom/section.js";

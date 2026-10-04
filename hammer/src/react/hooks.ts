@@ -148,7 +148,7 @@ export function useResource<T, E>(open: () => Resource<T, E>): ResourceView<T, E
 
 // --- a write -------------------------------------------------------------
 
-// One shape, every property declared (`ENGINEERING_RULES.md` §2.3), discriminated so that a
+// One shape, every property declared (`CLAUDE.md` §2.3), discriminated so that a
 // caller narrows rather than null-checks.
 export type MutationState<T, E> =
     | { readonly status: "idle"; readonly value: null; readonly error: null }
@@ -202,7 +202,7 @@ export function useMutation<T, E>(): Mutation<T, E> {
         live.mounted = true;
         return () => {
             live.mounted = false;
-            // Nothing outlives what created it (`ENGINEERING_RULES.md` §3.3). A request
+            // Nothing outlives what created it (`CLAUDE.md` §3.3). A request
             // whose screen has gone is a request nobody will read, holding a
             // slot in the bounded queue that something visible is waiting for.
             live.generation += 1;
@@ -243,7 +243,7 @@ export function useMutation<T, E>(): Mutation<T, E> {
                 return answered;
             } catch (thrown) {
                 // A `perform` that throws is programmer error — failure belongs
-                // in the return type (`ENGINEERING_RULES.md` §3.1) — so there is no error
+                // in the return type (`CLAUDE.md` §3.1) — so there is no error
                 // value of the caller's own type to publish and none is
                 // invented. The state goes back to where it can be retried from
                 // and the throw continues to the caller who wrote it.
@@ -293,7 +293,7 @@ export function useSession(session: SessionStore): SessionState {
 // (`wire/sse.ts`), `open` is idempotent, and `close` is not scoped to one
 // component — a bell unmounting while an inbox screen is open would take the
 // connection out from under it. The lifetime belongs to whoever constructed the
-// inbox, which is the application (`ENGINEERING_RULES.md` §3.3).
+// inbox, which is the application (`CLAUDE.md` §3.3).
 export function useInbox<A extends ApiTypes, T>(inbox: Inbox<A, T>): InboxState<T> {
     return useStore(inbox.store);
 }

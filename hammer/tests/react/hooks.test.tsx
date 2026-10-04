@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // What is asserted here is the lifecycle and nothing else.
 //
@@ -15,7 +14,7 @@
 
 import type { ReactElement } from "react";
 import { StrictMode, useCallback } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { fail, ok } from "../../src/core/result.js";
 import type { HammerError } from "../../src/core/errors.js";

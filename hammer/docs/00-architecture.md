@@ -12,6 +12,8 @@
   │ │ hammer/chart    scales, marks, a data-table fallback│ │
   │ │ hammer/state    stores, bounded cache, streams   │ │
   │ │ hammer/wire     client, credentials, retry, SSE  │ │
+  │ │ hammer/crypto   BLAKE2b, Argon2, SHA-256         │ │
+  │ │ hammer/prehash  the password never leaves the tab│ │
   │ │ hammer          core: types, errors, text, bits  │ │
   │ └──────────────────────────────────────────────────┘ │
   └────────┬─────────────────────┬───────────────────────┘
@@ -53,15 +55,21 @@ boundary that holds until the week someone is busy.
 | Entry point | Contains | May import | Needs |
 |---|---|---|---|
 | `hammer` | `Result`, the error model, brands, `PermSet`, `Uuid`, text and code-point bounds, locale, bidi, digits, validators, cursors | nothing | **no DOM, no `fetch`** |
+| `hammer/crypto` | BLAKE2b and Argon2 (d, i, id), byte-for-byte libargon2's, and an incremental SHA-256 for what WebCrypto's one-shot `digest` cannot hold whole, in plain JavaScript. Machinery only: no parameters, salts or policy | `hammer` | **no DOM, no `fetch`** — it runs in a worker |
 | `hammer/wire` | the session view, route resolution, the affordance gate, the client, the route builder, envelope decode, retry, idempotency, the credential lifecycle, the leader, SSE, upload | `hammer` | `fetch`, `EventSource`, `BroadcastChannel`, `navigator.locks` |
 | `hammer/state` | stores, the bounded cache, resources, sessions, forms, sections, inbox, media, analytics, consent | `hammer`, `hammer/wire` | — |
 | `hammer/dom` | `SanitizedHtml`, the insertion site, and the stateful components: the login flow, the session and permission gates, the notification bell and inbox, the form and section renderers, the upload control, the pager, the error surface, the consent gate | `hammer`, `hammer/state` | a `document` |
+| `hammer/prehash` | client-side password prehashing, the page's half: the Argon2 pool, the salt-answer decode, and the `Prehasher` a login and a signup share | `hammer`, `hammer/crypto`, `hammer/state` | — |
+| `hammer/prehash-worker` | the worker's half: `serveArgon2Pool` | the same | a dedicated worker |
 | `hammer/chart` | scales, ticks, marks, hit regions, keyboard traversal, and the data-table fallback. No colours, no formatting, no charting dependency | `hammer`, `hammer/state` | a `document` |
+| `hammer/chat` | conversations, the plaintext half: the composer's validator, and as it lands the calls, the log a device keeps in step, the outbox, the socket and the stores ([`05-chat.md`](05-chat.md)) | `hammer`, `hammer/wire`, `hammer/state` | **no DOM** — a service worker loads it |
+| `hammer/chat-e2ee` | conversations, the encrypted half: the vault, and as it lands the device lifecycle, verification and the protocol ([`05-chat.md`](05-chat.md) §9). Not for production until the external review | `hammer`, `hammer/crypto`, `hammer/wire`, `hammer/state`, `hammer/chat` | **no DOM** — a service worker loads it |
+| `hammer/edit` | the image edit recipe, its codec and validator, the frame geometry, bounded undo, the two edit calls, and the SVG editor: crop, rotate, flip, resize, freehand strokes. It produces a recipe and never a pixel | `hammer`, `hammer/wire`, `hammer/dom` | a `document` |
 | `hammer/react` | hooks binding the stores to a framework's lifecycle | all of the above | `react` as a peer |
 | `hammer/codegen` | the descriptor reader and the TypeScript emitter | `hammer` | **node only — never in a browser bundle** |
 
-**`hammer/dom` and `hammer/chart` need a document and may not reach the global
-one.** It arrives through the element a component was asked to mount in, which is
+**`hammer/dom`, `hammer/chart` and `hammer/edit` need a document and may not reach
+the global one.** It arrives through the element a component was asked to mount in, which is
 §3.3's injection rule applied to the one singleton this layer cannot avoid
 needing — a test supplies its own instead of racing every other test in the file,
 and the same component renders into a document that is not the tab's (a preview,
@@ -106,7 +114,7 @@ zero-dependency rule has no bundler and takes no dependency on one. The applicat
 a factory and writes a two-line worker entry against `serveImagePool` / `serveDecodePool` —
 functions rather than modules with top-level listeners, because a module that registered a
 handler on import is a module a bundler cannot drop and a promise `"sideEffects": false` stops
-keeping (`ENGINEERING_RULES.md` §2.1).
+keeping (`CLAUDE.md` §2.1).
 
 **Two rules, both crash-or-hang class:**
 
@@ -212,7 +220,7 @@ the server — is a property hammer gets by **not having an implementation**.
   two tabs refreshing concurrently is a rotation race whose loser is logged out — with a valid
   session, in a tab the user was using. The lock is not an optimisation.
 - **A follower never refreshes.** It waits for the leader's broadcast and replays.
-- **A replay is a retry, and obeys §6 of `ENGINEERING_RULES.md`.** A `POST` replayed after a refresh is
+- **A replay is a retry, and obeys §6 of `CLAUDE.md`.** A `POST` replayed after a refresh is
   exactly the case the idempotency key exists for; a replay without one is a double charge.
 - **Replays are capped and are not retried a second time.** A second `401` after a successful
   refresh is not a race, it is a rejection: clear identity, broadcast logout, stop.
@@ -317,6 +325,14 @@ A `Resource<T>` is keyed by `(route id, canonical params, user id)`.
   response by default. A persisted response outlives the cookie that authorised it, which
   means private data readable after the session is gone — the offline case is a per-resource
   opt-in that names its own eviction, not a default.
+
+  **One exception, and only one: the encrypted-chat vault** (`src/chat-e2ee/idb.ts`, and
+  [`05-chat.md`](05-chat.md) §9.3). A device's keys, its ratchet state and what it decrypted
+  cannot be fetched again, because forward secrecy deletes the keys that would read them, so
+  they persist in IndexedDB. Private keys are non-extractable; everything else is sealed under a
+  vault key that a sign-out forgets first and the database second, so a wipe is complete even
+  when the deletion is not. It persists no API response, and plaintext chat persists nothing.
+  `tools/check-source-bans.sh` refuses IndexedDB, and every `IDB*` type, in every other file.
 - **A mutation declares what it invalidates**, and the invalidation is broadcast: tab B must
   not keep rendering the row tab A just changed. The mechanism is hammer's; the mapping is the
   application's.
@@ -354,7 +370,7 @@ What the person holding the Nginx configuration has to do so that they are true 
    cookies are not sent on a cross-site subresource request, so the session is already gone
    and the only question is how confusingly.
 5. **The CSP carries no `unsafe-inline` and no `unsafe-eval`.** hammer sets no inline style and
-   no inline script (`ENGINEERING_RULES.md` §5), and its DOM suite runs under a policy that would catch it
+   no inline script (`CLAUDE.md` §5), and its DOM suite runs under a policy that would catch it
    if it did.
 6. **`CONTENT_ORIGIN` is a different registrable host, and its HTML is never inlined into the
    site's document** (§1).

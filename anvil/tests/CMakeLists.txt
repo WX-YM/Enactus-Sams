@@ -27,6 +27,9 @@ add_executable(anvil_foundation_tests
 
     uuid_test.cc
     crypto_test.cc
+    siv_test.cc
+    ed25519_test.cc
+    x25519_test.cc
     utf8_test.cc
     i18n_test.cc
     json_test.cc
@@ -39,10 +42,19 @@ add_executable(anvil_foundation_tests
     core_types_test.cc
     token_test.cc
     password_test.cc
+    prehash_test.cc
+    accounts_test.cc
+    argon2_test.cc
     filesystem_test.cc
     client_address_test.cc
     config_test.cc
     metrics_test.cc
+    edit_recipe_test.cc
+    stroke_raster_test.cc
+    chat_text_test.cc
+    chat_kind_test.cc
+    chat_frames_test.cc
+    chat_hub_test.cc
 )
 
 # --------------------------------------------------------------------------
@@ -51,6 +63,9 @@ add_executable(anvil_foundation_tests
 add_executable(anvil_alloc_tests
     validation_fuzz_test.cc
     metrics_alloc_test.cc
+    recipe_fuzz_test.cc
+    chat_text_fuzz_test.cc
+    chat_frames_fuzz_test.cc
 )
 anvil_target(anvil_alloc_tests)
 target_link_libraries(anvil_alloc_tests PRIVATE
@@ -82,6 +97,7 @@ add_executable(anvil_platform_tests
     testapp/migrations.cc
 
     codec_test.cc
+    chat_vectors_test.cc
     access_control_test.cc
     route_declaration_test.cc
     timer_test.cc
@@ -99,13 +115,16 @@ add_executable(anvil_platform_tests
     event_buffer_test.cc
     sessions_test.cc
     media_serving_test.cc
+    media_grant_test.cc
     identity_test.cc
     seams_phase3_test.cc
 
     sections_test.cc
+    entries_test.cc
     forms_test.cc
     notifications_test.cc
     sse_test.cc
+    chat_wakes_test.cc
     webhook_test.cc
     webpush_test.cc
     email_test.cc
@@ -138,6 +157,7 @@ gtest_discover_tests(anvil_platform_tests
 # anvil_platform_tests already makes, and for the same reason: nothing in
 # anvil::app needs a process the other suites must not share.
 add_executable(anvil_listener_tests
+    scratch_cleanup.cc
     preview_listener_test.cc
     session_listener_test.cc
     sink_timer_listener_test.cc
@@ -179,6 +199,7 @@ add_executable(anvil_concurrency_tests
     metrics_concurrency_test.cc
     epoch_cache_concurrency_test.cc
     sse_concurrency_test.cc
+    chat_hub_concurrency_test.cc
 )
 anvil_target(anvil_concurrency_tests)
 # anvil::app, for the live-stream registry. It is the one piece of the
@@ -197,6 +218,7 @@ gtest_discover_tests(anvil_concurrency_tests
 # ---------------------------------------------------------------------------
 # Needs a live MongoDB. Labelled `database` as well, so the tsan preset skips it.
 add_executable(anvil_db_tests
+    scratch_cleanup.cc
     db_fixture_check.cc
     testapp/migrations.cc
     versioned_concurrency_test.cc
@@ -206,12 +228,22 @@ add_executable(anvil_db_tests
     audit_db_test.cc
     audit_service_db_test.cc
     media_db_test.cc
+    media_edit_db_test.cc
     staff_db_test.cc
     verification_db_test.cc
     query_catalogue_db_test.cc
     auth_service_db_test.cc
+    accounts_db_test.cc
     media_concurrency_test.cc
     content_db_test.cc
+    entries_db_test.cc
+    chat_repository_db_test.cc
+    chat_service_db_test.cc
+    chat_devices_db_test.cc
+    chat_e2ee_db_test.cc
+    chat_member_cache_db_test.cc
+    chat_presence_db_test.cc
+    chat_push_db_test.cc
     forms_db_test.cc
     notifications_db_test.cc
     publish_db_test.cc
@@ -219,6 +251,7 @@ add_executable(anvil_db_tests
     outbound_db_test.cc
     analytics_db_test.cc
     rollup_db_test.cc
+    entity_dimension_db_test.cc
     index_expansion_db_test.cc
     migration_lock_db_test.cc
     data_migration_db_test.cc
@@ -235,6 +268,57 @@ gtest_discover_tests(anvil_db_tests
 )
 
 # ---------------------------------------------------------------------------
+# The chat routes, served. A listener of its own, for the reason
+# anvil_listener_tests is one (one drogon::app() per process), and apart from
+# that binary because these cases need the database it deliberately lacks: the
+# stealth 404 for a stranger is a membership row that is not there, and only a
+# cluster can be asked for one.
+add_executable(anvil_chat_listener_tests
+    scratch_cleanup.cc
+    testapp/migrations.cc
+    chat_routes_listener_test.cc
+    chat_socket_listener_test.cc
+)
+anvil_target(anvil_chat_listener_tests)
+target_link_libraries(anvil_chat_listener_tests PRIVATE
+    anvil::app
+    GTest::gtest
+    GTest::gtest_main
+)
+gtest_discover_tests(anvil_chat_listener_tests
+    PROPERTIES LABELS "database"
+    DISCOVERY_MODE PRE_TEST
+)
+# And once as one process, for the reason listener_in_one_process gives.
+add_test(NAME chat_listener_in_one_process COMMAND anvil_chat_listener_tests)
+set_tests_properties(chat_listener_in_one_process PROPERTIES LABELS "database")
+
+# ---------------------------------------------------------------------------
+# Two processes, one conversation. The binary is its own peer: a case spawns it
+# twice with --chat-peer, as two chat servers sharing the one MongoDB and the
+# one Redis, and drives them over HTTP and real sockets. Its own main, because
+# that flag has to be read before gtest sees the command line.
+add_executable(anvil_chat_peer_tests
+    scratch_cleanup.cc
+    testapp/migrations.cc
+    chat_peers_listener_test.cc
+)
+anvil_target(anvil_chat_peer_tests)
+target_link_libraries(anvil_chat_peer_tests PRIVATE
+    anvil::app
+    GTest::gtest
+)
+gtest_discover_tests(anvil_chat_peer_tests
+    PROPERTIES LABELS "database"
+    DISCOVERY_MODE PRE_TEST
+)
+# And both cases in one process, as chat_listener_in_one_process runs its own:
+# two spawns of the same peers in one parent is where a case leaking state into
+# the next would show.
+add_test(NAME chat_peers_in_one_process COMMAND anvil_chat_peer_tests)
+set_tests_properties(chat_peers_in_one_process PROPERTIES LABELS "database")
+
+# ---------------------------------------------------------------------------
 # The load gate. One binary, labelled `load` and EXCLUDED from every default
 # preset, because it saturates pools on purpose — which is antisocial to run
 # beside a suite that assumes it can post a task.
@@ -245,7 +329,10 @@ gtest_discover_tests(anvil_db_tests
 # mongod, and 393,116 transaction retries with no backoff behind them. See
 # docs/16-test-plan.md.
 add_executable(anvil_load_tests
+    scratch_cleanup.cc
     load_gate_test.cc
+    chat_load_test.cc
+    chat_wake_load_test.cc
     testapp/migrations.cc
 )
 anvil_target(anvil_load_tests)
@@ -269,6 +356,50 @@ add_executable(testapp_emit_descriptor
 anvil_target(testapp_emit_descriptor)
 target_link_libraries(testapp_emit_descriptor PRIVATE anvil::foundation)
 
+# The edit recipe's golden vectors, as the JSON fixture the client commits. The
+# recipe is a byte-exact contract between two codecs in two languages, and this
+# is how the second one is handed the same vectors the first is tested against.
+add_executable(testapp_emit_edit_vectors
+    testapp/emit_edit_vectors.cc
+)
+anvil_target(testapp_emit_edit_vectors)
+target_link_libraries(testapp_emit_edit_vectors PRIVATE anvil::foundation)
+
+# The chat golden vectors (tests/testapp/chat_vectors.h) as hammer's key store
+# fixture. Foundation only: base64url and the JSON writer.
+add_executable(testapp_emit_chat_vectors
+    testapp/emit_chat_vectors.cc
+)
+anvil_target(testapp_emit_chat_vectors)
+target_link_libraries(testapp_emit_chat_vectors PRIVATE anvil::foundation)
+
+# The chat socket's golden frames and every refusal (tests/testapp/
+# chat_frame_vectors.h), and the chat text validator's cases
+# (tests/testapp/chat_text_vectors.h), as the fixtures hammer's codec and
+# validator are held to.
+add_executable(testapp_emit_chat_frames
+    testapp/emit_chat_frames.cc
+)
+anvil_target(testapp_emit_chat_frames)
+target_link_libraries(testapp_emit_chat_frames PRIVATE anvil::foundation)
+add_executable(testapp_emit_chat_text
+    testapp/emit_chat_text.cc
+)
+anvil_target(testapp_emit_chat_text)
+target_link_libraries(testapp_emit_chat_text PRIVATE anvil::foundation)
+
+# The same recipes RENDERED, as the files hammer's preview is compared against
+# pixel by pixel. The vectors above prove the codecs agree on bytes; only a
+# render proves the two painters agree on the picture. It renders, so it needs
+# libvips and exists only where the image subsystem does.
+if(ANVIL_WITH_VIPS)
+    add_executable(testapp_emit_edit_renders
+        testapp/emit_edit_renders.cc
+    )
+    anvil_target(testapp_emit_edit_renders)
+    target_link_libraries(testapp_emit_edit_renders PRIVATE anvil::platform)
+endif()
+
 # ---------------------------------------------------------------------------
 # The reference application, on a port.
 #
@@ -284,10 +415,22 @@ target_link_libraries(testapp_emit_descriptor PRIVATE anvil::foundation)
 # any of those would be demonstrating a system this library does not have.
 add_executable(anvil_reference_server
     testapp/reference_server.cc
+    testapp/jobs.cc
     testapp/migrations.cc
 )
 anvil_target(anvil_reference_server)
 target_link_libraries(anvil_reference_server PRIVATE anvil::app)
+
+# The client stage of docs/05 §12, for the shell above: the reference server
+# serves no route a password can be posted to, so a harness driving it with
+# curl needs something to derive the credential with. A test binary for the
+# same reason the server is one; tests/testapp/prehash_credential.cc says why
+# the reference `argon2` command cannot do it.
+add_executable(testapp_prehash_credential
+    testapp/prehash_credential.cc
+)
+anvil_target(testapp_prehash_credential)
+target_link_libraries(testapp_prehash_credential PRIVATE anvil::foundation)
 
 # "The reference server starts in CI and answers a request" — one third of the
 # phase-12 gate, and a thing no unit test can express: anvil_listener_tests boots
@@ -304,7 +447,8 @@ target_link_libraries(anvil_reference_server PRIVATE anvil::app)
 # skips anvil_db_tests: vcpkg builds libmongoc uninstrumented.
 add_test(NAME reference_server
          COMMAND "${ANVIL_SOURCE_DIR}/tools/check-reference-server.sh"
-                 "$<TARGET_FILE:anvil_reference_server>")
+                 "$<TARGET_FILE:anvil_reference_server>"
+                 "$<TARGET_FILE:testapp_prehash_credential>")
 set_tests_properties(reference_server PROPERTIES
                      LABELS "database"
                      SKIP_RETURN_CODE 77

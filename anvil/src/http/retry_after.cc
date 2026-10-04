@@ -11,7 +11,7 @@ namespace {
 
 // The value has at most ten digits, so it is formatted on the stack: a
 // std::to_string on a shed path is a heap allocation charged to the refusal,
-// which is the request that must cost the least (ENGINEERING_RULES.md §2.1).
+// which is the request that must cost the least (CLAUDE.md §2.1).
 constexpr std::size_t kMaxDigits = 10;
 
 // Every one of the three rules the header states, exercised at build time

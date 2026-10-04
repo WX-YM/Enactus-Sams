@@ -28,7 +28,7 @@
 // `readAsDataURL` — `tools/check-source-bans.sh` refuses all three across the
 // library. `file.size` and `file.type` are metadata on the handle; reading one
 // to show a thumbnail would put the whole file in the heap with the least room
-// (`ENGINEERING_RULES.md` §2.2).
+// (`CLAUDE.md` §2.2).
 
 import type { UploadFile, UploadLimits, UploadRefusal } from "../core/upload_bounds.js";
 import { checkUpload } from "../core/upload_bounds.js";
@@ -58,7 +58,7 @@ export type UploadCopy = {
     readonly cancel: string;
 
     // How far along. Bytes are a unit the application formats — a thousand-
-    // separator and a digit shape belong to the locale (`ENGINEERING_RULES.md` §8).
+    // separator and a digit shape belong to the locale (`CLAUDE.md` §8).
     readonly progress: (sentBytes: number, totalBytes: number) => string;
 
     // Why a file was refused. Total over exactly the causes the check can

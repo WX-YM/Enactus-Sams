@@ -3,7 +3,7 @@
 // below fails the build the day the line it guards starts compiling, which is
 // the only way a rule about what a caller can express stays true.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { Cursor, PageRequest } from "../../src/core/cursor.js";
 import { cursorFromServer, pageRequest } from "../../src/core/cursor.js";

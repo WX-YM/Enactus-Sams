@@ -19,6 +19,204 @@ production; [`docs/03-deployment.md`](docs/03-deployment.md) is the long form.
 
 ## Unreleased
 
+### Added — `Sha256` and `sha256` in `hammer/crypto`, not breaking
+
+**An incremental SHA-256**, for hashing what cannot be held whole. WebCrypto's `digest` takes its
+input at once, and encrypted chat media is hashed chunk by chunk as it is encrypted, because the
+server compares the hash the client declares with the hash of what arrived
+(`docs/05-chat.md` §9.11). Anywhere the whole input is already in memory, WebCrypto's `digest`
+remains the call to make.
+
+No migration. The entry point's ceiling rises from 4 KB to 5 KB gzipped; an application that
+imports only `argon2` tree-shakes this away, and the prehash bundles did not change by a byte.
+
+### Added — `hammer/edit`, a new entry point, not breaking
+
+**Crop, rotate, flip, resize and freehand drawing on a stored image.** `renderImageEditor` draws
+one SVG over a role of the source and produces a canonical recipe; `encodeRecipe` validates it
+against the generated `kEditLimits` with the server's own fault names; `submitEdit` sends it to
+the application's edit route and `reopenEdit` reads an edit back as its source and its recipe.
+No edited pixel is ever produced in the tab: anvil renders the recipe into a new object
+(`docs/04-image-edits.md`).
+
+Pass `aspect: { num: 16, den: 9 }` when the result is going into a place of fixed shape, such
+as a section's image slot: the crop then opens on the largest centred box of that shape and keeps
+it through every drag, key and rotation, so the picture is not refused there for a ratio a hand
+could not hit.
+
+*Requires* an anvil with the edit routes (anvil `docs/21-image-edits.md`), two route
+declarations and one unique index in the application (anvil `docs/01-seams.md` §17), and a
+regenerated client: `kEditLimits` is emitted only from a descriptor that carries `limits.edit`,
+so an editor mounted against an older server fails to type-check. The canvas class needs
+`touch-action: none` in the application's stylesheet, or touch scrolls the page under a stroke.
+
+### Added — `hammer/dom`, not breaking
+
+**`renderAccountForm`, and words for a refusal made before anything was sent.** The discipline
+`renderLogin` and `renderSignup` share — one submit at a time, aborted on close, every secret and
+code dropped once the call has succeeded — is now available to every other account screen:
+verifying an address, a reset, a password change. Its `send` is `accounts.submit(flow, …)`. A
+failure that never reached a server is worded by `kind.cause` first and then by `kind`, so
+`"account.secret-too-short"` and `"prehash.out-of-memory"` can each have a sentence of their own.
+
+*Requires* nothing. An `errors` table keyed by `kind` alone reads exactly as before.
+
+### Added — `hammer/accounts`, a new entry point, and `AccountError` in `hammer`, not breaking
+
+**The client of anvil's built-in account flows.** `Accounts` drives registration, contact
+verification, sign-in, password reset and change, and sign-out from the generated `kAccounts`
+table; `accountFields(table, flow)` gives each screen its fields, keyed, bounded and with their
+platform purpose; `accounts.submit(flow, form.body(), signal)` sends one. Under client hashing —
+anvil's default — the password never leaves the tab, and which salt each credential is derived
+under is fixed here rather than left to an application (`docs/01-seams.md` §23).
+
+*Requires* an anvil server with built-in accounts; `kAccounts` is `null` otherwise, and nothing
+here is used.
+
+- Replace a hand-written sign-in and registration with `new Accounts({ table: kAccounts, call:
+  accountCall(api), prehash: { pool, bounds } })` and its methods.
+- Add words for `"account"` failures (`secret-too-short`, `secret-too-long`) to your error copy.
+
+### Fixed — `hammer/state` and `hammer/dom`, not breaking
+
+**A password field is drawn as one.** `renderForm` drew every text-like field as
+`type="text"`, so the login form's password was on the screen of everybody standing behind the
+person typing it, and with no `autocomplete` token no password manager could fill or save it.
+`FieldDefinition` gains an optional `purpose` — `current-password`, `new-password`, `email`,
+`username`, `tel`, `one-time-code`, `given-name`, `family-name` — which `renderForm` maps to the
+platform's own input type and standard `autocomplete` token, masking a secret and turning off
+correction and capitalisation where they would change what was typed.
+
+*Requires* nothing; a field with no `purpose` is drawn exactly as before.
+
+- Set `purpose: "current-password"` on a sign-in form's password field, `"new-password"` on a
+  registration's or a reset's, and the identifier purposes where they apply.
+
+### Added — the generated module, not breaking
+
+**`kAccounts`, from anvil's built-in account lifecycle.** anvil's descriptor now carries a
+`tables.accounts` (`docs/01-seams.md` §22) — hashing mode, activation, the contact channel,
+declared identifiers, the profile fields, the secret bounds, the verification code length and
+the routes for each role in the lifecycle. The generator emits it as `kAccounts`, `null` for an
+application that declares none, with every route role bound to that route's own generated
+`const` rather than to its id as a string — so a role naming a route anvil later retires is a
+compile error at the reference rather than a call that 404s at run time. `AccountsTable` names
+the shape.
+
+*Requires* nothing: a descriptor written before this table existed carries no `tables.accounts`
+key at all, which reads the identical way an explicit `null` does.
+
+- Regenerate the client (`hammer codegen`) to pick up `kAccounts` from a newer anvil descriptor.
+- There is no client here yet that reads it — that is separate work, on top of this table.
+
+### Added — `hammer/state`, not breaking
+
+**An analytics dimension may now be an entity: a foreign id rather than a member of a closed
+set.** anvil's descriptor carries a `kind` per dimension now (`docs/01-seams.md` §10); an
+`"enum"` dimension is unchanged, and an `"entity"` one takes no values at all. `report()` takes
+an optional `Uuid` for it instead of a string from a union, encoded to the wire's canonical
+36-character form and omitted entirely when the id is not yet known — never an empty string and
+never an index, because there is nothing to index into. `EntityDimension` is the new exported
+marker a generated `EventSpec` carries for one.
+
+*Requires* nothing from an existing application: an event declaring no entity dimension is
+unaffected, and an enum dimension's wire encoding is unchanged.
+
+- Regenerate the client (`hammer codegen`) to pick up an entity dimension a newer anvil
+  descriptor declares.
+- Pass a `Uuid` where an event's dimension is an entity, and omit the key rather than the value
+  when the id is not yet known — `Dimensions<E>` makes it optional rather than nullable.
+
+### Added — `hammer/dom`, not breaking
+
+**`renderSignup`, and a `prepare` step on both credential forms.** `renderSignup` is the login
+form's discipline — one submit at a time, aborted on close, the secret dropped after a
+successful call — for the screen where a password is chosen. Both it and `renderLogin` take an
+optional `prepare(body, signal)`, run before the call; pass a `Prehasher`'s `prepare` from
+`hammer/prehash` and the password never leaves the page (`docs/01-seams.md` §21).
+
+*Requires* nothing. `prepare` is optional and an existing `renderLogin` behaves as before.
+
+- For client-side prehashing, pass the same `prehasher.prepare` to both forms.
+- Add words for `"prehash"` to the `errors` table of either form that has a `prepare`: it is
+  the key a failed prehash is reported under.
+
+### Added — `hammer/prehash` and `hammer/prehash-worker`, new entry points, and `PrehashError` in `hammer`, not breaking
+
+**Client-side password prehashing: the password never leaves the device.** Against an anvil
+server in prehash mode (anvil `docs/05` §12), a `Prehasher` turns a login or signup form's body
+into the one to send — the password removed, a credential derived from it with Argon2id in its
+place — using an `Argon2Pool` whose worker runs `serveArgon2Pool` from `hammer/prehash-worker`.
+The server stops paying ~100 ms and 64 MiB per sign-in, and nothing between the tab and the
+server ever holds the password. `docs/01-seams.md` §21 is the whole contract.
+
+*Requires* an anvil server serving a salt route; a server in plain mode is unaffected and an
+application talking to one uses none of this.
+
+- Build one worker entry: `serveArgon2Pool(self)`, and hand the pool a factory for it.
+- Give the `Prehasher` your salt route call — it is passed a `SaltPurpose`, `sign_in` or
+  `enroll`, to send as the body's `purpose` — your field names and the cost bounds your
+  audience's devices can afford. hammer ships no default for any of them.
+- Send `prehasher.prepare(body, signal)` instead of the form's body, on every screen that sends
+  a password — the same `Prehasher` for sign-in and signup.
+- `PrehashError` is new in `hammer` and is not a member of `HammerError`; nothing that switches
+  over `HammerError` changes.
+
+### Fixed — `hammer/state`, not breaking
+
+**A real `Worker` now satisfies `WorkerLike` without a cast.** The pool's worker type promised
+that the platform's `Worker` satisfied it structurally, and it did not: `postMessage`'s
+transfer list was declared `readonly` and optional, where the platform declares a mutable
+array. An application writing `imageWorker: () => new Worker(url)` got a type error and had
+to cast, and nothing noticed because nothing in this repository had ever handed a pool a real
+worker. `WorkerScope`, the worker-side half, had the same mismatch against a dedicated
+worker's global scope.
+
+Both now declare `postMessage(message, transfer: Transferable[])`, as the platform does.
+
+- Remove any `as WorkerLike` cast around a `new Worker(...)`; it is no longer needed.
+- A hand-written `WorkerLike` or `WorkerScope` keeps compiling: one whose `postMessage`
+  accepted an optional or `readonly` list still accepts what is now passed.
+
+### Added — `hammer/crypto`, a new entry point, not breaking
+
+**BLAKE2b and Argon2 (argon2d, argon2i, argon2id), in plain JavaScript and byte-for-byte what
+libargon2 computes.** `argon2(params)` returns a `Result`; `blake2b(input, outBytes, key?)` and
+the incremental `Blake2b` are the hash beneath it. It is the algorithm half of client-side
+password prehashing (`docs/01-seams.md` §21), and it is its own entry point so that nothing else
+an application ships pays for it: 3.2 KB gzipped.
+
+*Requires* nothing. Nothing existing imports it.
+
+- Run it in a worker. At the parameters a password deserves it takes most of a second on a
+  desktop and several on a phone, and on the main thread that is a frozen page.
+- It needs no CSP change: it is not WebAssembly, so `'wasm-unsafe-eval'` stays out of
+  `script-src`.
+
+### Added — `hammer/state` and `hammer/dom`, not breaking
+
+**A form option can carry the word a person reads, separately from the value that is stored.**
+`FieldDefinition` gains an optional `choiceLabels`, a map from each entry in `choices` to its
+label, and `renderForm` uses it for both controls a closed set can draw — the `<option>` text of
+a `<select>` and the text beside a checkbox.
+
+anvil constrains an option value to `[A-Za-z0-9_-]` so that it is safe in a CSV cell, a JSON
+string, a URL and a BSON value without any downstream stage having to know where it came from.
+That constraint is right and it means the value cannot be a word in Arabic, in Greek or in
+Chinese — so a renderer with only `choices` to work from printed `new_site` on screen in every
+edition of a bilingual site, and there was no seam through which an application could supply
+anything better. Found by the first application to put a localised `SELECT_SINGLE` on a public
+page.
+
+*Requires* nothing. The member is optional and a value with no entry is drawn as itself, which
+is what every existing caller already gets: a **section** field's `choices` arrive from the
+descriptor as bare values with nowhere to put a word, and a blank option would be worse than an
+unlocalised one.
+
+- To adopt it, pass `choiceLabels` beside `choices` when you build a `FieldDefinition` from a
+  form definition your server sent. `definitionsFrom` is unchanged and does not set it — it
+  builds definitions from a **section**'s rows, which have no labels to offer.
+
 ### Fixed — `hammer/wire` and `hammer/state`, breaking
 
 **`decodeSessionView` was written against a session payload anvil does not send.** It expected
@@ -37,7 +235,7 @@ no address — a client that signs in successfully and can then call nothing.
 
 - **`SessionStore` takes a new required `permissionBits`**, and the generated module exports
   `kPermissionBits` for it. anvil sends names and hammer holds a `Uint8Array(16)`
-  (`ENGINEERING_RULES.md` §2.3), so something has to map one to the other and only the application has the
+  (`CLAUDE.md` §2.3), so something has to map one to the other and only the application has the
   table. Pass `permissionBits: kPermissionBits`. It is required rather than optional because a
   store with no table decodes every session to no permissions, and the symptom is a screen with
   every non-route affordance missing and nothing to explain it.
@@ -263,6 +461,16 @@ rather render the reason than crash on it, and so the decision stays testable wi
 constructing a client. The validated value is readable afterwards as **`client.origin`** — new,
 and the reason it is there: `crossOrigin` records a CORS preflight paid on every mutating
 request, and nothing else in a browser can observe it.
+
+### Changed — `engines`
+
+**`engines.node` is now `>=22`.** Node 20 reached end-of-life on 2026-04-30 and receives no
+further security fixes (`CLAUDE.md` §12). This changes nothing at the published surface —
+hammer ships nothing that runs on Node at all — but `npm install` and `npm ci` both read
+`engines` before they read anything else, and `.npmrc`'s `engine-strict=true` is what makes
+that read a refusal rather than a warning.
+
+*Requires* Node 22 or later to install, build or test hammer.
 
 ---
 

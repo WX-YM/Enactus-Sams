@@ -3,7 +3,7 @@
 // epoch, the status, and a password hash guarded by a compare-and-swap on the
 // value it replaces. There is no read-modify-write to lose, so a version filter
 // would add a mandatory re-read to the login path and protect nothing
-// (ENGINEERING_RULES.md §6). Every write that IS a read-modify-write — permissions, user
+// (CLAUDE.md §6). Every write that IS a read-modify-write — permissions, user
 // type, the password change — goes through db/versioned.h below.
 
 #include "anvil/identity/users.h"
@@ -102,6 +102,16 @@ namespace f = fields;
                          kvp(codec::key_of(repo::kVersionField), 1));
 }
 
+// A text field an account may not have: absent reads as empty. Only for the
+// three identifiers, which an account schema may make optional — every other
+// field this repository writes is always present, and reading its absence as
+// empty would hide exactly the corruption `read_text` exists to report.
+[[nodiscard]] Result<std::string_view> read_identifier(const bsoncxx::document::view& doc,
+                                                       std::string_view field) {
+    if (!doc[codec::key_of(field)]) { return std::string_view{}; }
+    return codec::read_text(doc, field);
+}
+
 [[nodiscard]] Result<UserAuthRecord> decode_auth(const bsoncxx::document::view& doc) {
     const Result<Uuid> id = codec::read_uuid(doc, f::kId);
     if (!id) { return id.error(); }
@@ -133,7 +143,7 @@ namespace f = fields;
 
     // The hash is COPIED out of the document view here. `read_text` borrows into
     // the driver's buffer, which dies with the find_one result, and this record
-    // outlives it by crossing back to the caller (ENGINEERING_RULES.md §2.2).
+    // outlives it by crossing back to the caller (CLAUDE.md §2.2).
     return UserAuthRecord{.password_hash = std::string{hash.value()},
                           .lock_until = lock.value(),
                           .id = id.value(),
@@ -158,9 +168,9 @@ namespace f = fields;
 [[nodiscard]] Result<AccountRecord> decode_account(const bsoncxx::document::view& doc) {
     const Result<Uuid> id = codec::read_uuid(doc, f::kId);
     if (!id) { return id.error(); }
-    const Result<std::string_view> username = codec::read_text(doc, f::kUsernameDisplay);
+    const Result<std::string_view> username = read_identifier(doc, f::kUsernameDisplay);
     if (!username) { return username.error(); }
-    const Result<std::string_view> email = codec::read_text(doc, f::kEmailDisplay);
+    const Result<std::string_view> email = read_identifier(doc, f::kEmailDisplay);
     if (!email) { return email.error(); }
     const Result<PermSet> direct = codec::read_perm_set(doc, f::kDirectPerms);
     if (!direct) { return direct.error(); }
@@ -205,6 +215,48 @@ Result<std::optional<UserAuthRecord>> UserRepository::find_for_login(
     });
 }
 
+Result<std::optional<CredentialRecord>> UserRepository::find_credential(
+    mongocxx::client& client, const Uuid& user_id) const {
+    return repo::guarded([&]() -> Result<std::optional<CredentialRecord>> {
+        mongocxx::options::find options{};
+        options.projection(make_document(kvp(codec::key_of(f::kPasswordHash), 1),
+                                         kvp(codec::key_of(f::kUserType), 1),
+                                         kvp(codec::key_of(f::kEffectivePerms), 1),
+                                         kvp(codec::key_of(f::kPermEpoch), 1),
+                                         kvp(codec::key_of(f::kStatus), 1),
+                                         kvp(codec::key_of(f::kFailureCount), 1),
+                                         kvp(codec::key_of(f::kLockUntil), 1),
+                                         kvp(codec::key_of(f::kLocale), 1),
+                                         kvp(codec::key_of(f::kEmailNormalised), 1),
+                                         kvp(codec::key_of(f::kUsernameNormalised), 1),
+                                         kvp(codec::key_of(f::kPhone), 1),
+                                         kvp(codec::key_of(repo::kVersionField), 1)));
+        mongocxx::collection users = bind(client);
+        const auto found = users.find_one(
+            make_document(kvp(codec::key_of(f::kId), codec::uuid_bin(user_id))), options);
+        if (!found) { return std::optional<CredentialRecord>{}; }
+
+        const bsoncxx::document::view doc = found->view();
+        const Result<UserAuthRecord> auth = decode_auth(doc);
+        if (!auth) { return auth.error(); }
+        const Result<std::string_view> email = read_identifier(doc, f::kEmailNormalised);
+        if (!email) { return email.error(); }
+        const Result<std::string_view> username = read_identifier(doc, f::kUsernameNormalised);
+        if (!username) { return username.error(); }
+        const Result<std::string_view> phone = read_identifier(doc, f::kPhone);
+        if (!phone) { return phone.error(); }
+        const Result<std::int64_t> version = repo::document_version(doc);
+        if (!version) { return version.error(); }
+
+        return std::optional<CredentialRecord>{CredentialRecord{
+            .auth = auth.value(),
+            .email_normalised = std::string{email.value()},
+            .username_normalised = std::string{username.value()},
+            .phone_e164 = std::string{phone.value()},
+            .version = version.value()}};
+    });
+}
+
 Result<std::optional<UserPermRecord>> UserRepository::find_permissions(
     mongocxx::client& client, const Uuid& user_id) const {
     return repo::guarded([&]() -> Result<std::optional<UserPermRecord>> {
@@ -241,11 +293,19 @@ Status UserRepository::insert(mongocxx::client& client, const NewUser& user) con
 
         bsoncxx::builder::basic::document doc;
         codec::append_uuid(doc, f::kId, user.id);
-        doc.append(kvp(codec::key_of(f::kEmailNormalised), text_of(user.email_normalised)));
-        doc.append(kvp(codec::key_of(f::kEmailDisplay), text_of(user.email_display)));
-        doc.append(kvp(codec::key_of(f::kUsernameNormalised),
-                       text_of(user.username_normalised)));
-        doc.append(kvp(codec::key_of(f::kUsernameDisplay), text_of(user.username_display)));
+        // Each identifier ABSENT when the account has none, never an empty
+        // string: an empty string under a unique index is a value every such
+        // account shares, so the second registration without an email would
+        // collide with the first. See NewUser::phone_e164.
+        if (!user.email_normalised.empty()) {
+            doc.append(kvp(codec::key_of(f::kEmailNormalised), text_of(user.email_normalised)));
+            doc.append(kvp(codec::key_of(f::kEmailDisplay), text_of(user.email_display)));
+        }
+        if (!user.username_normalised.empty()) {
+            doc.append(kvp(codec::key_of(f::kUsernameNormalised),
+                           text_of(user.username_normalised)));
+            doc.append(kvp(codec::key_of(f::kUsernameDisplay), text_of(user.username_display)));
+        }
         doc.append(kvp(codec::key_of(f::kPasswordHash), text_of(user.password_hash)));
         // ABSENT, never empty and never null: the unique index over `ph` is
         // partial on `{ph: {$exists: true}}`, and an empty string is a value
@@ -270,6 +330,13 @@ Status UserRepository::insert(mongocxx::client& client, const NewUser& user) con
         codec::append_time(doc, f::kCreatedAt, now);
         codec::append_time(doc, f::kUpdatedAt, now);
         repo::append_initial_version(doc);
+        if (!user.profile.empty()) {
+            bsoncxx::builder::basic::document profile;
+            for (const auto& [key, value] : user.profile) {
+                profile.append(kvp(codec::key_of(key), text_of(value)));
+            }
+            doc.append(kvp(codec::key_of(f::kProfile), profile.extract()));
+        }
 
         mongocxx::collection users = bind(client);
         users.insert_one(doc.view());
@@ -331,7 +398,7 @@ Result<std::vector<AccountRecord>> UserRepository::list_accounts(
             // std::regex is banned on a request path and a server-side `$regex`
             // is no better: only an anchored literal can use an index, and
             // stating the range says so rather than hoping the planner notices
-            // (ENGINEERING_RULES.md §5, §7).
+            // (CLAUDE.md §5, §7).
             //
             // The upper bound appends one byte above the prefix's last: every
             // string starting with the prefix sorts below it, and nothing else
@@ -348,7 +415,7 @@ Result<std::vector<AccountRecord>> UserRepository::list_accounts(
         if (query.after.has_value()) {
             // The compound cursor, in the index's own key order: strictly after
             // the (user_type, _id) pair the last page ended on. Never skip(n),
-            // which is O(n) server-side (ENGINEERING_RULES.md §7).
+            // which is O(n) server-side (CLAUDE.md §7).
             const AccountCursor& cursor = *query.after;
             filter.append(kvp("$or", [&cursor](sub_array rows) {
                 rows.append([&cursor](sub_document row) {
@@ -372,7 +439,7 @@ Result<std::vector<AccountRecord>> UserRepository::list_accounts(
         options.projection(account_projection_document());
         options.sort(make_document(kvp(codec::key_of(f::kUserType), 1),
                                    kvp(codec::key_of(f::kId), 1)));
-        // Every result set is bounded (ENGINEERING_RULES.md §7). A limit the caller forgot
+        // Every result set is bounded (CLAUDE.md §7). A limit the caller forgot
         // to set is one, not none.
         options.limit(query.limit > 0 ? query.limit : 1);
 
@@ -404,7 +471,7 @@ Result<std::vector<AccountName>> UserRepository::names_of(mongocxx::client& clie
         options.projection(make_document(kvp(codec::key_of(f::kUsernameDisplay), 1)));
         // Bounded by the input, which is itself a page of audit rows. An `$in`
         // is only as bounded as what the caller put in it, and every result set
-        // in this system carries a limit (ENGINEERING_RULES.md §7).
+        // in this system carries a limit (CLAUDE.md §7).
         options.limit(static_cast<std::int64_t>(ids.size()));
 
         const auto filter = make_document(kvp(
@@ -417,7 +484,7 @@ Result<std::vector<AccountName>> UserRepository::names_of(mongocxx::client& clie
         for (const bsoncxx::document::view doc : users.find(filter.view(), options)) {
             const Result<Uuid> id = codec::read_uuid(doc, f::kId);
             if (!id) { return id.error(); }
-            const Result<std::string_view> name = codec::read_text(doc, f::kUsernameDisplay);
+            const Result<std::string_view> name = read_identifier(doc, f::kUsernameDisplay);
             if (!name) { return name.error(); }
             names.push_back(AccountName{.name = std::string{name.value()}, .id = id.value()});
         }

@@ -61,7 +61,7 @@ struct RouteDescription final {
 
     // The indexed key a list route pages by, empty when it is not a list route.
     // A client that is handed a cursor field cannot express an offset, which is
-    // the point: skip(n) is O(n) server-side (ENGINEERING_RULES.md §7).
+    // the point: skip(n) is O(n) server-side (CLAUDE.md §7).
     std::string_view cursor_field;   // 16
 
     // The ceiling this route accepts for `limit`, 0 when it is not a list route.
@@ -139,7 +139,7 @@ struct RouteDescription final {
 };
 
 // Six 16-byte members and one word of flags, and the LAST of the six is the one
-// out of alignment order that ENGINEERING_RULES.md §3.2 asks for. Two reasons, and the
+// out of alignment order that CLAUDE.md §3.2 asks for. Two reasons, and the
 // second is the one that decided it.
 //
 // The rule's purpose is to eliminate padding, and appending here eliminates it

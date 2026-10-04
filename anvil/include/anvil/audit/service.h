@@ -10,7 +10,7 @@
 //
 // It is also always ASYNCHRONOUS. The access filter calls record() from a
 // Trantor event-loop thread, immediately after the response has gone out, and
-// nothing blocking may run there (ENGINEERING_RULES.md §4).
+// nothing blocking may run there (CLAUDE.md §4).
 //
 // --- why it batches ---------------------------------------------------------
 //

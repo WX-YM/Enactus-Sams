@@ -89,7 +89,7 @@ enum class StepState : std::uint8_t {
 struct StepReport final {
     std::string_view name;
     // Why it failed or was refused, in words an operator can act on. Never
-    // driver text, never a document (ENGINEERING_RULES.md §5).
+    // driver text, never a document (CLAUDE.md §5).
     std::string      detail;
     std::int64_t     documents_scanned;
     std::int64_t     documents_written;

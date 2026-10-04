@@ -138,7 +138,7 @@ export function hasLoneSurrogate(text: string): boolean {
 //
 // It is an owned object rather than a module-level cache keyed by locale,
 // because a cache at module scope is a global mutable singleton no test can
-// replace (ENGINEERING_RULES.md §3.3) — and because constructing an `Intl.Segmenter` is
+// replace (CLAUDE.md §3.3) — and because constructing an `Intl.Segmenter` is
 // expensive enough that the thing rendering a field should hold one, not create
 // one per keystroke.
 export class GraphemeMeter {

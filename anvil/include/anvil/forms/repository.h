@@ -150,7 +150,7 @@ public:
 
     // The same insert with NO transaction, for a submission that references
     // nothing. It is then a single-document write, which the server already
-    // applies atomically — the condition ENGINEERING_RULES.md §6 names first, before the
+    // applies atomically — the condition CLAUDE.md §6 names first, before the
     // transaction alternative.
     //
     // Worth its own overload because a transaction is not free: a session, a

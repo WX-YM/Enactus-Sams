@@ -47,7 +47,7 @@ constexpr std::uint8_t kLastRecordDelimiter = 0x02;
 }
 
 // RAII for the OpenSSL handles below. One resource each, rule of zero everywhere
-// else (ENGINEERING_RULES.md §3.3) — there is no normal path here with a bare free on it.
+// else (CLAUDE.md §3.3) — there is no normal path here with a bare free on it.
 //
 // Everything key-shaped goes through EVP_PKEY rather than EC_KEY: the whole
 // EC_KEY family is deprecated as of OpenSSL 3.0, and building against a

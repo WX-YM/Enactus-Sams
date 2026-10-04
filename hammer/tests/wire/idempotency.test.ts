@@ -5,7 +5,7 @@
 // it is visible, against the client in tests/wire/client.test.ts. What is here
 // is the part that has to hold before a call exists at all.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import {
     carriesIdempotencyKey,

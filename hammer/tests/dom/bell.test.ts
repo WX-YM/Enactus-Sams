@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 //
 // The bell: a count that is the server's, a popover that hands focus back, and
 // an arrival that is heard without being felt.
@@ -8,7 +7,7 @@
 // the reconciliation are asserted in `tests/state/inbox.test.ts` with no
 // document at all, and what is left for here is what a document is needed for.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClassNames } from "../../src/core/tables.js";
 import { renderBell } from "../../src/dom/bell.js";

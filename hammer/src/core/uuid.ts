@@ -58,7 +58,7 @@ export class Uuid {
     // crypto.randomUUID is not a secure context, which means the session cookies
     // this library exists to drive do not work there either — that is a
     // misconfigured client, and it is the one thing a throw is for
-    // (ENGINEERING_RULES.md §3.1).
+    // (CLAUDE.md §3.1).
     static random(): Uuid {
         const parsed = Uuid.parse(crypto.randomUUID());
         if (!parsed.ok) {

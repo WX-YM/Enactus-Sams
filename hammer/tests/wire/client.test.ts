@@ -5,7 +5,7 @@
 // hammer with nothing but a generated module and a deployment. Every route below
 // is a generated `const` and every table is the generated table.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { Capability, SessionSource } from "../../src/wire/index.js";
 import { createClient } from "../../src/wire/index.js";
@@ -787,7 +787,7 @@ describe("what a call site cannot write", () => {
     it("cannot call anything without a signal", async () => {
         const host = harness();
         // @ts-expect-error a request nothing can cancel is a request that
-        // outlives the screen that wanted it (ENGINEERING_RULES.md §3.1). There is no
+        // outlives the screen that wanted it (CLAUDE.md §3.1). There is no
         // default, because a default is the thing every call site quietly
         // accepts.
         const answered = host.client.call(routeAuthLogin, { body: {} });

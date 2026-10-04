@@ -28,7 +28,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
 | [x] | `package.json` | Five browser entry points plus `codegen`; `"sideEffects": false`; `dependencies` empty; react a *optional* peer |
 | [x] | `tsconfig.json` | `strict`, plus `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`, `isolatedModules`, `noPropertyAccessFromIndexSignature` |
 | [x] | `.gitignore`, `.editorconfig` | Build output, `node_modules`, generated clients outside `tests/testapp/` |
-| [x] | `ENGINEERING_RULES.md` | The three axes, the attribution rule, §1 library rules, and the eleven sections |
+| [x] | `CLAUDE.md` | The three axes, the attribution rule, §1 library rules, and the eleven sections |
 | [x] | `README.md` | What hammer is, what it refuses to hold, how an application consumes it |
 | [x] | `docs/00-architecture.md` | Layers, origins, pools, lifecycle, credential flow, error table, cache model, invariants |
 | [x] | `docs/01-seams.md` | The descriptor, all twelve seams, the generation contract, and what it must never carry |
@@ -426,7 +426,7 @@ rather than queued.
 the fourth and fifth time.**
 
 `check-vocabulary.sh` read a `throw new Error(...)` as copy. `throw` is reserved for programmer
-error here (`ENGINEERING_RULES.md` §3.1), so the audience for one of those strings is whoever is holding
+error here (`CLAUDE.md` §3.1), so the audience for one of those strings is whoever is holding
 the stack trace and never the person using the application; firing on it would push every such
 message into a wordless constant the next reader cannot act on.
 
@@ -455,7 +455,7 @@ where a real one would eventually hide. It is `perform` now, which is also what 
 store calls its equivalent.
 
 **Freshness had to reach the caller without the header doing so.** A `Cache-Control` value handed
-up a layer is a header that gets logged (`ENGINEERING_RULES.md` §5), and a second return value on `call`
+up a layer is a header that gets logged (`CLAUDE.md` §5), and a second return value on `call`
 would put an attempt's answer on a result that belongs to the whole call — a request that was
 retried, refreshed and replayed has one body and several responses. It goes through a callback
 on the call options, invoked on the attempt that produced the body, and the layer that caches is
@@ -697,7 +697,7 @@ is exactly what the react suite is for.
 | [x] | The freeze/discard run | **Run.** The request is slowed to 3G first so the freeze lands while it is on the wire, and one call records one outcome. The WRITE half is unwritable — the reference application has no write route — and the case is named for what it asserts rather than for what the row asked |
 | [x] | The slow-network run | **Run**, in the half that is reachable: throttled to 3G, twenty concurrent calls never have twenty in flight and all twenty are answered — shedding and bounding score the same on the first assertion and are opposite behaviours. `Retry-After` is skipped and says why: the reference application installs no rate limiter, so no route's limit can be reached deliberately (§Cross-repo) |
 | [x] | Trusted Types run | A page enforcing Trusted Types renders every component and no policy violation is reported |
-| [x] | Release | Semver, the published package name chosen, `exports` frozen, and a `CHANGELOG.md` whose entries name the migration for every entry-point change |
+| [x] | Release | Semver, the published package name chosen, `exports` frozen, and a `CHANGELOG.md` whose entries name the migration for every entry-point change. **Since Phase 8, a release also needs `npm run check:production` green**, which it is not until Phase 8 Part B empties the tolerated tier |
 
 **Gate: MET.** All nine rows are done and green, and the three that needed a server run against
 `anvil_reference_server` through `tools/run-live.sh --browser`: twelve browser cases pass and
@@ -765,6 +765,368 @@ error in every application that imported it.
 
 ---
 
+## Phase 8 — the dependency policy, and the tree it has to shrink
+
+**The runtime was always empty. The build was not.** `dependencies` has been `{}` since phase
+0 and `tools/check-dependencies.sh` has enforced it from the first commit. The toolchain that
+builds and tests hammer is ten `devDependencies` resolving to **131 packages and 110 MB**, and
+on 2026-09-23 `npm audit` over that tree reported **6 advisories: 2 critical, 1 high, 3
+moderate**:
+
+| Package | Severity | Reached through | Fixed in |
+|---|---|---|---|
+| `happy-dom` ≤ 20.8.8 | critical: VM context escape to RCE, unsanitised export names compiled as code, cross-origin cookie use in its `fetch` | direct | 20.14.5 (major) |
+| `vitest` ≤ 4.1.10 | critical | direct | 5.0.1 (major) |
+| `vite` ≤ 6.4.2 | high | `vitest` | via `vitest` 5 |
+| `@vitest/mocker`, `vite-node` | moderate | `vitest` | via `vitest` 5 |
+| `esbuild` ≤ 0.24.2 | moderate: its dev server answers any origin | direct | 0.25.0 and later |
+
+None of these reach a consumer, because no dev package is in `dist`. All of them run on the
+machine that builds the SDK, which is the one holding the publish token. The rule this phase
+writes down is [`CLAUDE.md`](../CLAUDE.md) §12. The plan is two halves:
+
+- **Part A** makes the policy mechanical: tiers, a warning in development, an error in
+  production.
+- **Part B** retires the tolerated tier. Every Part B row unblocks a release, because until the
+  tier is empty `npm run check:production` is red by design.
+
+Nothing here changes a byte on the wire. The anvil contract (the envelope, the cookies, the
+descriptor format, the cursor rule) is untouched. The proof is `tools/run-live.sh` and
+`tools/run-live.sh --browser` passing after each part, as well as before.
+
+### The tiers, as decided
+
+| Package | Tier | Why |
+|---|---|---|
+| `typescript` | allowed | The compiler. Microsoft, zero dependencies, a decade of releases. Pinned to the installed 5.x; a move to the native 7.x compiler is its own row |
+| `esbuild` (+ its one `@esbuild/<platform>` binary) | allowed | Nothing in the platform measures what a consumer's bundler emits, and the byte budgets, the tree-shaking assertions (`tests/codegen/built_output.test.ts`) and the markup-sink scan of a shipped bundle (`tests/dom/bundle.test.ts`) are all claims about exactly that. Zero JS dependencies. Upgraded past its advisory. Its install script is not needed when the platform binary is installed as an optional dependency, so `ignore-scripts=true` leaves it working |
+| `react`, `react-dom`, `scheduler` | allowed | The peer `hammer/react` adapts. An adapter tested without the thing it adapts is tested against a belief |
+| `@types/react`, `@types/react-dom`, `csstype`, `@types/node`, `undici-types` | allowed | Declarations only; nothing in them executes |
+| `vitest` (+ ~100 transitive, incl. `vite`, `rollup`, `fsevents`) | **tolerated** | Replaced by `node:test` + `node:assert` and a small in-repo `expect` (Part B) |
+| `happy-dom` | **tolerated** | Replaced by the real Chromium the browser suite already drives (Part B). A fake DOM is a belief about the DOM, and this one was wrong three times already (§Phase 5: an executing `DOMParser`, a `<form>` it could not remove, a shadowed `Document.prototype` trap) |
+| `playwright-core` | **tolerated** | Zero dependencies and well-owned, but a large surface for the 16 calls the suite makes. Replaced by an in-repo DevTools-protocol client over Node's built-in `WebSocket` (Part B) |
+
+### Part A — the gate
+
+| | Task | Done when |
+|---|---|---|
+| [x] | `tools/dependency-policy.json` | Three keys: `allowed`, `tolerated`, `installScripts`. Every `allowed` root carries `why`, `owner`, `replaces` (the built-in it was weighed against) and `tree`, the exact list of package names it may bring into the lockfile. Every `tolerated` root carries `why`, `replacement` and `task` (a pointer to its Part B row). `installScripts` names each lockfile package with `hasInstallScript` and why it is harmless under `ignore-scripts` |
+| [x] | `tools/check-dependencies.sh` reads the policy | The three existing checks stay, and stay errors in every mode. New checks: a `devDependencies` key in no tier is an **error**. A non-exact version spec is an **error**. A lockfile package not reachable from an allowed root's `tree` and not under a tolerated root is an **error**. A package under a tolerated root is a **warning** that names the root and its task row. An install script not listed in `installScripts` is a **warning**. `.npmrc` missing `ignore-scripts=true` is an **error**. A summary line always states whether the tree is releasable |
+| [x] | `--production` | Every warning above becomes an error. Driven against the current tree it **fails**, naming exactly the three tolerated roots — 91 packages under `vitest`, 4 under `happy-dom`, 1 under `playwright-core` — and nothing else; that failure is the expected state until Part B lands |
+| [x] | Every new check driven against a violation | A caret spec, an unlisted devDependency, an unlisted transitive package, a missing `.npmrc`, each written to fail before the check is trusted (the Phase 0 rule) |
+| [x] | `tools/check-audit.sh` | Runs `npm audit --json` over the whole tree. Development: a finding is a warning, and an audit that cannot reach the registry is a warning that says so. `--production`: any finding at any severity is an error, and an audit that cannot run is an **error**. Not part of `npm run lint`, which must pass offline — driven against a real advisory (six, on 2026-09-23) and against a registry pointed at a closed port |
+| [x] | `.npmrc` | `ignore-scripts=true`, `save-exact=true`, `engine-strict=true`, `fund=false`. Verified by `rm -rf node_modules && npm ci` followed by a green `npm run check`, because the one package with an install script it needs to survive is `esbuild` — it still runs, off the optional `@esbuild/linux-x64` package rather than its disabled postinstall |
+| [x] | Exact pins | Every `devDependencies` spec is the installed version with no range. The lockfile's root entry is updated to match (`npm install --package-lock-only --ignore-scripts`); no other lockfile entry changed |
+| [x] | `esbuild` 0.24.2 → 0.28.2 | Its own commit. The budget table from `tools/check-bundle-budget.sh` is in the body before and after, and no ceiling is raised to absorb the upgrade |
+| [x] | `npm run check:production` | `npm run check && tools/check-dependencies.sh --production && tools/check-audit.sh --production`. The one command a release, the SDK's release and a tag build run — red today by design, on the tolerated tier and six advisories, until Part B lands |
+| [x] | CI | The `check` job runs `npm ci` and `npm run check` on every push and surfaces each dependency warning as a `::warning::` annotation (from `tools/check-dependencies.sh` itself, under `GITHUB_ACTIONS`). A second job, `release-gate`, runs `npm run check:production` on `v*` tags and has no `continue-on-error`. Both run on Node 22, the oldest supported line |
+| [x] | Node 22 | `engines.node` `>=22`, and README's table matches. Node 20 went end-of-life on 2026-04-30 and gets no security fixes. `CHANGELOG.md` records the change, since `engines` is read by a consumer's install |
+| [x] | Docs | `README.md` names `npm run check:production`. `docs/16-test-plan.md` §Dependencies and `docs/03-deployment.md` §6 carry the gate — all three landed with the policy itself in "Plan the development dependency policy" |
+
+**Part A gate: MET.** `npm run check` is green — 1170 tests in 76 files, `tsc --noEmit` clean,
+eleven scripts clean, `tools/check-dependencies.sh` warning on exactly the 96 packages under
+`vitest`, `happy-dom` and `playwright-core` — and `npm run check:production` fails for exactly
+those 96 packages plus the six advisories `tools/check-audit.sh --production` reports on the
+same tree, which is the state Part A exists to make mechanical rather than remembered. Nothing
+here touches `src/`, so nothing here is a claim about the wire; the live and browser runs were
+not re-executed this round and remain whatever `tools/run-live.sh` last reported.
+
+### Part B — retire the tolerated tier
+
+Each row deletes one `tolerated` entry and its whole subtree in the same commit (`CLAUDE.md`
+§11.1). The order matters, because B2 and B3 need the runner B1 builds.
+
+| | Task | Done when |
+|---|---|---|
+| [x] | **B1 — `vitest` → `node:test`** | `tests/support/expect.ts` implements exactly the matchers the suite uses (today `toBe`, `toEqual` with Jest's undefined-property semantics, `toContain`, `toMatchObject`, `toHaveLength`, `toMatch`, `toBeNull`, `toBeDefined`, `toBeUndefined`, `toBeTruthy`, `toBeInstanceOf`, the four orderings, `toContainEqual`, `toThrow`, `toHaveBeenCalled(With\|Times)`, `.not`, `.resolves`/`.rejects`), each with its own test. `describe`, `it`, `it.each` and the four hooks come from `node:test`. `vi.resetModules` is replaced by a fresh-instance import in `tests/dom/sanitized.test.ts`. The `hammer/*` aliases become a `node:module.registerHooks` resolve hook in `tests/support/register.mjs`, the same map `tsconfig.json` carries. Test count before and after is equal |
+| [x] | **B2 — `happy-dom` → Chromium** | The DOM suite runs in the page the browser harness already serves, under the real CSP header, bundled by `esbuild`. `npm run check` now needs a Chromium and **fails rather than skips** without one (`HAMMER_BROWSER` or the system binary). The `happy-dom` workarounds in `src/` (`src/dom/mount.ts`) and in tests are removed, and each removal is checked against a real browser, not assumed |
+| [x] | **B3 — `playwright-core` → a DevTools-protocol client** | `tests/browser/cdp.ts`: launch with `--remote-debugging-pipe` or a port, speak JSON over Node's `WebSocket`, and implement only the calls the suite makes (`Target.*`, `Page.navigate`/`reload`, `Runtime.evaluate`, `Network.getCookies`/`clearBrowserCookies`/`emulateNetworkConditions`, `Fetch.enable`/`fulfillRequest`, `Page.setWebLifecycleState` for the freeze run). The three browser rows run against the reference server and pass, run by `tools/run-live.sh --browser` |
+| [x] | **The tolerated tier is empty** | `npm run check:production` is green on a clean `npm ci`. The lockfile holds only the allowed trees; the package count and `node_modules` size are in the body of the commit that gets there |
+
+**B1: MET.** 1,170 tests passed under vitest 2.1.9 in 76 files; `node --test` over the same
+suite plus `tests/support/expect.test.ts` reports 1,216 — the same 1,170, unchanged in
+substance, plus 46 new cases proving the matchers that now stand in for `vitest`'s own. No case
+was dropped. Two things the grep-first survey missed and the type-checker caught: `expect(actual,
+message)`, a second parameter several property-based cases use as a per-iteration label, and
+`it.runIf(condition)`, used by the two superadmin-only live rows and one rate-limited browser
+row. Both are now part of `tests/support/expect.ts` and `test.ts`. `toBeInstanceOf`,
+`toBeUndefined` and `toHaveBeenCalledWith` were in the suite already and are implemented, which
+the original row's matcher list did not name. `tools/check-dependencies.sh` warns on exactly two
+tolerated roots now, `happy-dom` and `playwright-core`; the lockfile went from 132 packages
+(111 MB) to 41 (86 MB). `tools/run-live.sh` and `tools/run-live.sh --browser` both still pass
+against a real `anvil_reference_server` on this runner's own machine, unchanged from before this
+row.
+
+**B2: MET.** Nineteen of the twenty files `grep -rl happy_dom_env tests` named actually
+imported it; the twentieth, `tests/core/environment.test.ts`, only mentions the specifier in a
+comment warning against exactly this happening by accident, and stayed a plain `node:test`
+file. `tests/support/test_browser.ts` is the browser backend, exporting the identical surface
+`test.ts` does; both now share `it.each`'s formatting from a new `tests/support/each.ts` rather
+than keeping two copies. `tests/dom/in_browser.test.ts` launches one Chromium for the whole
+run, bundles each of the nineteen files with `esbuild` (a resolve plugin maps `hammer/*` from
+`package.json`'s `exports`, the same map `tests/browser/harness.ts` already derived, and
+redirects the one specifier `"../support/test.js"` to `test_browser.ts` rather than `test.ts`),
+serves each bundle from its own path in one HTTP server, and runs it in a fresh browser context
+under the exact CSP `tests/browser/harness.ts` already serves for the Trusted Types run. Every
+browser result is replayed as its own `node:test` `it()`, nested under `describe`s matching its
+original path, so a failure's output names the file, the suite and the case exactly as it did
+under `node --test` directly.
+
+Four things a fake DOM had no opinion on, and a real browser did:
+
+- **`DOMParser.parseFromString` is a Trusted Types sink**, confirmed a second time: two DOM
+  tests (`tests/dom/mount.test.ts`, `tests/dom/sanitized.test.ts`) built a "foreign document" by
+  parsing empty markup, which throws under this suite's own enforced CSP. Both now use
+  `document.implementation.createHTMLDocument()`, which needs no parse.
+- **A background page does not reliably move `document.activeElement`.** A page Chromium never
+  activated let `.focus()` calls no-op silently; `tests/dom/bell.test.ts`'s focus-return case
+  caught it, and the driver now calls `Page.bringToFront` once per context before evaluating.
+- **`window.trustedTypes` is a getter with no setter.** happy-dom implements no Trusted Types at
+  all, so `tests/dom/sanitized.test.ts`'s `freshSanitizer` helper could assign over it directly;
+  a real browser throws `Cannot set property trustedTypes ... which has only a getter`. The
+  helper now uses `Object.defineProperty`, saving and restoring the original descriptor.
+- **A hidden element is blurred synchronously, to `document.body`.** `src/dom/bell.ts` read
+  `document.activeElement` to decide whether focus was still inside the popover AFTER setting
+  `popover.hidden = true` — which a real browser had already blurred by then. The check now
+  runs before `hidden` is set. This is a genuine defect in shipped code that no suite had ever
+  run in an environment where hiding an element actually moves focus, found the same way the
+  Trusted Types `DOMParser` defect was in Phase 7.
+
+One more thing was esbuild's own, not the browser's: `sanitized.test.ts`'s cache-busting
+`import(\`...?fresh=${n}\`)` is exactly the shape esbuild's automatic "glob import" bundling
+matches, which inlines every statically-discoverable match into one module instead of leaving
+the expression as a genuine runtime `import()` — defeating the whole point of a fresh module
+instance per call. Building the specifier in its own variable, one line above the `import()`
+call, is outside the syntactic pattern esbuild matches and restores the real dynamic import;
+the driver's HTTP server serves the resulting request (`/src/dom/sanitized.js?fresh=1`, and so
+on) by transpiling the source on demand, the same `.js`→`.ts` extension mapping
+`tests/support/register.mjs` already does for Node.
+
+The one `happy-dom` workaround in `src/` — `src/dom/mount.ts`'s `detach()`, which went through
+`parentNode`/`removeChild` because happy-dom 15 threw `removeChild` at itself when a `<form>`'s
+short-spelling `.remove()` was called — is gone; `detach` is `node.remove()` now, checked
+against Chromium first (`tests/dom/mount.test.ts`'s form case, rewritten to assert the ordinary
+outcome rather than the fake DOM's bug). The CSP tripwire test that used to trap
+`document.createElement` on the instance rather than `Document.prototype` because happy-dom
+shadowed the prototype method — `tests/dom/csp.test.ts` — keeps that shape: it is correct in
+both environments and the comment is now historical. That same file's own tripwire probe, and
+two `tests/dom/sanitized.test.ts` cases that fed a mocked `trustedTypes` through a real parse,
+now catch the real refusal a browser under enforcement produces rather than asserting the
+mocked round trip happy-dom let through uncontested.
+
+Test count: 276 in the nineteen files before this row (under happy-dom) and 276 after (in
+Chromium), all under the same names except the two noted above
+(`tests/dom/mount.test.ts`'s form case and two `tests/dom/sanitized.test.ts` policy cases,
+renamed because what they assert changed). `npm run test` overall: 1,216 tests, unchanged.
+Wall time for `npm run test`: 2.8s before this row (happy-dom) and 5.0s after (one Chromium,
+nineteen bundles, nineteen contexts) — under 2× and well inside the "about 3×" bound, so no
+further work went into it. `tools/run-live.sh` and `tools/run-live.sh --browser` are unchanged:
+eleven live, twelve of thirteen browser, the same `Retry-After` skip. No Chromium process or
+`--user-data-dir` temporary directory survives a passing or a failing run, checked with `pgrep`
+after each.
+
+**B3: MET.** `tests/browser/cdp.ts` speaks JSON over `--remote-debugging-pipe` (fds 3 and 4)
+rather than a `ws://` port: the two are the same protocol, and the pipe is never a socket a
+second process on the machine could attach to, which a debugging port always is. Flattened
+sessions throughout — `Target.createTarget` then `Target.attachToTarget({flatten: true})` per
+page — surfaced one quirk this Chromium build has that playwright's own client absorbs
+invisibly: creating a target inside a freshly created `Target.createBrowserContext` fails
+`"Failed to open new tab - no browser is open"` unless `newWindow: true` is set (verified
+against Chromium 153.0.8010.52). `context.clearCookies({name})` needed a different primitive
+than the obvious one: `Storage.setCookies` is additive, so writing back every cookie except the
+one being removed does not remove it — checked before being trusted, the Phase 0 rule —
+and `Network.deleteCookies`, a per-page rather than a per-context command, is what actually
+deletes one. Two non-vacuity checks against the live reference server: skipping the deliberate
+`clearCookies({name: "__Host-at"})` call turns "refreshes once across both tabs" from a pass
+into `expected 0 to be 1`, and swapping the bundle and document bodies `context.route` serves
+turns four cases across both live-tab suites into `TypeError: Cannot read properties of
+undefined (reading 'login')` — the route's `Fetch.enable`/`fulfillRequest` path is genuinely
+exercised, not a no-op the tests happen not to notice. `tools/run-live.sh --browser` gives the
+same result as before this row: eleven live cases, twelve of thirteen browser cases, the
+`Retry-After` skip unchanged. No `--remote-debugging-pipe` Chromium process or `user-data-dir`
+temporary directory survives a run, passing or failing, checked with `pgrep -f user-data-dir`
+after each. `npm uninstall playwright-core` took the lockfile from 41 packages (86 MB) to 40
+(73 MB); `tools/check-dependencies.sh` now warns on exactly one tolerated root, `happy-dom`.
+
+**The tolerated tier is empty: MET.** `npm uninstall happy-dom` removed the last tolerated
+root; `npm` dropped `"dependencies": {}` from `package.json` on the way, the same regression
+Phase 8 Part A's own notes warned about, and it is restored in the same commit. The lockfile
+went from 40 packages (73 MB, B3's ending state) to 11 (47 MB) on a clean `npm ci`.
+`tools/check-dependencies.sh` prints `dependencies: releasable — no error, no warning` with the
+`tolerated` object empty, and `npm run check:production` — `npm run check`,
+`tools/check-dependencies.sh --production` and `tools/check-audit.sh --production` — is green
+on `rm -rf node_modules && npm ci`, `npm audit` included, zero advisories at any severity.
+
+**Phase 8 gate: MET.** Every row in Part A and Part B is done. `npm run check:production`,
+red by design since the phase opened, is green. Nothing in `src/` changed except the two
+defects a real Chromium found and this phase's own tests now hold open: the Trusted Types
+`DOMParser` sink (Phase 7) and the hidden-element focus blur (`src/dom/bell.ts`, B2 above).
+`tools/run-live.sh` and `tools/run-live.sh --browser` pass exactly as they did before the phase
+began: eleven live cases, twelve of thirteen browser cases, the same `Retry-After` skip.
+
+---
+
+## Phase 9 — edit an image
+
+Crop, rotate, flip, resize and freehand drawing on a stored image. The design is
+[`04-image-edits.md`](04-image-edits.md), and anvil's half is anvil `docs/21-image-edits.md`.
+The client builds a canonical **recipe** and previews it as one SVG. The server renders the
+recipe into a new object, so no edited pixel is ever produced in the tab.
+
+| | Task | Notes |
+|---|---|---|
+| [x] | `docs/01-seams.md` §12 — `limits.edit`, the two routes | **Closed**, as a subsection of §12 landed with the generator change that emits `kEditLimits`. It says that the generator does not know which routes are the edit routes, and why |
+| [x] | `codegen` — read `limits.edit` | **Closed.** Emitted as `kEditLimits`, and refused when a bound cannot travel in the recipe: a stroke count past one byte, an edge past sixteen bits, a narrowest edge above the widest. **The row's second half was not built as written.** Refusing a descriptor with `media.edit` and no bounds needs the generator to know which route is the edit route, and that is an application's route id. Instead, no `kEditLimits` is emitted without the block, so an editor mounted against such a server fails to type-check, which is the same failure moved to where hammer can see it |
+| [x] | `edit/recipe.ts` — the codec and the validator | **Closed.** Passed all thirty golden vectors on its first run, field by field against what anvil's decoder read. `kFaultWire` names the field and reason for every fault. **One departure:** coordinates are not branded. `EncodedRecipe` is, and the encoder refuses any value that is not an integer in 0–65535, so a float cannot reach the wire whichever way it was made. The brand at the boundary is the one that pays |
+| [x] | `edit/geometry.ts` | **Closed.** Beyond the row: `rotate` and `mirror` carry the crop and every stroke with the picture, as exact integer maps, and a case pulls a stroke back to source pixels through every orientation. Found while writing it: a clockwise turn of a MIRRORED picture is one turn fewer of the source, and the obvious `turns + 1` rotates a flipped photograph the wrong way |
+| [x] | `edit/history.ts` | **Closed.** 100 entries, shared strokes asserted by identity, a drag is one entry and an undo mid-drag abandons it |
+| [x] | `edit/submit.ts` | **Closed.** `detach` is required. A stored recipe that does not decode is refused rather than dropped |
+| [x] | `edit/editor.ts` — `renderImageEditor` | **Closed**, and run in Chromium through `tests/dom/in_browser.test.ts`. Found by that run: `setPointerCapture` throws for a pointer that is not active, which is every script-dispatched event and every pointer that has already lifted, so capture is attempted and not required. **Two departures:** the preview address is the application's, handed in from the route builder, because an SVG `<image>` takes no `srcset`; and the stroke-point budget is checked when the stroke ends, because it cannot be known until the stroke is decimated, so an over-budget stroke is refused whole rather than stopped mid-gesture |
+| [x] | The entry point — `hammer/edit` | **Closed.** 7.7 KB gzipped against a 9 KB ceiling. `tests/testapp/app/media_edit.ts` opens an editor with nothing but generated constants, and the editor's words are in both reference locales |
+| [x] | Browser suite — the preview matches the render | **Closed**, without the reference server serving bytes: anvil's `testapp_emit_edit_renders` writes the renders as a fixture, as `testapp_emit_edit_vectors` writes the vectors, and `tests/edit/parity.test.ts` screenshots the real preview at each output size with `Page.captureScreenshot`'s `scale`, so the browser repaints the vector at output resolution rather than resampling a bitmap. Turn, flip and crop agree to the byte; strokes 0.02 mean; resize 0.19; all at once 0.28, outliers only on a stroke's edge. The flip-less control scores 42 and 81%. One pixel is inset from every edge: the browser filters an image's edge against transparency and libvips extends it, 50–70 levels along one whole edge, and nowhere else. It runs in `npm test`, needing Chromium and no anvil checkout |
+| [x] | Live suite — against `anvil_reference_server` | **Closed**, as `tests/live/media_edit.test.ts`. The reference server now seeds one picture and prints `media <ns> <id>`. A recipe renders at exactly the planned size, the same edit twice is one object, an edit reopens on its source, a chained edit is refused, a detached edit is new every time, and a recipe sent past the client's check comes back with the field and reason `kFaultWire` predicted. **The scoping case was tried and dropped:** a second account's sign-in spent the run's login budget into a 429, and scoping a route away from a holder is `anvil.test.ts`'s assertion already |
+
+---
+
+## Phase 10 — chat, plaintext and polled (`hammer/chat`)
+
+Direct conversations, groups and channels, as the client half of anvil §Phase 18. The design is
+[`05-chat.md`](05-chat.md), and anvil's half is anvil `docs/22-chat.md`. This phase is a complete
+plaintext client that polls. Phase 11 makes it live, Phase 12 draws it, and Phases 13–15 encrypt
+it. Each is usable without the next, as anvil's are.
+
+**A conversation is an ordered log with one writer of order, the server's sequence number,** and
+the client never looks for a hole in it (05 §5.1).
+
+**Not blocked.** anvil's routes, the descriptor's `limits.chat` and a seeded group in the
+reference server have all landed. The upload rows wait on a cross-repo row (§Cross-repo, "a chat
+upload route"), and nothing else in the phase needs it.
+
+| | Task | Notes |
+|---|---|---|
+| [ ] | `codegen` — descriptor format 4, and `limits.chat` as `kChatLimits` | The fixture regenerated from anvil's `testapp_emit_descriptor` in the same commit as the reader change, because `check-descriptor.sh` regenerates the client from the committed descriptor and is green by construction. `kChatLimits` is `as const`, so a kind key, a shape, an encryption mode and a right name are each a union. `"chat": null` emits nothing, so `createChat` fails to type-check against a server without chat (05 §3.1). The generator refuses a kind that anvil's `kinds_are_well_formed` would have: a direct kind that is not two members, an encrypted channel, an encrypted kind with full history, an unknown right. Each refusal has a case against a hand-edited fixture |
+| [ ] | `docs/01-seams.md` §24 — chat | In the same commit as the first code that reads a chat seam (`CLAUDE.md` §1, §11.1). Carries 05 §12's list, says that rights are affordances only, and says in so many words that `chat.create` is not retried and why |
+| [~] | `chat/text.ts` — the composer's validator | anvil's `chat/text` restated (05 §4): code points against the kind's bound, `\n` the only break, C0/C1 except `\n` `\t`, bidi overrides and embeddings refused and isolates allowed, NFC REQUIRED rather than applied, blank refused, mention spans in code points inside the text, a reaction as one grapheme cluster of at most 8 code points, the preview URL's scheme. The one UTF-16 ↔ code-point conversion for mention offsets lives here. **Closes only against a shared vector file** (§Cross-repo, "golden vectors"), as the edit recipe's did. Until then the cases are written from anvil's `chat_text_test.cc` table and say so in their file's header **Built, open on the vectors.** Every one of anvil's cases ported in its order, all green on the first run; the invalid-UTF-8 bytes a JavaScript string cannot hold are asserted as the lone surrogate it can. `src/chat` is declared a layer (`core wire state`, no document, no `BroadcastChannel`, no `fetch`), and the ban was driven against a probe before it was trusted |
+| [ ] | `chat/answers.ts` — the one decoder of every chat answer | Message, conversation, membership, list item, history page with tallies and `older`, `read_by`, presence, invite token. Narrowed once from `unknown`; a 2xx body that is not the shape is `chat-answer`. Grants become a branded `MediaGrant` and times a `ServerInstant`. An unknown message kind, system event or role decodes to `unknown`. **Written against recorded bytes**: the live row below records each answer the reference server writes, and this suite decodes the recording, because a decoder checked against a fixture written beside it is two copies of one belief |
+| [ ] | `chat/calls.ts` — the calls, and the retry table | One function per route over `ChatRoutes`, each taking an `AbortSignal`. The retry decisions are 05 §3.4's table, asserted per route in one case each. `create`, `add_members`, `remove_member`, `revoke` and `create_invite` are never retried and surface a lost answer as `unknown-outcome`. A `404` on any conversation-scoped call is not-found and NEVER a permission error (`CLAUDE.md` §5) |
+| [ ] | `chat/sync.ts` — cursors, catch-up, the held window | 05 §5. `head`, `cursor` and `shown` per conversation. The cursor moves only by a catch-up that paged to a short page. Catch-up is coalesced per conversation (2 s while open). The held window is 300 messages, evicting from the far end. Expiry is compared against the newest server instant seen and never against `Date.now()`. Cases: a burnt seq is crossed without a refetch; a message arriving in a wake with a lower seq than one already held is placed in order; the cursor never passes a seq it has not read. **The mutation fallback** (05 §5.2): the visible page is re-read on every sync trigger, with a case that an edit inside the page is shown after one trigger and a case that states, by asserting it, that one outside the page is not |
+| [ ] | `chat/outbox.ts` — sends | 05 §6.1. The `cid` from `crypto.getRandomValues`, minted once. Serial per conversation, concurrent across them. `429` holds the conversation's queue for exactly `Retry-After`. A pending message is reconciled by its answer, a wake or a catch-up, whichever is first, matched by `cid`. A reply, edit or reaction to a pending message waits for the target's seq. Cases: a lost answer retried is one message with one seq; two sends pressed in order are stored in order under a slow first answer; a `404` makes the conversation past |
+| [ ] | `chat/store.ts` — the chat list, the conversation, receipts, preferences | The list as a `Resource` paged by `{after_at, after_id}`, the unread count corrected on open by counting held messages from others (05 §5.4). Delivered posted within a second of holding; read from what the DOM reports as shown, only while visible and focused, coalesced to two seconds, flushed with `keepalive` on hide. Ticks from ONE `read_by` of the newest own message per open conversation per trigger, never one per message (05 §6.2). Mute computed from the newest server instant seen until the cross-repo duration lands, with the bound stated in the code. A past member's conversation is read-only |
+| [ ] | `chat/media.ts` — upload, grants, forwarding | 05 §8. The `File` streamed through `wire/upload.ts` to the application's upload function, answered by a branded `UploadHandle`. A handle unspent within the hour is `upload-expired`. Grant addresses through the route builder; `<img>` with `referrerpolicy="no-referrer"`; a failed load re-reads the holding page, coalesced per page per minute, and re-points the element. The video metadata path is the one `createObjectURL` over a LOCAL file, revoked on `loadedmetadata`, with the `ban-exempt` reason on the line. **Waits on the cross-repo upload route** for its live case |
+| [ ] | The staff view — a read-only conversation over the staff route | 05 §5.6. The same decoder, store and components as a member's view, with no composer, no receipts and no typing, and a case asserting that a staff read moves no member's watermark and adds nobody to `read_by`. The route is holder-scoped, so a case asserts its path is absent from a non-staff bundle. **Waits on the cross-repo row** "a staff read of a conversation, and reports" |
+| [ ] | Invites | 05 §6.4. The token read from the fragment once, stripped with `history.replaceState`, posted in the body. A case asserts the address bar no longer holds it, and that every refusal is the one `404` |
+| [ ] | The entry point — `hammer/chat` | `exports`, `tools/check-layering.sh` (`core wire state`, and no `document.` or `window.`), a gzip ceiling set from the first measured build against 05 §11's 12 KB target, and the public-surface and surface-coverage checks. `tests/testapp/` builds a chat over its generated routes and `kChatLimits`, so every seam is type-checked from outside |
+| [ ] | Live suite — `tests/live/chat.test.ts` | Against `anvil_reference_server`'s seeded group and its two accounts, which is the whole login budget a run has (one server per run, two sign-ins). Send and retry are one message; history pages backwards and catches up forwards; an edit and a revoke are seen after a re-read of the page; a read receipt moves the sender's tick through `read_by`; a removed member's conversation goes read-only; a stranger's call is the stealth `404` byte for byte. **Records each answer's bytes** for `chat/answers.ts`'s unit suite |
+
+**Phase 10 gate:** every row closed but the upload row's live case, and the reference consumer
+showing a conversation polled from the reference server.
+
+---
+
+## Phase 11 — live
+
+The socket, its fallback, typing and presence, as the client half of anvil §Phase 19. **A lost
+wake costs latency, never a message**, because the cursor moves only by catch-up (05 §5.1).
+
+| | Task | Notes |
+|---|---|---|
+| [~] | `chat/frames.ts` — the codec | anvil's `chat/frames.h` byte for byte (05 §7.2): canonical, big-endian, every refusal anvil names (`frame.size`, `frame.length`, `frame.version`, `frame.type`, `frame.direction`, `frame.inline`, `frame.nil`, `frame.value`, `frame.canonical`). A decoded wake COPIES its inline bytes. **Closes only against anvil's golden bytes as a printed fixture** (§Cross-repo). A fuzz-style case feeds every prefix and every single-byte mutation of each golden frame and asserts decode either refuses or re-encodes identically **Built, open on the vectors.** The client's half only: downstream decoded, upstream encoded, every accepted frame re-encoded and compared as anvil does. Anvil's golden bytes and refusal families ported, plus the `Mutation` frame anvil added for the edit catch-up (0x09, 26 bytes). Every one-byte change to every golden frame is refused by a NAMED rule, never by the canonical backstop. **One departure, asserted by its own case**: a counter past 2^53 is `frame.value` here, because a JavaScript number cannot hold it exactly and anvil would accept it |
+| [ ] | `wire/socket.ts` — a binary socket the wire layer owns | `WebSocket` injected, as `fetch` is, so `tools/check-wire-discipline.sh` can keep the constructor inside `src/wire/` the way it keeps `fetch` there. The URL from the route builder with the scheme taken from the site origin. `binaryType = "arraybuffer"`. Reports close codes; decides nothing about reconnecting |
+| [ ] | `chat/socket.ts` — the policy | 05 §7.1 and §7.3. Owned by the leader under `hammer.chat.socket`, fanned out over `BroadcastChannel`, followers through the same dedupe. No lock, no socket: `degraded`. The close-code table as code, one case per code: `4001` and `4006` never reconnect, `4005` refreshes through the leader first, `4004` falls back. Backoff from 1 s to 60 s with jitter from `crypto.getRandomValues`, consulting the circuit breaker. Every `Ping` answered; a `ClientPing` on `online` and on becoming visible, reconnecting after ten seconds without a `Pong`. The leader releases on `freeze` |
+| [ ] | Sync on every moment wakes may have been lost | Socket open, `Sync`, `ChatSync`, visible after hidden, resumed from freeze or the back/forward cache: each catches every held conversation up, re-reads the visible page and, once Phase 14 lands, drains the device queue. One case per trigger |
+| [ ] | The fallback — the stream, then polling | 05 §7.6. The application's stream-event decoder, answering a wake, a sync or nothing; no second stream, polling at 15 s while visible and never while hidden, the socket retried at the backoff ceiling and winning back when it connects |
+| [ ] | Typing and presence | 05 §7.4–7.5. `ClientTyping` at most once per three seconds per conversation and never in a channel; a typing mark cleared six seconds after its last frame or by a message from that user, never announced. Presence asked only for the open direct conversation's peer, at the application's interval, never while hidden, `{online, lastSeen}` with no way to tell withheld from never seen |
+| [ ] | Browser suite — two tabs, one socket | Two pages of one profile against the reference server: one socket between them (anvil would close a second with `4001`), the follower shows a wake the leader received, closing the leader hands the socket to the follower, and a frozen leader (`Page.setWebLifecycleState`) gives it up |
+| [ ] | Live suite — wakes, typing, sync | A send by one account wakes the other's socket with the bytes history writes; an inline wake shows before any catch-up; a dropped socket recovers every message by catch-up; typing reaches the other member; with the socket refused, the same assertions pass on polling |
+
+**Phase 11 gate:** the two-tab browser case and the live suite green, and a recorded number: wake
+to screen, p50 and p99, in the browser suite, the way anvil recorded commit to wake.
+
+---
+
+## Phase 12 — the rendered surface (`hammer/chat-dom`)
+
+Unstyled and wordless, by the component contract (`docs/01-seams.md` §19). The decisions are
+05 §10.
+
+| | Task | Notes |
+|---|---|---|
+| [ ] | `renderConversation` | `role="feed"` of `article`s, NOT a live log; a separate polite live region announcing arrivals only while at the newest message, through `Copy.arrivals(count)`, coalesced to two seconds. Windowed DOM, anchored on the message under the viewport. Bodies `dir="auto"`, names isolated, mentions from code-point spans. Pending, failed, past-member and every undecryptable class drawn from state the application words. Read reported through `IntersectionObserver` only while visible and focused. **No** `style`, no markup from a message, and links only through the application's matcher with `rel="noopener noreferrer"` |
+| [ ] | `renderComposer` | The live validator on input; mentions inserted as spans and re-offset after NFC; reply and attachments; Enter and Shift+Enter as the application binds them, never hard-coded. Focus kept through arrivals; `Escape` clears a reply and nothing else |
+| [ ] | `renderChatList` | Pinned, items and archived; unread as a number the application formats; typing markers; keyboard traversal as a listbox of links |
+| [ ] | `renderMembers` | The member page, and the actions drawn from `mayI` for the viewer's role. A refusal from the server is shown, never pre-empted (00 §4.1) |
+| [ ] | The entry point — `hammer/chat-dom` | `exports`, layering (`core state dom chat`, never `chat-e2ee`), a ceiling against the 14 KB target, and `tests/testapp/app/chat.ts` mounting every component with copy in both reference locales |
+| [ ] | Browser suite — the surface | An arrival does not move the caret or the focus; a screen reader's view (the accessibility tree through CDP) carries one announcement for a burst of five; scrolling up stops the announcements; RTL names do not reorder the application's sentence; no element carries a `style` attribute after a session of sending, scrolling and typing |
+
+**Phase 12 gate:** the browser suite green under the reference application's CSP, which has no
+`unsafe-inline`.
+
+---
+
+## Phase 13 — devices and keys (`hammer/chat-e2ee`, part one)
+
+The vault, the device lifecycle and verification: everything encryption needs before a message
+is encrypted. **Blocked** for its first-device row on the cross-repo row "a fresh-authentication
+refusal that is not `401`", which would otherwise sign a person out of every tab (05 §9.4.2).
+Every other row can land first.
+
+| | Task | Notes |
+|---|---|---|
+| [x] | `hammer/crypto` — incremental SHA-256 | The one hand-written primitive (05 §9.2), because WebCrypto's `digest` is one-shot and anvil compares a sealed upload's declared hash with the stream's. NIST CAVP short, long and Monte Carlo vectors. A hash: no secret passes through it **Closed**, against FIPS 180's four known answers (a million `a` among them, fed in uneven pieces) and against OpenSSL through Node's `createHash` at every length from 0 to 300 bytes and in eleven chunkings that cross a block boundary, rather than the CAVP files, which are not in this repository and would be a second download of the same oracle. The entry point's ceiling rises from 4 to 5 KB; the prehash bundles, which import only Argon2, did not change by a byte |
+| [x] | `chat-e2ee/vault.ts` — the vault | 05 §9.3. One IndexedDB database per account; private keys as non-extractable `CryptoKey`s; everything else sealed under a non-extractable AES-256-GCM vault key with a fresh nonce per record. Every read-modify-write under `hammer.chat.vault.<account>`, in two transactions around the WebCrypto work, and a case that kills the step between them and finds the old state intact. Wiped on sign-out, identity change, a device the server no longer lists, and a session that is not the one the vault is bound to: the vault key first, then the database. No locks or no IndexedDB is `unsupported`, never degraded. `tools/check-source-bans.sh` learns to allow `indexedDB` in this file ONLY, in the same commit (`CLAUDE.md` §11.1, a rule and its script together) **The vault is built; the IndexedDB backing is not.** `Vault` over a narrow `VaultBacking`: open makes ONE key even when two tabs open a new vault at once; every sealed record is bound to its slot as associated data, so a record moved to another slot is `tampered`; an extractable key is refused at the write with nothing committed; a failed commit leaves the old state whole; twenty concurrent steps from two tabs on one counter end at twenty; the deadline bounds the wait and never a started step; a wipe forgets the key before destroying the store, goes ahead past a frozen holder, and no step ever recreates a forgotten key. `tools/check-source-bans.sh` now bans every `IDB*` type outside `src/chat-e2ee/idb.ts` as well as the global, because an injected factory would otherwise persist without spelling `indexedDB`. **Closed** with `idb.ts`: one database per account, every commit one readwrite transaction with `durability: "strict"` (a commit acknowledged before it is flushed is a chain index used twice after a crash), and every connection closing itself on `versionchange` so a wipe is never blocked and never reopens an empty database. Four cases in Chromium through the in-browser driver: a committed record read back over a fresh connection; an Ed25519 key that is still a usable, non-extractable key after a reload; a commit whose second put cannot be cloned lands nothing; a wipe deletes the database past another open connection, which then refuses. Detecting `unsupported` (no locks, no IndexedDB, no X25519) is the device row's |
+| [x] | `docs/00-architecture.md` §7 | In the vault's commit, because §7 describes what the library does and not what it plans: "nothing is persisted" names the vault as its one exception, with the reason and the wipe. The "Offline and persistence" entry below already points here, and says the default is unchanged |
+| [~] | `chat-e2ee/device.ts` — the lifecycle | The five states of 05 §9.4.1. Registration right after a sign-in, the refusal surfaced as re-authenticate. Confirming an ambiguous register or link by reading `my_devices` (05 §3.4). One-time prekeys replenished on `low`, in batches of 100, ids allocated in the vault before upload, a duplicate-id refusal of a retried batch read as success. Reset by unlinking every device. **Held to anvil's `testapp_emit_chat_vectors`**: every bundle encoding, both signed prekey messages, the 119-byte link message and its signature, and the five keys the server refuses, refused here first with the same field **The keys are built** (`chat-e2ee/device_keys.ts`): the three signed messages, signing, verification, and the bundle check in anvil's order with anvil's field names, against `testapp_emit_chat_vectors` committed as `tests/chat-e2ee/anvil_chat_vectors.json` — every derived public key, both prekey messages and signatures, the 119-byte link message and its signature, and all five refused keys refused here first. The client checks a peer's keys again because they reach it through the server. X25519 low order is asked of WebCrypto, whose spec requires `deriveBits` to throw on an all-zero secret; the five Ed25519 small-order y-coordinates are listed, and the suite recovers each point and multiplies it by eight in BigInt rather than trusting the list. Open: the states, registration, replenishment and reset, which wait on anvil's final device routes |
+| [~] | `chat-e2ee/link.ts` — the ceremony | 05 §9.4.3. The link offer (the relay's token and a 128-bit digest of the request, 66 characters), and the approver's refusal of a relayed request whose digest is not the offer's, which is what stops a malicious server having the person's own phone sign its ghost device. **Not a six-digit check code**, which the design first had: 20 bits is ground in seconds by a server generating keypairs; the timestamp from the HTTP `Date` header of the approver's latest site-origin answer, NEVER `Date.now()`, with a case whose device clock is a day out **The offer is built**: encode, decode as untrusted input, and the approver's match, with a case where the server swaps one bit of the relayed signing key and the match refuses. Open: the four relay calls and the server-time timestamp, which wait on anvil's final routes |
+| [ ] | `chat-e2ee/verify.ts` — chains, roots, the security code | 05 §9.5. A pinned root per peer account; a device trusted when its link chain reaches a trusted key, an unlinked approver's key included; `link: null` beside a pinned root is a reset. The security code as Signal's numeric fingerprint v2 over the root signing key, **held to the oracle's fingerprint vectors**. `trust` is required in `createE2ee`'s options and has no default, with a type-level case that omitting it fails to compile |
+| [ ] | The review gate in the type | 05 §9.13. `unreviewedProtocol: "not for production"`, required and literal, with a type-level case. The row that removes it is the last row of Phase 15 |
+| [ ] | Live suite — devices | A first device registered within five minutes of a sign-in, and refused after (once the cross-repo row lands, refused WITHOUT signing anyone out, which the case asserts across a second tab); a second browser context linked by a signature from the first; the device list carrying the chain; unlinking moves the conversation's `dsv`; signing out wipes the vault and the server lists the device no more |
+
+**Phase 13 gate:** the vault's crash case and the device vectors green, and the first-device
+live case green against an anvil that refuses stale authentication without a `401`.
+
+---
+
+## Phase 14 — the protocol (`hammer/chat-e2ee`, part two)
+
+X3DH, the Double Ratchet, sender keys, the envelope, sending and receiving. **Written from Signal's
+published specifications, with libsignal as the oracle and never as a source** (05 §9.14). The
+oracle row is first, because a protocol written before its oracle exists is a protocol checked
+against itself.
+
+| | Task | Notes |
+|---|---|---|
+| [ ] | The oracle — a libsignal harness, outside this repository | 05 §9.14. A separate repository hammer never depends on links libsignal with a seeded random source and prints vectors: X3DH from fixed keys, a ratchet across skipped and out-of-order messages, message keys and their CBC ciphertexts, sender-key chains, and the numeric fingerprint. hammer commits the printed JSON as `tests/chat/oracle/`, and nothing else from it. **Risk recorded here**: current libsignal speaks PQXDH, and the harness needs a version or an internal entry point that still runs classic X3DH. The row closes when the vectors exist, however the harness got there, with the libsignal version named in the fixture |
+| [ ] | The framing vectors, from a third implementation | 05 §9.15's four layouts and the MAC input, produced by a throwaway script written from that table alone, without reading hammer's code, as anvil's chat vectors were. Committed as a fixture beside the oracle's |
+| [ ] | `chat-e2ee/x3dh.ts` | Bundle signatures verified before use; DH1–DH4 and Signal's KDF, constant for constant; the prekey message as 05 §9.15 lays it out; the one-time key's private half deleted in the same vault transaction that stores the new session. Held to the oracle's X3DH vectors and the framing vectors |
+| [ ] | `chat-e2ee/ratchet.ts` | The Double Ratchet per the specification: root and chain KDFs, message keys, CBC with the 8-byte MAC over both devices' two keys. At most 2 000 skipped keys per session and 25 000 ahead, both refused past the bound. Held to the oracle's ratchet vectors, including the out-of-order and skipped cases. A message that fails is recorded, acknowledged and repaired (05 §9.6), with a case where one side's vault is restored from an older copy |
+| [ ] | `chat-e2ee/sender_keys.ts` | One per (conversation, sending device), each with its own Ed25519 key, every message signed. Rotation when the device set shrinks: a member left or was removed, or a device was unlinked. A joining device gets the current iteration and nothing earlier. Held to the oracle's sender-key vectors |
+| [ ] | `chat-e2ee/envelope.ts` — the content format | 05 §9.10. UTF-8 JSON, version 1, narrowed once; padded to 160 bytes after `0x80`; references as `(sender, cid)`; every field validated by `chat/text.ts` and the kind's bounds; cards by the application's validators; an unknown type is `invalid`. Revoke is an envelope AND the route |
+| [ ] | `chat-e2ee/seal.ts` — the `ConversationSealer` | 05 §9.8. A ciphertext made once and persisted with the ratchet step in one vault transaction; retries send the same bytes. The fence's `409` handled by the six steps, with the same `cid`, at most three rounds, then `devices-unsettled`. Distributions in the same send when they fit and paged with `page: true` when they do not. Sessions for a group established in the background from opening, in pages, honouring every `Retry-After` |
+| [ ] | `chat-e2ee/receive.ts` | 05 §9.9. The queue drained first, under the vault lock, each row decrypted and archived with its session state in one transaction, acknowledged `through` the last processed. Idempotent by `(c, seq)` before the ratchet is touched. The four classes: `before-device` by comparing two server instants, `awaiting-key` retried after each drain, `undecryptable`, `invalid` |
+| [ ] | The entry point — `hammer/chat-e2ee` | `exports`, layering (`core crypto wire state chat`, no `document.`/`window.`), a ceiling against the 16 KB target, `tests/testapp/` turning encryption on with its words typed out |
+| [ ] | Browser suite — two devices, two accounts | Three browser contexts (two devices of one account, one of another) against the reference server's encrypted kinds: a direct message read on both of the recipient's devices and on the sender's other device; a group message under a sender key; a member removed, the key rotated, and the removed device unable to read the next message; a device linked mid-conversation reading what follows and classing what precedes as `before-device`; a reload mid-send resuming with the same bytes; two tabs of one device never stepping one ratchet twice (a case with both tabs sending at once, asserting every message decrypts once on the peer) |
+
+**Phase 14 gate:** every oracle and framing vector green, the browser suite green, and a recorded
+number: encrypt and decrypt per message on a throttled CPU profile (CDP, 4× slowdown), since the
+p95 device is the one that pays for WebCrypto.
+
+---
+
+## Phase 15 — sealed media, encrypted push, and the review
+
+| | Task | Notes |
+|---|---|---|
+| [ ] | `hammer/chat-seal-worker` — `serveSealPool` | 05 §9.11. Chunked AES-256-GCM over 64 KiB chunks with the index and final flag in the nonce; the incremental SHA-256 of the ciphertext; a Blob of Blobs, a megabyte per part. One worker. Cases: a reordered, dropped, truncated or extended chunk refuses; peak heap stays under two megabytes for a 25 MB file (measured in the browser suite); the worker catches in every task body |
+| [ ] | `chat-e2ee/sealed.ts` — the page half | Upload into the kind's sealed namespace with the declared hash; the descriptors inside the envelope; fetched with `credentials: "omit"`; nothing handed over unless the hash and every chunk check. One object URL per attachment on screen, revoked when it leaves the held window, the only module exempt from the `createObjectURL` ban, with the check taught so in the same commit. `03-deployment.md` gains `blob:` in `img-src` and `media-src`. **Waits on the cross-repo sealed upload route** |
+| [ ] | `chat-e2ee/push.ts` — `chatPushNotification` | 05 §9.12. For the application's service worker: exactly `{c, seq}` or refused; the queue drained and the conversation caught up under the vault lock with a deadline; a refresh under `hammer.refresh`; the application's `wording`, or its generic wording on any failure and never nothing; the conversation as the tag. The "A service worker" entry below already says why hammer ships a function for one and still ships no worker |
+| [ ] | Browser suite — the push path | A service worker registered by the reference application receives a real `{c, seq}` push and shows text decrypted from the archive; a lock held by another context past the deadline yields the generic wording; a frozen leader does not stop it |
+| [ ] | **External review of both halves** | The one row no suite closes (anvil §Phase 20, its last row). Scope: 05 §9 and anvil 22 §7, the code of both halves, and the oracle and framing vectors. Findings get rows of their own here. When it is checked, `unreviewedProtocol` is removed in a major release, with the review's summary in the release notes |
+
+**Phase 15 gate:** every row closed, the review included. Until then encrypted conversations are
+built and tested, and the type says they are not for production.
+
+---
+
 ## The first consumer — what an application found that the suite could not
 
 **Not a phase, and it did not wait for one.** The phase gate above governs planned work; this
@@ -827,7 +1189,7 @@ its imports and its neighbours, compiled for the same reason everything else the
 document holds a copy the build refuses to let drift. It is the same bargain
 `check-descriptor.sh` makes: regenerate, diff, print the command that fixes it.
 
-**The scan stops at `docs/` and `README.md`, deliberately.** `ENGINEERING_RULES.md` is not scanned, and the
+**The scan stops at `docs/` and `README.md`, deliberately.** `CLAUDE.md` is not scanned, and the
 boundary is what a consumer copies from. Scanning the rules document would force a `sketch:`
 annotation onto every illustration of a rule, which is friction bought for a file no application
 reads.
@@ -943,10 +1305,25 @@ workaround in every application built on it.
 | [~] | **A writer for the envelope anvil documents** | Half landed. `append_error_body` writes `request_id` now, and the live suite reads one off a real 401. It is NULL on a 404 and correctly so — anvil's 404 body is one constexpr string shared by a stealth drop, an unmatched route and a genuinely missing object, and a shared constant cannot carry a per-request id. What is still missing is `fields`, and that one is sharper: a form that cannot place a server reason on a field is a form that refuses to submit with nothing marked on it |
 | [ ] | **A recorder for those bodies, owned by anvil** | Open, and the same shape as the descriptor row below. `tools/record-envelopes.cc` compiles against anvil's headers from a sibling checkout and reads `wire_name`, `http_status`, `is_stealth_hidden` and `kNotFoundBody` — which is real provenance for everything but the two lines of body ASSEMBLY, which it copies from `access_filter.cc` and `stealth.cc` because anvil has no function that returns one. A copy in a client is a copy that goes stale silently. What would close it is anvil emitting these the way it emits the descriptor, from the one place that builds them |
 | [x] | **A reference application a client can be pointed at** | Landed: `anvil_reference_server`, loopback, ephemeral port, credentials drawn at boot and printed once, refusing to start against a database it did not create. It unblocked four written suites at once, and the first execution of one of them found that `decodeSessionView` was written against a payload anvil does not send — past 1,145 unit tests, all of which built their payload from the fixture the decode was written against. `tools/run-live.sh` starts it, reads its URL and its passwords off its own stdout, and runs both suites |
-| [ ] | **An identity on the session response** | Open, and found by driving the two-tab browser run. `append_reachable_routes` writes the table and `append_holder_authority` writes the authority, and neither says WHO this is — so a client has nothing to key its caches by, and every cache must be keyed by the identity allowed to read it (`ENGINEERING_RULES.md` §2.3) or it renders one user's documents to the next person on a shared device. The reference consumer works around it with a second call to `identity.me` on every session read, which is an N+1 on the bootstrap path and a workaround an application would copy. `SessionStore.identityOf` stays either way: it is the seam for an application whose session body does carry one |
+| [ ] | **An identity on the session response** | Open, and found by driving the two-tab browser run. `append_reachable_routes` writes the table and `append_holder_authority` writes the authority, and neither says WHO this is — so a client has nothing to key its caches by, and every cache must be keyed by the identity allowed to read it (`CLAUDE.md` §2.3) or it renders one user's documents to the next person on a shared device. The reference consumer works around it with a second call to `identity.me` on every session read, which is an N+1 on the bootstrap path and a workaround an application would copy. `SessionStore.identityOf` stays either way: it is the seam for an application whose session body does carry one |
 | [ ] | **A rate limiter in the reference application** | Open, and found by running the slow-network browser row. The descriptor declares the buckets — `login`, `refresh`, `media` — and `anvil_reference_server` enforces none of them, so no route's limit can be reached deliberately and there is no way to observe a real `Retry-After` on a real connection. `wire/retry.ts` honours the header exactly and the unit suite covers it; the browser case is skipped rather than failed and says so, because the server being present and unable to answer is a different thing from the server being absent |
 | [ ] | **A write route in the reference application** | Open, and it is what three rows have now been deferred around. There is no route that writes anything past the credential ones, so the versioned-write conflict, the idempotency key on a retried write and the freeze/discard row's duplicate-write claim have nothing to be observed against. Each is asserted in the half that IS reachable and named for that half rather than for the row — a write with no version read is refused rather than sent, and one call across a freeze records one outcome |
 | [x] | **A session response that serves the holder-scoped table** | Landed: the reference application serves `GET /session` over a real listener, through the real access filter, and the recorded body is one envelope key over an object of route id to `"<METHOD> <path>"`. That is the shape `wire/session_view.ts` was written against, `ANY` included — anvil records `auth.logout` as `"ANY /session/logout"`, which is the entry hammer sorts into `unusable` rather than into `routes`. The route is in the descriptor as `session.current`, which is how this arrived here at all |
+| [ ] | **One dependency policy for the SDK** | Open, and not a blocker for hammer. hammer and anvil ship as one SDK, and the SDK's release is as clean as the dirtier half. hammer's rule is `CLAUDE.md` §12 and its gate is `npm run check:production`. anvil's dependencies are vcpkg ports with a pinned `builtin-baseline`, which is the same bargain in another package manager. What would close this is anvil stating its allowed set and a release gate of its own, so the SDK's release runs both. hammer does not edit anvil to get there |
+| [x] | **An edit route, the recipe codec and `limits.edit`** | Landed with its design rather than found by a consumer: anvil §Phase 17 ships `install_media_edit_routes`, `limits.edit`, the two response shapes and the golden vectors, and the reference server serves the routes over a seeded picture. Filed with no fallback, and none was needed |
+| [ ] | **A fresh-authentication refusal that is not `401`** | Open, filed with the chat design, and **blocking** Phase 13's first-device row. anvil answers a first device whose sign-in is older than five minutes with `401 UNAUTHENTICATED` and no field (`devices.cc`, `service.cc`). To hammer that is an expired access token: the leader refreshes, the replay is refused with `401` again, and a second `401` after a successful refresh is a rejection, so **registering a device with a stale sign-in signs the person out of every tab**. What would close it is a code that means "prove yourself again": `428 CAPABILITY_REQUIRED` already means a second, deliberate act in hammer's error table, or a `403` with a `reason`. No fallback: special-casing a `401` on one route would also swallow that route's genuine expiries (05 §9.4.2) |
+| [ ] | **A catch-up for edits, revokes and reactions** | Open, filed with the chat design. A plaintext edit, revoke or reaction changes a row without allocating a seq and publishes no wake, so a device holding the message never learns of it from `after=cursor`. anvil 22 §4.5 says a revoked row keeps its seq so "the next sync" can tell; a cursor sync cannot. What would close it is a per-conversation mutation counter stamped on the changed row, a catch-up by that counter, and a wake when it moves. The fallback is bounded on purpose: the visible page is re-read on every sync trigger, so a change on screen is at most one trigger stale and one off screen is corrected when scrolled to (05 §5.2). The encrypted half does not have the gap |
+| [ ] | **Another member's delivered watermark** | Open, filed with the chat design. The `Receipt` frame is in the grammar and never sent, and no route reads a member's `dlv`, so a sender can be shown sent and read (one `read_by` of their newest message answers every tick, because `rd` is a watermark) and never delivered. Either the frame or a field beside `read_by` would close it. The store exposes no delivered state until then rather than inventing one (05 §6.2) |
+| [ ] | **A chat upload route, plaintext and sealed** | Open, filed with the chat design. anvil ships no upload handler for chat and the reference application has none, so no attachment can be sent end to end. Plaintext: an upload into the kind's `media_ns` answering `mint_upload_handle` and nothing else. Sealed: the same into `sealed_ns`, taking the client's declared SHA-256 for `finish_sealed` and enforcing the per-account byte budget before the sink opens. Phase 10's media row and Phase 15's sealed row wait on it for their live cases; nothing else does |
+| [ ] | **A batch prekey claim** | Open, filed with the chat design. A claim names one account and answers its devices' bundles, so a group's first encrypted send costs one request per member, and at the reference budget of 120 a minute a group of a thousand takes over eight minutes of sequential requests — an N+1 over the network (`CLAUDE.md` §7). A claim taking a bounded list of accounts, spending the per-target budget for each, would close it. The fallback establishes sessions in the background from the moment a conversation is opened and shows the send as pending until its distribution is complete (05 §9.6) |
+| [ ] | **A batch presence read** | Open, filed with the chat design. `GET /chat/presence/{user}` is one account per call, so presence on a list of conversations is one request per row. The fallback asks only for the open direct conversation's peer (05 §7.5) |
+| [ ] | **A mute duration** | Open, filed with the chat design. `muted_until` is an absolute instant, and the client's only "now" is the device clock (`CLAUDE.md` §6). A `mute_for_s` the server adds to its own clock would close it. The fallback computes the instant from the newest server instant the tab has seen, and the code states the bound: the mute ends late by however old that instant is (05 §6.3) |
+| [ ] | **A client id on `chat.create`** | Open, filed with the chat design. `create` is described as not idempotent and takes no key, so a lost answer retried would be a second group, and hammer does not retry it. A `cid` with a unique index, as `send` has, would make it retryable. Until then a lost answer is surfaced as an unknown outcome and the next list read settles it |
+| [ ] | **Which device is mine** | Open, filed with the chat design. A browser may evict a vault, and the device it held stays current on the server until the idle sweeper takes it thirty days later, with every sender encrypting to it meanwhile. The client cannot find it to unlink it, because `my_devices` deliberately does not expose the registering session. A boolean on the device the CALLING session registered would close it without exposing any session (05 §9.3) |
+| [ ] | **A relay for the link approval** | Open, filed with the chat design. The new device must post its own link, since anvil binds the device to the posting session, so the approver's signature has to travel back to it, and a desktop browser usually cannot scan a code. A short-lived mailbox keyed by the request, written by the approver and read once by the requester, would close it. Until then the bytes travel however the application can carry them (05 §9.4.3) |
+| [ ] | **Signed-prekey and last-resort rotation** | Open, filed with the chat design. anvil cannot rotate either yet ("nothing has asked for it"); hammer asks, because a signed prekey that never rotates weakens the forward secrecy of every session's first message. A route that verifies the new key against the stored signing key would close it, and the client rotates on a thirty-day period once it exists (05 §9.4.4). Wanted before the external review |
+| [ ] | **Chat golden vectors as printed fixtures** | Open, filed with the chat design. `chat_frames_test.cc` says its golden bytes are the contract a client's decoder is written against, and `chat_text_test.cc` holds the validator's cases, but neither is printed the way `testapp_emit_chat_vectors` and the edit vectors are. An emitter for each would let `chat/frames.ts` and `chat/text.ts` close against the same file anvil's codec and validator are held to. `testapp_emit_chat_vectors` itself is already printed and is Phase 13's fixture |
+| [ ] | **A staff read of a conversation, and reports** | Open, filed with the chat design after an application named the need: staff reviewing a reported marketplace dispute. Storage is not the gap, since anvil keeps plaintext for the kind's `retention_days`. The gap is the way in: a route reading a conversation the reader is not a member of, behind a permission the application names, audited on every read, holder-scoped; and a report a member files against a message, recording the reported range. Not for encrypted conversations, where the server holds nothing to show (05 §5.6). No fallback: a client-side copy cannot be read by a reviewer on another device |
 
 ### What the cross-repo work found
 
@@ -978,9 +1355,19 @@ which is private data readable after the session ended, on a shared device. It r
 per-resource opt-in that names its own eviction and its own threat model — not as a default,
 and not as a service worker that caches everything because it is easy.
 
+Reopened once, for encrypted chat, and only there ([`05-chat.md`](05-chat.md) §9.3). A device's
+keys, its ratchet state and what it decrypted cannot be fetched again, so the vault persists them,
+names its threat model, and is destroyed with the session. It persists no API response, and
+plaintext chat persists nothing. The default stands.
+
 **A service worker.** It is a second, longer-lived origin-scoped program with its own update
 lifecycle, and it makes the stale-bundle problem in `docs/00-architecture.md` §7.1 strictly
 worse before it makes anything better.
+
+Encrypted chat needs one, because only the device can word a push about a message the server
+cannot read ([`05-chat.md`](05-chat.md) §9.12). So hammer ships a function the application's own
+service worker calls, as it ships `serveImagePool` for the application's own worker, and still
+ships no worker. The reason above is why it stays that way.
 
 **A framework adapter beyond React.** The core is framework-agnostic and the adapter is thin
 on purpose; a second one is written when a consumer needs it, against the same store surface,

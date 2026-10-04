@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# An application's vocabulary may not appear in the library (ENGINEERING_RULES.md §1).
+# An application's vocabulary may not appear in the library (CLAUDE.md §1).
 #
 # Two shapes of the same defect:
 #
@@ -79,7 +79,7 @@ check "a finding number from a register this repository does not have" \
 # is the one thing in this repository that is supposed to read like English.
 #
 # A `throw new Error(...)` is stripped too, and it is the one exemption here.
-# `throw` is reserved for PROGRAMMER error in this library (ENGINEERING_RULES.md §3.1) — a
+# `throw` is reserved for PROGRAMMER error in this library (CLAUDE.md §3.1) — a
 # violated precondition, a misconfigured client — and an expected failure is in
 # the return type, where it is a code the application writes the words for. So
 # the audience for one of these strings is whoever is holding the stack trace,
@@ -92,9 +92,9 @@ check "a finding number from a register this repository does not have" \
 # not symmetry: a chart is where an axis caption, a units suffix and the header
 # row of the data-table fallback want to be written, and every one of them is a
 # word a person reads. The colours, the number formatting and the labels are the
-# application's (`ENGINEERING_RULES.md` §9).
+# application's (`CLAUDE.md` §9).
 copy_targets=()
-for dir in src/dom src/chart src/state src/react; do
+for dir in src/dom src/chart src/edit src/chat src/chat-e2ee src/state src/react; do
     [ -d "$dir" ] && copy_targets+=("$dir")
 done
 

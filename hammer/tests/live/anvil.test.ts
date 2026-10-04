@@ -15,8 +15,8 @@
 //
 // The phase-6 row asks for an upload, an SSE delivery and a versioned write.
 // The reference application has no upload route, no stream route reachable over
-// HTTP — `live.feed` is a WebSocket upgrade — and no write at all past
-// `auth.login`, `auth.refresh` and `auth.logout`. So `wire/upload.ts` and
+// HTTP — `live.feed` is a WebSocket upgrade — and no write past anvil's
+// built-in account flows, none of which is versioned. So `wire/upload.ts` and
 // `wire/sse.ts` are still driven by the unit suites and by nothing else, and the
 // versioned case below asserts the half that IS reachable: a write with no
 // version read is refused rather than sent. Saying so here is the honest version
@@ -36,21 +36,22 @@
 //   the envelope     carries the code and the request id anvil's writer produces;
 //   the response     is the shape the descriptor declared and the binder wrote.
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "../support/test.js";
 
 import { writeVersioned } from "../../src/state/versioned.js";
 import {
     kPermAuditRead,
     kPermContentRead,
     routeAuditList,
+    routeAuthLogin,
     routeContentDelete,
     routeContentGet,
     routeIdentityMe,
     routeMediaList,
 } from "../testapp/api/hammer.generated.js";
-import { signIn, signOut } from "../testapp/app/state.js";
+import { signIn, signOut, signUp } from "../testapp/app/state.js";
 import type { LiveRun } from "./harness.js";
-import { liveCredentials, liveRun, liveSuperadmin, signal } from "./harness.js";
+import { deliveredCode, deliveredCount, liveCredentials, liveRun, liveSuperadmin, signal } from "./harness.js";
 
 let run: LiveRun;
 
@@ -93,7 +94,7 @@ describe("a live anvil", () => {
 
         if (!answered.ok) {
             // A 404 is not a permission error, and this suite must not report it
-            // as one (`ENGINEERING_RULES.md` §5).
+            // as one (`CLAUDE.md` §5).
             expect(answered.error.kind).toBe("server");
         }
         expect(answered.ok || answered.error.kind === "server").toBe(true);
@@ -240,7 +241,7 @@ describe("a live anvil", () => {
         try {
             // A 404 is not a permission error and is not reported as one: the
             // object is missing OR forbidden and this client is not entitled to
-            // know which (`ENGINEERING_RULES.md` §5).
+            // know which (`CLAUDE.md` §5).
             const ready = await resource.ready(signal());
             expect(ready.status).toBe("failed");
 
@@ -401,5 +402,115 @@ describe("a superadmin", () => {
         } finally {
             root.close();
         }
+    });
+});
+
+// Client-side prehashing (`docs/01-seams.md` §21, anvil `docs/05` §12).
+//
+// Every sign-in above already went through it: the credential was derived by
+// hammer's Argon2 in this process and verified by anvil's libargon2 and keyed
+// stage, so a green run is the two implementations agreeing on real input, not
+// on a shared fixture. These are the cases only the prehash flow has.
+describe("client-side prehashing, live", () => {
+    // The server's side of "the password never leaves the device": the login
+    // has no field a password could arrive in, and a body without a credential
+    // is answered exactly as a wrong one — a distinct refusal would tell a
+    // prober which accounts are worth a password-spraying run.
+    it("answers a password sent in place of a credential as it answers a wrong one", async () => {
+        const fresh = liveRun();
+        const who = liveCredentials();
+        const answered = await fresh.state.api.call(routeAuthLogin, {
+            body: { identifier: who.email, password: who.password },
+            signal: signal(),
+        });
+        expect(!answered.ok && answered.error.kind === "server" ? answered.error.code : "answered").toBe(
+            "UNAUTHENTICATED",
+        );
+        fresh.close();
+    });
+
+    // A wrong password derives a credential that fails the stage; an unknown
+    // address derives one against a salt the server made up for it. The two
+    // must be indistinguishable to the client, or the login is an oracle.
+    it("answers a wrong password exactly as it answers an address nobody has", async () => {
+        const fresh = liveRun();
+        const who = liveCredentials();
+        const wrong = await signIn(fresh.state, { email: who.email, password: `${who.password}x` }, signal());
+        const nobody = await signIn(
+            fresh.state,
+            { email: "nobody.at.all@reference.test", password: `${who.password}x` },
+            signal(),
+        );
+        expect(wrong.ok).toBe(false);
+        expect(nobody.ok).toBe(false);
+        if (!wrong.ok && !nobody.ok) {
+            expect(wrong.error.kind).toBe("server");
+            expect(JSON.stringify({ ...wrong.error, requestId: null })).toBe(
+                JSON.stringify({ ...nobody.error, requestId: null }),
+            );
+        }
+        fresh.close();
+    });
+
+    // The whole built-in flow, as a person meets it: register, be refused until
+    // the address is proven, prove it with the code that was sent, sign in.
+    //
+    // The refusal is the defect this case exists for. The hand-written login it
+    // replaced issued a session to an account still pending verification, so an
+    // address nobody had proven owning was an address anybody could sign in as.
+    // The refusal is also required to be the SAME as a wrong password's: a
+    // distinct "not verified yet" tells a prober which addresses are registered.
+    //
+    // The password is not ASCII, so NFC and UTF-8 are on the path, and the
+    // credential the sign-in derives has to match the one registration enrolled
+    // under the salt the server derives for a new address.
+    it("registers, refuses the pending account, verifies it, and signs in", async () => {
+        const fresh = liveRun();
+        const stamp = `${Date.now()}${Math.floor(performance.now())}`;
+        const who = {
+            email: `newcomer.${stamp}@reference.test`,
+            username: `newcomer${stamp}`,
+            givenName: "ليلى",
+            password: "pa\u0308ssw\u006f\u0308rd كلمة سر",
+        };
+
+        expect((await signUp(fresh.state, who, signal())).ok).toBe(true);
+        await deliveredCode("verify", who.email, signal());
+
+        // A second registration of an address still pending is answered as the
+        // first, and sends a fresh code rather than voiding the one in flight.
+        expect((await signUp(fresh.state, who, signal())).ok).toBe(true);
+        const within = signal();
+        while ((await deliveredCount("verify", who.email)) < 2) {
+            within.throwIfAborted();
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+
+        const pending = await signIn(fresh.state, { email: who.email, password: who.password }, signal());
+        const wrong = await signIn(fresh.state, { email: who.email, password: `${who.password}x` }, signal());
+        expect(pending.ok).toBe(false);
+        expect(fresh.jar.count).toBe(0);
+        if (!pending.ok && !wrong.ok) {
+            expect(JSON.stringify({ ...pending.error, requestId: null })).toBe(
+                JSON.stringify({ ...wrong.error, requestId: null }),
+            );
+        }
+
+        const code = await deliveredCode("verify", who.email, signal());
+        expect((await fresh.state.accounts.verify({ identifier: who.email, code }, signal())).ok).toBe(true);
+
+        const signedIn = await signIn(
+            fresh.state,
+            { email: who.email, password: who.password.normalize("NFC") },
+            signal(),
+        );
+        expect(signedIn.ok).toBe(true);
+        expect(fresh.jar.count).toBeGreaterThan(0);
+
+        // Registered once more, the address is taken, and the answer does not
+        // say so: the owner is told by a delivery, the caller by nothing.
+        expect((await signUp(fresh.state, who, signal())).ok).toBe(true);
+        await deliveredCode("exists", who.email, signal());
+        fresh.close();
     });
 });

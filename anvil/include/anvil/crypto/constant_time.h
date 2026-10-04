@@ -5,7 +5,7 @@
 // operator== and std::memcmp short-circuit on the first differing byte, so the
 // time they take reveals how many leading bytes matched. Against a token or a
 // MAC that is an oracle: an attacker recovers the value one byte at a time.
-// Every secret comparison in this codebase goes through here (ENGINEERING_RULES.md §5).
+// Every secret comparison in this codebase goes through here (CLAUDE.md §5).
 
 #include <openssl/crypto.h>
 

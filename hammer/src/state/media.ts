@@ -7,7 +7,7 @@
 // `createObjectURL` and no `data:` URI anywhere on this path, because decoding a
 // photograph into a JS `Blob` to display it puts the whole file in the one heap
 // with the least room, on the device least able to spare it, and loses the CDN
-// cache besides (`ENGINEERING_RULES.md` §2.2). anvil serves image bytes with `sendfile()`
+// cache besides (`CLAUDE.md` §2.2). anvil serves image bytes with `sendfile()`
 // so they never enter ITS heap; undoing that on the client is the same defect
 // with worse consequences.
 //
@@ -50,7 +50,7 @@ import type { ImagePool } from "./workers/image.js";
 import type { PoolError } from "./workers/pool.js";
 
 // The role→width table the descriptor emits, as a shape rather than a table
-// (`ENGINEERING_RULES.md` §1). hammer knows there are namespaces and that each serves roles
+// (`CLAUDE.md` §1). hammer knows there are namespaces and that each serves roles
 // at widths; which ones an application declared is not its business.
 export type MediaWidths = Readonly<Record<string, Readonly<Record<string, number>>>>;
 

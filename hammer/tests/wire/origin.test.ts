@@ -6,7 +6,7 @@
 // request at all. There is no runtime symptom that says so — every call simply
 // 401s — which is why the refusal is at construction.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ApiOrigin } from "../../src/wire/origin.js";
 import { defineApiOrigin, requestUrl } from "../../src/wire/origin.js";

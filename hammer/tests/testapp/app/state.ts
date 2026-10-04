@@ -9,6 +9,7 @@
 // from an application, it would fail HERE, at type-check time, which is the only
 // place it can fail cheaply.
 
+import type { Uuid } from "hammer";
 import type { Client, ExclusiveLocks, FanOut, FetchLike } from "hammer/wire";
 import { beaconFrom } from "hammer/wire";
 import type {
@@ -31,11 +32,15 @@ import {
     Sections,
     SessionStore,
     definitionsFrom,
+    imageSource,
     imageSources,
     optimistic,
     writeVersioned,
 } from "hammer/state";
 import type { FieldDefinition, FieldTypeSpec, FormReasons } from "hammer/state";
+import type { PrehashBounds } from "hammer/prehash";
+import { Argon2Pool } from "hammer/prehash";
+import { Accounts, accountCall } from "hammer/accounts";
 
 import type { RouteId, SectionFieldType, ValidationReason } from "../api/hammer.generated.js";
 import {
@@ -44,9 +49,10 @@ import {
     kMediaWidths,
     kPageLimitMax,
     kPermissionBits,
+    kAccounts,
     kTablesHash,
+    eventProjectViewed,
     eventSignupCompleted,
-    routeAuthLogin,
     routeAuthLogout,
     routeContentGet,
     routeIdentityMe,
@@ -117,6 +123,20 @@ const kFormReasons: FormReasons<ValidationReason> = {
     notAllowed: "NOT_ALLOWED",
 };
 
+// What a salt answer may ask of this application's devices. The reference
+// server asks 64 MiB at three passes — plain mode's own cost, so what a guess
+// against a leaked database costs is unchanged — and this application accepts
+// down to OWASP's floor for Argon2id and up to twice the server's ask. Refusing
+// outside it surfaces a misconfigured server rather than hashing whatever it
+// named. The numbers are this application's: hammer ships none.
+const kPrehashBounds: PrehashBounds = {
+    minMemoryKib: 19456,
+    maxMemoryKib: 131072,
+    minIterations: 2,
+    maxIterations: 6,
+    maxParallelism: 4,
+};
+
 export type Platform = {
     readonly fetch: FetchLike;
     readonly locks: ExclusiveLocks | null;
@@ -128,6 +148,10 @@ export type Platform = {
     // one: `new Worker(new URL(...))` is a bundler contract and this library has
     // no bundler.
     readonly imageWorker: WorkerFactory;
+
+    // The worker that runs Argon2 for a sign-in: this application's bundle of
+    // `serveArgon2Pool(self)` (`./prehash_worker.ts`), for the same reason.
+    readonly prehashWorker: WorkerFactory;
 
     // `navigator`, for the one send that survives the page going away.
     readonly beaconTo: { readonly sendBeacon: (url: string, data: BodyInit) => boolean };
@@ -143,6 +167,7 @@ export type AppState = {
     readonly sections: Sections<Api, typeof routeIdentityMe>;
     readonly inbox: Inbox<Api, InboxPayload>;
     readonly images: ImagePool;
+    readonly accounts: Accounts;
     readonly analytics: AnalyticsSink;
     readonly close: () => void;
 };
@@ -246,6 +271,22 @@ export function appState(platform: Platform): AppState {
 
     const images = new ImagePool({ create: platform.imageWorker, count: platform.count });
 
+    // Every account flow, from the table the descriptor published: which
+    // routes, which fields, and — because the reference server hashes on the
+    // client, anvil's default — that a password never leaves this tab. What
+    // this application supplies is the worker and what its devices can afford.
+    // The pool spawns its worker on the first sign-in, not here, so a session
+    // that never signs in never pays for one.
+    if (kAccounts === null) {
+        throw new Error("the reference descriptor declares its accounts");
+    }
+    const argon2 = new Argon2Pool({ create: platform.prehashWorker, count: platform.count });
+    const accounts = new Accounts({
+        table: kAccounts,
+        call: accountCall(api),
+        prehash: { pool: argon2, bounds: kPrehashBounds },
+    });
+
     const analytics = new AnalyticsSink({
         deliver: async (batch, signal) => {
             const answered = await api.call(routeIdentityMe, { body: batch, signal });
@@ -265,10 +306,16 @@ export function appState(platform: Platform): AppState {
         sections,
         inbox,
         images,
+        accounts,
         analytics,
         close: () => {
             analytics.close();
             images.close();
+            // Terminating the worker is what hands back a heap that just ran a
+            // 64 MiB Argon2; an idle one keeps it until the collector gets round
+            // to it.
+            accounts.close();
+            argon2.close();
             inbox.close();
             invalidator.close();
             resources.close();
@@ -280,21 +327,36 @@ export function appState(platform: Platform): AppState {
 
 // --- the seams, exercised ----------------------------------------------------
 
-// Signing in, in this application's vocabulary.
-//
-// The keys are the reference application's and they are nowhere in hammer: an
-// anvil application writes its own login handler, so the names of the two fields
-// it reads are as much the application's as the words on the button. What the
-// library supplies is the call — the route, the origin rule, the queue, the
-// breaker — and what it never supplies is a credential, because the answer to
-// this request is a `__Host-` cookie the client cannot read.
+// Signing in, and registering. Both are one line: the flows are anvil's, and
+// `hammer/accounts` drives them from the published table. What this
+// application writes is only what it knows — here, which of its fields holds
+// the identifier a person typed.
 export type Credentials = {
     readonly email: string;
     readonly password: string;
 };
 
 export async function signIn(state: AppState, who: Credentials, signal: AbortSignal) {
-    return await state.api.call(routeAuthLogin, { body: who, signal });
+    return await state.accounts.signIn({ identifier: who.email, password: who.password }, signal);
+}
+
+// anvil answers a new address and a taken one identically, so `ok` here means
+// "accepted", never "created" — what the screen says next is this application's.
+export type Registration = Credentials & {
+    readonly username: string;
+    readonly givenName: string;
+};
+
+export async function signUp(state: AppState, who: Registration, signal: AbortSignal) {
+    return await state.accounts.register(
+        {
+            email: who.email,
+            username: who.username,
+            profile: { given_name: who.givenName },
+            password: who.password,
+        },
+        signal,
+    );
 }
 
 // Signing out, in the order that matters.
@@ -325,7 +387,7 @@ export async function signIn(state: AppState, who: Credentials, signal: AbortSig
 // So the identity comes from `identity.me`, which is a described route, and
 // `me.id` is typed `UuidText` because the descriptor said so. Then it is ADOPTED
 // by the resource store, and that is the part this function exists for: every
-// cache is keyed by the identity allowed to read it (`ENGINEERING_RULES.md` §2.3), and a
+// cache is keyed by the identity allowed to read it (`CLAUDE.md` §2.3), and a
 // store that was never told who it is holding for is a store that renders one
 // user's documents to the next person on a shared device. Adopting re-keys every
 // live entry and drops everything cached under the previous identity.
@@ -442,6 +504,12 @@ export async function starContent(state: AppState, id: string, signal: AbortSign
     }
 }
 
+// The address an image editor previews: the `hero` role of the source, wide
+// enough for an editing surface and never the master.
+export function editPreview(subject: { readonly ns: string; readonly id: string }) {
+    return imageSource(kMedia, subject, "hero");
+}
+
 // Every source for one stored image, at every width the namespace serves.
 export function contentImage(id: string) {
     return imageSources(kMedia, { ns: "content", id });
@@ -451,6 +519,14 @@ export function contentImage(id: string) {
 // rather than a row the ingest path drops.
 export function reportSignup(state: AppState, surface: "web" | "ios" | "android") {
     state.analytics.report(eventSignupCompleted, { surface });
+}
+
+// An event whose dimension is a foreign id rather than a member of a closed
+// set. `project` is OPTIONAL — the screen may render before the id is known —
+// and omitting it is how that is spelled: the sink never sends an empty
+// string or a null for a column the row does not have yet.
+export function reportProjectViewed(state: AppState, project?: Uuid): void {
+    state.analytics.report(eventProjectViewed, project === undefined ? {} : { project });
 }
 
 export function answerConsent(state: AppState, answer: Consent): void {

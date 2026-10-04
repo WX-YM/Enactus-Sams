@@ -9,7 +9,7 @@
 //
 // They are static_asserts rather than EXPECT_FALSE because that is where an
 // application meets them, and they are written from OUTSIDE anvil for the reason
-// ENGINEERING_RULES.md §1 gives: a seam that cannot be satisfied from outside the library
+// CLAUDE.md §1 gives: a seam that cannot be satisfied from outside the library
 // fails in tests/testapp, which is the only place it can fail cheaply.
 
 #include <gtest/gtest.h>
@@ -314,7 +314,7 @@ TEST(GaugeSamplers, RunBeforeTheCellsAreRead) {
 // --- the one table anvil populates ------------------------------------------
 
 TEST(InternalMetricTable, EveryNameDescribesAMechanismInThisRepository) {
-    // The test docs/17 §3 states for the exception to ENGINEERING_RULES.md §1: a name here
+    // The test docs/17 §3 states for the exception to CLAUDE.md §1: a name here
     // would not have to change if the application changed.
     // `checkout_completed_total` would, and that is the line.
     EXPECT_TRUE(internal_metric_table_is_well_formed(kInternalMetrics));

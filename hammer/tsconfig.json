@@ -15,7 +15,12 @@
             "hammer/wire": ["./src/wire/index.ts"],
             "hammer/state": ["./src/state/index.ts"],
             "hammer/dom": ["./src/dom/index.ts"],
+            "hammer/crypto": ["./src/crypto/index.ts"],
+            "hammer/prehash": ["./src/prehash/index.ts"],
+            "hammer/prehash-worker": ["./src/prehash/worker.ts"],
+            "hammer/accounts": ["./src/accounts/index.ts"],
             "hammer/chart": ["./src/chart/index.ts"],
+            "hammer/edit": ["./src/edit/index.ts"],
             "hammer/react": ["./src/react/index.ts"]
         },
 
@@ -34,5 +39,5 @@
         "forceConsistentCasingInFileNames": true,
         "skipLibCheck": true
     },
-    "include": ["src", "tests", "vitest.config.ts"]
+    "include": ["src", "tests"]
 }

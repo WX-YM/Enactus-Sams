@@ -1,15 +1,18 @@
 // A real browser, and the four properties that need one.
 //
 // Every other suite in this repository asserts hammer against a stand-in: a
-// document happy-dom implements, a channel the test wrote, a clock the test
-// advances. Four of phase 7's rows cannot be written that way, and the reason is
+// fake channel the test wrote, a fake clock the test advances. Four of phase
+// 7's rows could not be written that way even before the DOM suite itself
+// moved into a real Chromium (`docs/15-tasks.md` Phase 8 B2) — the reason is
 // the same each time — the mechanism under test IS the platform:
 //
 //   TRUSTED TYPES. A policy is enforced by the browser or it is not enforced.
-//              happy-dom has none, so `tests/dom/csp.test.ts` installs tripwires
-//              on every route to a sink and drives them; that asserts the code
-//              takes no such route, which is the strongest thing a fake document
-//              can say. Whether Chromium AGREES is a different claim.
+//              `tests/dom/csp.test.ts` installs tripwires on every route to a
+//              sink and drives them, which asserts the code takes no such
+//              route — the strongest claim any suite in this repository can
+//              make about its OWN behaviour. Whether Chromium's own
+//              enforcement agrees, over the reference consumer's actual
+//              mounts, is what this file's Trusted Types run adds.
 //   TWO TABS.  `navigator.locks` and `BroadcastChannel` are per-origin and
 //              shared between real tabs. Two store instances in one Node process
 //              share whatever the test handed them.
@@ -48,15 +51,18 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
-import type { Browser, BrowserContext, CDPSession, Page } from "playwright-core";
-import { chromium } from "playwright-core";
+
+import type { Browser, BrowserContext, CDPSession, Page } from "./cdp.js";
+import { launch as launchChromium } from "./cdp.js";
 
 const kRoot = fileURLToPath(new URL("../../", import.meta.url));
 
-// Where a Chromium lives on a machine that did not download one through
-// playwright. `playwright-core` is the dependency rather than `playwright`
-// precisely so nothing here installs a browser: a postinstall step that fetches
-// a hundred megabytes is a dev dependency with opinions about the network.
+// Where a Chromium lives on a machine that never downloaded one through a
+// browser-automation tool. `./cdp.js` finds it by executable path rather than
+// managing a download itself: a postinstall step that fetches a hundred
+// megabytes is a dev dependency with opinions about the network, which is the
+// reason `playwright-core` and not `playwright` was ever the dependency here
+// (`docs/15-tasks.md` Phase 8 B3, before `./cdp.js` replaced it outright).
 const kCandidates = [
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
@@ -85,7 +91,7 @@ export function browserExecutable(): string {
 }
 
 export async function launch(): Promise<Browser> {
-    return chromium.launch({ executablePath: browserExecutable(), headless: true });
+    return launchChromium({ executablePath: browserExecutable() });
 }
 
 // A missing origin is a FAILED run rather than a skipped one, the same way
@@ -103,9 +109,11 @@ export function liveOrigin(): string {
 
 // The entry point specifiers, mapped to source, read out of `exports` rather
 // than written down. It is the third place in this repository that would
-// otherwise hold a copy of this map — `tsconfig.json`, `vitest.config.ts` — and
-// a copy is a thing to forget when an entry point is added.
-function entryAliases(): Record<string, string> {
+// otherwise hold a copy of this map — `tsconfig.json`'s `paths` and
+// `tests/support/register.mjs` — and a copy is a thing to forget when an
+// entry point is added. Exported for `tests/dom/in_browser.test.ts`'s own
+// esbuild plugin, which needs the identical map for the same reason.
+export function entryAliases(): Record<string, string> {
     const pkg: unknown = JSON.parse(readFileSync(`${kRoot}package.json`, "utf8"));
     const exported = (pkg as { readonly exports?: Readonly<Record<string, string>> }).exports ?? {};
     const name = (pkg as { readonly name: string }).name;
@@ -131,7 +139,10 @@ function entryAliases(): Record<string, string> {
 // `style-src 'none'` is not decoration: hammer sets no inline style and ships no
 // stylesheet, so anything that reaches for one is a violation the browser
 // reports rather than a defect somebody notices in production.
-const kPolicy = [
+// Exported for `tests/dom/in_browser.test.ts`, which serves the entire DOM and
+// React suite under this same header rather than a second copy of it: both are
+// the one policy `docs/03-deployment.md` §3 publishes.
+export const kContentSecurityPolicy = [
     "default-src 'none'",
     "script-src 'self'",
     "style-src 'none'",
@@ -189,14 +200,14 @@ export async function serveBundle(entry: string): Promise<Origin> {
         if (request.url === "/app.js") {
             response.writeHead(200, {
                 "Content-Type": "text/javascript; charset=utf-8",
-                "Content-Security-Policy": kPolicy,
+                "Content-Security-Policy": kContentSecurityPolicy,
             });
             response.end(script);
             return;
         }
         response.writeHead(200, {
             "Content-Type": "text/html; charset=utf-8",
-            "Content-Security-Policy": kPolicy,
+            "Content-Security-Policy": kContentSecurityPolicy,
         });
         response.end(page);
     });
@@ -275,6 +286,25 @@ export async function liveTabs(browser: Browser, entry = "./page/session.ts"): P
     });
     const script = built.outputFiles.map((file) => file.text).join("");
 
+    // The reference consumer's Argon2 worker, bundled on its own as an
+    // application's bundler would, and served beside the page so the page's
+    // `new URL("./prehash_worker.js", import.meta.url)` resolves to it. A real
+    // dedicated worker, running the real worker entry: the credential it
+    // derives is the one the live server verifies.
+    const worker = await build({
+        entryPoints: [fileURLToPath(new URL("../testapp/app/prehash_worker.ts", import.meta.url))],
+        bundle: true,
+        format: "esm",
+        target: "es2022",
+        platform: "browser",
+        write: false,
+        outdir: `${kRoot}dist/never-written`,
+        alias: entryAliases(),
+        charset: "utf8",
+        logLevel: "silent",
+    });
+    const workerScript = worker.outputFiles.map((file) => file.text).join("");
+
     const document = [
         "<!doctype html>",
         '<html lang="en"><head><meta charset="utf-8"><title>hammer</title></head>',
@@ -288,11 +318,13 @@ export async function liveTabs(browser: Browser, entry = "./page/session.ts"): P
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
 
     await context.route(`${origin}${kMountPath}**`, async (route) => {
-        const isScript = route.request().url().endsWith("app.js");
+        const url = route.request().url();
+        const isWorker = url.endsWith("prehash_worker.js");
+        const isScript = isWorker || url.endsWith("app.js");
         await route.fulfill({
             status: 200,
             contentType: isScript ? "text/javascript; charset=utf-8" : "text/html; charset=utf-8",
-            body: isScript ? script : document,
+            body: isWorker ? workerScript : isScript ? script : document,
         });
     });
 

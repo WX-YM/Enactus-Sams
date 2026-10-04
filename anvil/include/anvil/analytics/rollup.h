@@ -4,7 +4,7 @@
 //
 // --- why a rollup cannot $inc ----------------------------------------------
 //
-// Every queue in this system is at-least-once (ENGINEERING_RULES.md §6), so a rollup that
+// Every queue in this system is at-least-once (CLAUDE.md §6), so a rollup that
 // ADDS to what it finds double-counts the first time a worker is reclaimed after
 // a lease expiry — and the resulting number is wrong in a way nothing reports
 // and nobody can reconstruct. So a rollup RECOMPUTES its window and $sets the
@@ -39,7 +39,7 @@ namespace anvil::analytics {
 
 // What one bucket cost and produced. A return value rather than an out
 // parameter: an out parameter defeats RVO and makes the type non-const
-// (ENGINEERING_RULES.md §2.2).
+// (CLAUDE.md §2.2).
 struct BucketReport final {
     std::int64_t rows_read;
     std::int64_t rows_written;

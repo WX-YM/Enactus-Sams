@@ -72,7 +72,7 @@ using PackedAddress = std::array<std::uint8_t, 16>;
 
 // A parsed TRUSTED_PROXIES list.
 //
-// Fixed capacity in automatic storage (ENGINEERING_RULES.md §2.1): the list is a handful of
+// Fixed capacity in automatic storage (CLAUDE.md §2.1): the list is a handful of
 // load-balancer subnets, it is read on every request, and a heap indirection per
 // entry would be a cache miss on the hot path to save nothing. A deployment that
 // needs more than this many entries has a routing problem, not a config problem.
@@ -103,7 +103,7 @@ private:
         std::uint8_t  bits;
     };
 
-    // Largest first (ENGINEERING_RULES.md §2.3). Entry is 17 bytes and alignof 1, so the
+    // Largest first (CLAUDE.md §2.3). Entry is 17 bytes and alignof 1, so the
     // array packs with no padding.
     std::array<Entry, kMaxEntries> entries_{};
     std::size_t                    count_{0};

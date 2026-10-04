@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# An application's vocabulary may not appear in the library (ENGINEERING_RULES.md §1).
+# An application's vocabulary may not appear in the library (CLAUDE.md §1).
 #
 # anvil was lifted out of one application, and prose travels further than code:
 # thirteen public headers and two sources reached the library still citing that

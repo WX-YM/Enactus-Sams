@@ -1,10 +1,8 @@
 #include "anvil/auth/password.h"
 
-#include <argon2.h>
 #include <openssl/crypto.h>
 
 #include <array>
-#include <charconv>
 #include <stdexcept>
 
 #include "anvil/crypto/errors.h"
@@ -17,32 +15,13 @@ namespace {
 constexpr std::size_t kSaltBytes = 16;
 constexpr std::size_t kHashBytes = 32;
 
-// Comfortably above the encoded form for our parameters; argon2 reports
-// ARGON2_OUTPUT_TOO_SHORT rather than overflowing if this were ever too small.
-constexpr std::size_t kEncodedBufferBytes = 256;
-
 // A fixed password for the dummy verify. Its value is irrelevant — only the
 // work performed matters — but it must not be a plausible real password, so
 // that a stored hash of it could never match a user's.
 constexpr std::string_view kDummyPassword = "\x01 anvil timing equaliser \x01";
 
-// Reads "name=<digits>" out of an Argon2 encoded string. Hand-written rather
-// than sscanf: from_chars neither allocates nor consults the locale, and
-// std::regex is banned on any path reachable from a request (ENGINEERING_RULES.md §5).
-[[nodiscard]] std::optional<std::uint32_t> read_param(std::string_view encoded,
-                                                      std::string_view name) noexcept {
-    const std::size_t key = encoded.find(name);
-    if (key == std::string_view::npos) { return std::nullopt; }
-
-    const std::size_t start = key + name.size();
-    std::size_t end = start;
-    while (end < encoded.size() && encoded[end] >= '0' && encoded[end] <= '9') { ++end; }
-    if (end == start) { return std::nullopt; }
-
-    std::uint32_t value = 0;
-    const auto [ptr, ec] = std::from_chars(encoded.data() + start, encoded.data() + end, value);
-    if (ec != std::errc{}) { return std::nullopt; }
-    return value;
+[[nodiscard]] std::span<const std::uint8_t> as_bytes(std::string_view text) noexcept {
+    return {reinterpret_cast<const std::uint8_t*>(text.data()), text.size()};
 }
 
 // NFC, and nothing else. Applied identically on both paths.
@@ -61,20 +40,7 @@ constexpr std::string_view kDummyPassword = "\x01 anvil timing equaliser \x01";
 }  // namespace
 
 std::optional<Argon2Params> parse_encoded_params(std::string_view encoded) noexcept {
-    if (encoded.find("$argon2id$") != 0) { return std::nullopt; }
-
-    const std::optional<std::uint32_t> memory = read_param(encoded, "m=");
-    const std::optional<std::uint32_t> iterations = read_param(encoded, "t=");
-    const std::optional<std::uint32_t> parallelism = read_param(encoded, "p=");
-
-    if (!memory.has_value() || !iterations.has_value() || !parallelism.has_value()) {
-        return std::nullopt;
-    }
-    return Argon2Params{
-        .memory_kib = *memory,
-        .iterations = *iterations,
-        .parallelism = *parallelism,
-    };
+    return crypto::argon2id_parse_params(encoded);
 }
 
 PasswordHasher::PasswordHasher(Argon2Params params)
@@ -97,21 +63,18 @@ std::string PasswordHasher::hash(std::string_view password) const {
     std::string normalized = normalize_password(password);
     const std::array<std::uint8_t, kSaltBytes> salt = crypto::random_array<kSaltBytes>();
 
-    std::array<char, kEncodedBufferBytes> encoded{};
-    const int rc = argon2id_hash_encoded(
-        params_.iterations, params_.memory_kib, params_.parallelism, normalized.data(),
-        normalized.size(), salt.data(), salt.size(), kHashBytes, encoded.data(),
-        encoded.size());
+    std::string encoded;
+    try {
+        encoded = crypto::argon2id_hash_encoded(params_, as_bytes(normalized), salt, kHashBytes);
+    } catch (...) {
+        OPENSSL_cleanse(normalized.data(), normalized.size());
+        throw;
+    }
 
     // The plaintext is gone as soon as it is no longer needed. A plain memset
     // here would be removed by the optimiser as a dead store.
     OPENSSL_cleanse(normalized.data(), normalized.size());
-
-    if (rc != ARGON2_OK) {
-        throw crypto::CryptoError{std::string{"argon2id hashing failed: "} +
-                                  argon2_error_message(rc)};
-    }
-    return std::string{encoded.data()};
+    return encoded;
 }
 
 VerifyOutcome PasswordHasher::verify(std::string_view encoded,
@@ -123,31 +86,21 @@ VerifyOutcome PasswordHasher::verify(std::string_view encoded,
     if (encoded.empty()) { return VerifyOutcome::Malformed; }
 
     std::string normalized = normalize_password(password);
-    // argon2id_verify takes a NUL-terminated encoded string.
-    const std::string encoded_z{encoded};
-
-    const int rc =
-        argon2id_verify(encoded_z.c_str(), normalized.data(), normalized.size());
+    const VerifyOutcome outcome = crypto::argon2id_verify_encoded(encoded, as_bytes(normalized));
 
     OPENSSL_cleanse(normalized.data(), normalized.size());
-
-    if (rc == ARGON2_OK) { return VerifyOutcome::Match; }
-    // A wrong password and an unparseable stored hash are distinguished for the
-    // SERVER's benefit — a Malformed result means a corrupt row worth alerting
-    // on. Callers must map both to the same client-visible failure.
-    if (rc == ARGON2_VERIFY_MISMATCH) { return VerifyOutcome::Mismatch; }
-    return VerifyOutcome::Malformed;
+    return outcome;
 }
 
 void PasswordHasher::consume_dummy_time() const noexcept {
     // Deliberately ignores the result. The point is the elapsed time and the
     // memory traffic, which must match a real verify with the same parameters.
-    const int rc = argon2id_verify(dummy_encoded_.c_str(), kDummyPassword.data(),
-                                   kDummyPassword.size());
+    const VerifyOutcome outcome =
+        crypto::argon2id_verify_encoded(dummy_encoded_, as_bytes(kDummyPassword));
     // Defeats any optimiser that might notice the result is unused. Marked
     // volatile so the call itself cannot be elided.
-    static volatile int sink = 0;
-    sink = rc;
+    static volatile VerifyOutcome sink = VerifyOutcome::Mismatch;
+    sink = outcome;
     (void)sink;
 }
 

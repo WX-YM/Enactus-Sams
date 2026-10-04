@@ -51,7 +51,7 @@ export type Page<Row> = {
     readonly next: string | null;
 };
 
-// One shape, every property declared (`ENGINEERING_RULES.md` §2.3).
+// One shape, every property declared (`CLAUDE.md` §2.3).
 export type PagerState<Row, E> =
     | {
           readonly status: "idle";

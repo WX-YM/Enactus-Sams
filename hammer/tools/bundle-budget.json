@@ -1,11 +1,18 @@
 {
     "gzipCeilingBytes": {
         ".": 8192,
+        "./crypto": 5120,
+        "./prehash": 3584,
+        "./prehash-worker": 4608,
+        "./accounts": 4096,
         "./wire": 12288,
         "./state": 12288,
         "./dom": 18432,
         "./chart": 9216,
-        "./react": 3072
+        "./react": 3072,
+        "./edit": 9216
     },
-    "buildTimeOnly": ["./codegen"]
+    "buildTimeOnly": [
+        "./codegen"
+    ]
 }

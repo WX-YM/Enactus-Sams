@@ -7,7 +7,7 @@
 // exactly two readers — the rollup job and the erasure path — and neither of
 // them is here (docs/17-analytics.md §15).
 //
-// Everything is bounded by a limit like every other read (ENGINEERING_RULES.md §7) and
+// Everything is bounded by a limit like every other read (CLAUDE.md §7) and
 // paginated by the indexed bucket key, never skip(n).
 
 #include <cstdint>
@@ -37,6 +37,17 @@ struct Bucket final {
     std::int64_t sessions;
 };
 
+// One entity's total over a window, folded across every bucket and every enum
+// dimension combination the same way `Bucket` folds across combinations within
+// one bucket. `entity` is the raw 16 bytes, as everywhere else in anvil — a
+// caller building JSON converts it with anvil::uuid::to_string, the same
+// boundary uuid.h itself draws.
+struct EntityCount final {
+    Uuid         entity;
+    std::int64_t count;
+    std::int64_t sessions;
+};
+
 class AnalyticsQuery final {
 public:
     AnalyticsQuery(const db::DatabaseNames& databases,
@@ -57,6 +68,33 @@ public:
     [[nodiscard]] Result<std::vector<Bucket>> counts_over_time_for(
         mongocxx::client& client, EventCode code, const DimensionValues& dimensions,
         const TimeRange& range, Granularity granularity, std::int32_t limit = 512) const;
+
+    // The same series narrowed to ONE entity id, across every bucket and every
+    // enum dimension combination it appears under — the entity-dimension
+    // counterpart of counts_over_time_for.
+    [[nodiscard]] Result<std::vector<Bucket>> counts_over_time_for_entity(
+        mongocxx::client& client, EventCode code, const Uuid& entity, const TimeRange& range,
+        Granularity granularity, std::int32_t limit = 512) const;
+
+    // GROUPED by entity instead of narrowed to one: every id that appeared in
+    // the window, each with its own total. This is the "top projects" query —
+    // the rollup already grouped by entity when it wrote one document per
+    // (code, bucket, dimensions, entity); this folds those documents by entity
+    // instead of by bucket, discarding the ones that carry no entity at all,
+    // because "no entity" is not an id worth reporting.
+    //
+    // Returned HIGHEST COUNT FIRST, ties broken by the id's byte order, so two
+    // reads of an unchanged window return byte-identical output rather than
+    // whatever order the fold's hash map happened to iterate in.
+    //
+    // `limit` bounds the ROLLUP DOCUMENTS READ, like every other read here, not
+    // the number of distinct entities returned — the same relationship
+    // counts_over_time has to its own limit, and for the same reason: the
+    // entity count can never exceed it, because each read row contributes to
+    // at most one entity's total.
+    [[nodiscard]] Result<std::vector<EntityCount>> counts_by_entity(
+        mongocxx::client& client, EventCode code, const TimeRange& range,
+        Granularity granularity, std::int32_t limit = 512) const;
 
     [[nodiscard]] const RollupRepository& rollups() const noexcept { return rollups_; }
 

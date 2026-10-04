@@ -148,7 +148,7 @@ export function buildClient(platform: {
 
 No token is passed, stored or read. anvil's credentials are `__Host-` cookies with
 `HttpOnly`; every request carries them because it is same-origin, and hammer cannot see them,
-which is the property being bought ([`ENGINEERING_RULES.md`](../ENGINEERING_RULES.md) §5).
+which is the property being bought ([`CLAUDE.md`](../CLAUDE.md) §5).
 
 Everything past those five has a default — `queue`, `retry`, `breaker`, `locks`, `fanOut`,
 `now`, `sleep`, `telemetry`, `onLogout`, `leaderWaitMs`. A single-tab application needs none of
@@ -301,7 +301,7 @@ export function mountForm(
 Field types come from your table; validation bounds come from the same descriptor the server
 validates against, in **code points**, so the two agree. The renderer ships labels, error
 placement and ARIA wiring — and no styling, no strings and no field types of its own
-([`ENGINEERING_RULES.md`](../ENGINEERING_RULES.md) §1, §9).
+([`CLAUDE.md`](../CLAUDE.md) §1, §9).
 
 ## 8. Images and uploads
 
@@ -476,7 +476,7 @@ The bell owns the hard parts: an unread count reconciled against an at-least-onc
 against the server's own count, dedupe by event id, popover focus and focus return, and a live
 region that announces an arrival without stealing focus from whatever is being typed. It owns
 none of the words, none of the classes and none of your topic names — the split is
-[`ENGINEERING_RULES.md`](../ENGINEERING_RULES.md) §9.
+[`CLAUDE.md`](../CLAUDE.md) §9.
 
 Every component in `hammer/dom` hands back the same handle:
 
@@ -495,5 +495,5 @@ opened, and a component that is dropped without it is a leak in a tab that stays
 - [`03-deployment.md`](03-deployment.md) — the four properties that are true of how the assets
   are served rather than of the code, and pass every test here while being wrong in
   production.
-- [`../ENGINEERING_RULES.md`](../ENGINEERING_RULES.md) — the rules the library holds itself to, and why each one
+- [`../CLAUDE.md`](../CLAUDE.md) — the rules the library holds itself to, and why each one
   exists.

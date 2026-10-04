@@ -9,9 +9,12 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <fcntl.h>
@@ -85,7 +88,7 @@ protected:
 // without a build-failure harness, so what is asserted here is that the mapping
 // is constexpr and closed.
 static_assert(testapp::kContent.dir() == "content");
-static_assert(fs::kNsCount == 3);
+static_assert(fs::kNsCount == 5);
 
 TEST(FsNamespace, UnknownSegmentIsRejected) {
     // "../content" is the case the type exists to make unrepresentable: a
@@ -318,6 +321,180 @@ TEST(FsSniff, MagicBytesDecideTheType) {
     const std::array<std::uint8_t, 16> wav{{'R', 'I', 'F', 'F', 0x24, 0x00, 0x00, 0x00, 'W', 'A',
                                             'V', 'E', 'f', 'm', 't', ' '}};
     EXPECT_EQ(fs::sniff(wav), fs::Mime::Unknown);
+}
+
+namespace {
+
+[[nodiscard]] std::vector<std::uint8_t> bytes_of(std::string_view text) {
+    return std::vector<std::uint8_t>(text.begin(), text.end());
+}
+
+// A first Ogg page: "OggS", version, header type, granule (8), serial (4),
+// sequence (4), CRC (4), one segment of `packet.size()` bytes, then the packet.
+[[nodiscard]] std::vector<std::uint8_t> ogg_page(std::string_view packet) {
+    std::vector<std::uint8_t> page{'O', 'g', 'g', 'S', 0x00, 0x02};
+    page.resize(26, 0x00);
+    page.push_back(1);
+    page.push_back(static_cast<std::uint8_t>(packet.size()));
+    page.insert(page.end(), packet.begin(), packet.end());
+    return page;
+}
+
+[[nodiscard]] std::vector<std::uint8_t> ftyp(std::string_view brand) {
+    std::vector<std::uint8_t> box{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p'};
+    box.insert(box.end(), brand.begin(), brand.end());
+    box.resize(24, 0x00);
+    return box;
+}
+
+}  // namespace
+
+TEST(FsSniff, EachStoredFileTypeIsRecognisedByItsOwnSignature) {
+    EXPECT_EQ(fs::sniff(ftyp("isom")), fs::Mime::Mp4);
+    EXPECT_EQ(fs::sniff(ftyp("mp42")), fs::Mime::Mp4);
+    EXPECT_EQ(fs::sniff(ftyp("M4A ")), fs::Mime::M4a);
+    // The container is shared with AVIF, and the brand decides.
+    EXPECT_EQ(fs::sniff(ftyp("avif")), fs::Mime::Avif);
+
+    const std::vector<std::uint8_t> webm{0x1A, 0x45, 0xDF, 0xA3, 0x9F, 0x42, 0x86, 0x81,
+                                         0x01, 0x42, 0x82, 0x84, 'w',  'e',  'b',  'm'};
+    EXPECT_EQ(fs::sniff(webm), fs::Mime::Webm);
+
+    EXPECT_EQ(fs::sniff(ogg_page("OpusHead\x01\x02")), fs::Mime::OggOpus);
+    EXPECT_EQ(fs::sniff(bytes_of("%PDF-1.7\n%\xE2\xE3\xCF\xD3")), fs::Mime::Pdf);
+
+    for (const fs::Mime mime : {fs::Mime::Mp4, fs::Mime::Webm, fs::Mime::OggOpus, fs::Mime::M4a,
+                                fs::Mime::Pdf}) {
+        EXPECT_EQ(fs::mime_class(mime), fs::MimeClass::File);
+        EXPECT_FALSE(fs::mime_type(mime).empty());
+        // The claim a browser sends for it maps back to it, so a correct client
+        // is never refused as a mismatch.
+        EXPECT_EQ(fs::mime_from_claim(fs::mime_type(mime)), mime);
+    }
+}
+
+TEST(FsSniff, ContainersThatAreNotTheAcceptedFormatAreRefused) {
+    // QuickTime and HEIC share MP4's container and are neither MP4 nor allowed.
+    EXPECT_EQ(fs::sniff(ftyp("qt  ")), fs::Mime::Unknown);
+    EXPECT_EQ(fs::sniff(ftyp("heic")), fs::Mime::Unknown);
+    // Matroska shares WebM's EBML header and differs only in the DocType.
+    const std::vector<std::uint8_t> mkv{0x1A, 0x45, 0xDF, 0xA3, 0xA3, 0x42, 0x82, 0x88,
+                                        'm',  'a',  't',  'r',  'o',  's',  'k',  'a'};
+    EXPECT_EQ(fs::sniff(mkv), fs::Mime::Unknown);
+    // Ogg is a container; only Opus in it is a voice note.
+    EXPECT_EQ(fs::sniff(ogg_page("\x01vorbis\x00\x00\x00\x00")), fs::Mime::Unknown);
+    // A PDF header anywhere but offset zero is how a polyglot hides one.
+    EXPECT_EQ(fs::sniff(bytes_of(" %PDF-1.7")), fs::Mime::Unknown);
+    EXPECT_EQ(fs::sniff(bytes_of("<html>%PDF-1.7")), fs::Mime::Unknown);
+}
+
+TEST(FsSniff, AnSvgDressedAsAPdfIsCaughtAsMarkupFirst) {
+    // The markup check runs before the sniff, so a document that opens as SVG
+    // is refused as the probe it is however much PDF follows it.
+    const std::vector<std::uint8_t> svg = bytes_of("<svg onload=\"alert(1)\">%PDF-1.7");
+    EXPECT_TRUE(fs::looks_like_xml(svg));
+    // And the reverse — a real PDF header with SVG inside — is a PDF, which is
+    // only safe because a PDF is always served as an attachment under a sandbox.
+    const std::vector<std::uint8_t> pdf = bytes_of("%PDF-1.7\n<svg onload=\"alert(1)\">");
+    EXPECT_FALSE(fs::looks_like_xml(pdf));
+    EXPECT_EQ(fs::sniff(pdf), fs::Mime::Pdf);
+    EXPECT_EQ(fs::disposition(fs::Mime::Pdf), fs::Disposition::Attachment);
+}
+
+TEST(FsSniff, TheDefaultAcceptListIsImagesOnly) {
+    // When the file class landed, a default derived from every Mime would have
+    // made every namespace that never stated a list accept PDFs overnight.
+    for (unsigned value = 1; value <= static_cast<unsigned>(fs::kMaxMime); ++value) {
+        const auto mime = static_cast<fs::Mime>(value);
+        EXPECT_EQ(fs::mime_accepted(fs::kDecodableMimes, mime),
+                  fs::mime_class(mime) == fs::MimeClass::Image);
+        EXPECT_EQ(fs::mime_accepted(fs::kFileMimes, mime),
+                  fs::mime_class(mime) == fs::MimeClass::File);
+        EXPECT_EQ(fs::mime_accepted(fs::kSealedMimes, mime),
+                  fs::mime_class(mime) == fs::MimeClass::Sealed);
+    }
+    EXPECT_FALSE(fs::mime_accepted(fs::kDecodableMimes, fs::Mime::Sealed));
+    EXPECT_FALSE(fs::mime_accepted(fs::kFileMimes, fs::Mime::Sealed));
+}
+
+// --- the sealed class -----------------------------------------------------------
+
+TEST(FsSniff, NoBytesEverSniffAsSealed) {
+    // Sealed is chosen by the namespace, never by the bytes: ciphertext has no
+    // signature, and a type that bytes could select is a type an attacker
+    // selects. Every known signature first, then every one-byte prefix at every
+    // length, then pseudo-random buffers — the case the class exists for.
+    for (const auto& known : {ftyp("isom"), ftyp("avif"), ogg_page("OpusHead\x01\x02"),
+                              bytes_of("%PDF-1.7\n"), bytes_of("<svg onload=1>"),
+                              bytes_of("application/octet-stream")}) {
+        EXPECT_NE(fs::sniff(known), fs::Mime::Sealed);
+    }
+    for (unsigned first = 0; first <= 0xFF; ++first) {
+        for (std::size_t length = 0; length <= fs::kSniffBytes; ++length) {
+            std::vector<std::uint8_t> head(length, static_cast<std::uint8_t>(first));
+            EXPECT_NE(fs::sniff(head), fs::Mime::Sealed);
+        }
+    }
+    // splitmix64: deterministic, so a failure reproduces. Not a security RNG
+    // and not used as one; it only has to cover the space.
+    std::uint64_t state = 0x5EA1EDULL;
+    fs::SniffBuffer head{};
+    for (int round = 0; round < 200'000; ++round) {
+        for (std::size_t i = 0; i < head.size(); i += 8) {
+            state += 0x9E3779B97F4A7C15ULL;
+            std::uint64_t z = state;
+            z = (z ^ (z >> 30U)) * 0xBF58476D1CE4E5B9ULL;
+            z = (z ^ (z >> 27U)) * 0x94D049BB133111EBULL;
+            z ^= z >> 31U;
+            for (std::size_t b = 0; b < 8; ++b) {
+                head[i + b] = static_cast<std::uint8_t>(z >> (8U * b));
+            }
+        }
+        ASSERT_NE(fs::sniff(head), fs::Mime::Sealed) << "round " << round;
+    }
+    // Nor can a claim make anything Sealed.
+    EXPECT_EQ(fs::mime_from_claim("application/octet-stream"), fs::Mime::Unknown);
+    EXPECT_EQ(fs::mime_from_claim(fs::mime_type(fs::Mime::Sealed)), fs::Mime::Unknown);
+}
+
+TEST(FsSniff, ASealedObjectIsOpaqueAndAlwaysAnAttachment) {
+    EXPECT_EQ(fs::mime_class(fs::Mime::Sealed), fs::MimeClass::Sealed);
+    EXPECT_EQ(fs::mime_type(fs::Mime::Sealed), "application/octet-stream");
+    EXPECT_EQ(fs::disposition(fs::Mime::Sealed), fs::Disposition::Attachment);
+    // It is stored, so a row written with it reads back.
+    fs::Mime stored = fs::Mime::Unknown;
+    EXPECT_TRUE(fs::mime_from_stored(10, stored));
+    EXPECT_EQ(stored, fs::Mime::Sealed);
+}
+
+TEST(FsNamespaceRule, ASealedNamespaceTakesOnlySealedNeverDeduplicatesAndIsPrivate) {
+    using fs::Dedupe;
+    using fs::NamespaceSpec;
+    using fs::Visibility;
+    static_assert(fs::namespace_is_well_formed(
+        NamespaceSpec{"s", fs::kSealedMimes, Dedupe::None, Visibility::Private}));
+    // Mixed: two upload paths with opposite rules in one namespace, and the
+    // client choosing whether its bytes are inspected.
+    static_assert(!fs::namespace_is_well_formed(NamespaceSpec{
+        "s", static_cast<fs::MimeMask>(fs::kSealedMimes | fs::kDecodableMimes), Dedupe::None,
+        Visibility::Private}));
+    static_assert(!fs::namespace_is_well_formed(NamespaceSpec{
+        "s", static_cast<fs::MimeMask>(fs::kSealedMimes | fs::kFileMimes), Dedupe::None,
+        Visibility::Private}));
+    // A dedup hit on ciphertext is a timing oracle and never a saving.
+    static_assert(!fs::namespace_is_well_formed(
+        NamespaceSpec{"s", fs::kSealedMimes, Dedupe::Owner, Visibility::Private}));
+    static_assert(!fs::namespace_is_well_formed(
+        NamespaceSpec{"s", fs::kSealedMimes, Dedupe::Namespace, Visibility::Private}));
+    // An id alone would serve it.
+    static_assert(!fs::namespace_is_well_formed(
+        NamespaceSpec{"s", fs::kSealedMimes, Dedupe::None, Visibility::Public}));
+    // The rule says nothing about a namespace that takes no ciphertext.
+    static_assert(fs::namespace_is_well_formed(NamespaceSpec{"c"}));
+
+    EXPECT_TRUE(testapp::kSealed.sealed());
+    EXPECT_FALSE(testapp::kChat.sealed());
+    EXPECT_FALSE(testapp::kContent.sealed());
 }
 
 TEST(FsSniff, ScriptAndMarkupAreNotImages) {
@@ -572,6 +749,171 @@ TEST_F(StorageFixture, ANamespaceCannotWidenWhatThePipelineDecodes) {
     const anvil::Result<fs::UploadResult> finished = sink.finish("");
     ASSERT_FALSE(finished.ok());
     EXPECT_EQ(finished.error().field, fs::kRejectUnknownType);
+}
+
+TEST_F(StorageFixture, ANamespaceThatNamesNoFileTypesRefusesAPdf) {
+    const fs::UploadLimits limits{1 << 20, 0};
+    anvil::Result<fs::UploadSink> opened =
+        fs::UploadSink::open(fs::Storage::instance(), limits, testapp::kContent);
+    ASSERT_TRUE(opened.ok());
+    fs::UploadSink sink = std::move(opened).value();
+    std::vector<std::uint8_t> pdf{'%', 'P', 'D', 'F', '-', '1', '.', '7', '\n'};
+    pdf.resize(256, 0x20);
+    ASSERT_TRUE(sink.write(pdf).ok());
+    const anvil::Result<fs::UploadResult> finished = sink.finish("application/pdf");
+    ASSERT_FALSE(finished.ok());
+    EXPECT_EQ(finished.error().field, fs::kRejectNamespaceType);
+}
+
+TEST_F(StorageFixture, ANamespaceThatNamesTheFileClassTakesAPdf) {
+    const fs::UploadLimits limits{1 << 20, 0};
+    anvil::Result<fs::UploadSink> opened =
+        fs::UploadSink::open(fs::Storage::instance(), limits, testapp::kChat);
+    ASSERT_TRUE(opened.ok());
+    fs::UploadSink sink = std::move(opened).value();
+    std::vector<std::uint8_t> pdf{'%', 'P', 'D', 'F', '-', '1', '.', '7', '\n'};
+    pdf.resize(256, 0x20);
+    ASSERT_TRUE(sink.write(pdf).ok());
+    const anvil::Result<fs::UploadResult> finished = sink.finish("application/pdf");
+    ASSERT_TRUE(finished.ok());
+    EXPECT_EQ(finished.value().mime, fs::Mime::Pdf);
+}
+
+TEST_F(StorageFixture, AFileClaimedAsAnotherAcceptedTypeIsAMismatch) {
+    const fs::UploadLimits limits{1 << 20, 0};
+    anvil::Result<fs::UploadSink> opened =
+        fs::UploadSink::open(fs::Storage::instance(), limits, testapp::kChat);
+    ASSERT_TRUE(opened.ok());
+    fs::UploadSink sink = std::move(opened).value();
+    std::vector<std::uint8_t> pdf{'%', 'P', 'D', 'F', '-', '1', '.', '7', '\n'};
+    pdf.resize(256, 0x20);
+    ASSERT_TRUE(sink.write(pdf).ok());
+    const anvil::Result<fs::UploadResult> finished = sink.finish("video/mp4");
+    ASSERT_FALSE(finished.ok());
+    EXPECT_EQ(finished.error().field, fs::kRejectTypeMismatch);
+}
+
+// --- sealed uploads --------------------------------------------------------------
+
+namespace {
+
+// Bytes that would each sniff as something, which is exactly why a sealed
+// namespace must not look: ciphertext can begin with anything.
+[[nodiscard]] std::vector<std::uint8_t> ciphertext_looking_like(std::string_view prefix,
+                                                                std::size_t size) {
+    std::vector<std::uint8_t> bytes(prefix.begin(), prefix.end());
+    bytes.reserve(size);
+    for (std::size_t i = bytes.size(); i < size; ++i) {
+        bytes.push_back(static_cast<std::uint8_t>((i * 131U + 7U) & 0xFFU));
+    }
+    return bytes;
+}
+
+[[nodiscard]] fs::UploadSink open_sink(fs::Ns ns, std::uint64_t max_bytes = 1 << 20) {
+    anvil::Result<fs::UploadSink> opened =
+        fs::UploadSink::open(fs::Storage::instance(), fs::UploadLimits{max_bytes, 0}, ns);
+    EXPECT_TRUE(opened.ok());
+    return std::move(opened).value();
+}
+
+}  // namespace
+
+TEST_F(StorageFixture, ASealedUploadWhoseDeclaredHashMatchesIsAccepted) {
+    const std::vector<std::uint8_t> blob = ciphertext_looking_like("", 200 * 1024);
+    fs::UploadSink sink = open_sink(testapp::kSealed);
+    // In stream-sized chunks, so the digest compared is the one built as the
+    // bytes arrived and not a second pass.
+    for (std::size_t at = 0; at < blob.size(); at += fs::kStreamChunkBytes) {
+        const std::size_t take = std::min(fs::kStreamChunkBytes, blob.size() - at);
+        ASSERT_TRUE(sink.write(std::span<const std::uint8_t>{blob.data() + at, take}).ok());
+    }
+    const anvil::crypto::Digest256 declared = anvil::crypto::sha256(blob);
+    const anvil::Result<fs::UploadResult> finished = sink.finish_sealed(declared);
+    ASSERT_TRUE(finished.ok()) << static_cast<int>(finished.code());
+    EXPECT_EQ(finished.value().mime, fs::Mime::Sealed);
+    EXPECT_EQ(finished.value().sha256, declared);
+    EXPECT_EQ(finished.value().bytes, blob.size());
+}
+
+TEST_F(StorageFixture, ASealedUploadWhoseDeclaredHashDiffersIsRefusedWithItsOwnReason) {
+    const std::vector<std::uint8_t> blob = ciphertext_looking_like("", 4096);
+    fs::UploadSink sink = open_sink(testapp::kSealed);
+    ASSERT_TRUE(sink.write(blob).ok());
+    anvil::crypto::Digest256 declared = anvil::crypto::sha256(blob);
+    declared[31] ^= 0x01U;
+    const anvil::Result<fs::UploadResult> finished = sink.finish_sealed(declared);
+    ASSERT_FALSE(finished.ok());
+    EXPECT_EQ(finished.error().code, anvil::ErrorCode::ValidationFailed);
+    EXPECT_EQ(finished.error().field, fs::kRejectSealedHash);
+    // Refused, so it can never be published, whatever the caller does next.
+    EXPECT_FALSE(sink.publish().ok());
+    EXPECT_FALSE(sink.published());
+}
+
+TEST_F(StorageFixture, AnUploadAFinishRefusedCanNeverBePublished) {
+    // The stream is durable once finish() has fsynced it, refused or not.
+    // Durable is not accepted: an SVG whose refusal a caller ignored must not
+    // reach the namespace directory through publish().
+    fs::UploadSink sink = open_sink(testapp::kContent);
+    const std::vector<std::uint8_t> svg = bytes_of("<svg onload=\"alert(1)\"></svg>");
+    ASSERT_TRUE(sink.write(svg).ok());
+    const anvil::Result<fs::UploadResult> finished = sink.finish("image/png");
+    ASSERT_FALSE(finished.ok());
+    EXPECT_EQ(finished.error().field, fs::kRejectVectorType);
+    EXPECT_FALSE(sink.publish().ok());
+    EXPECT_FALSE(sink.published());
+}
+
+TEST_F(StorageFixture, ASealedNamespaceIsNeverSniffed) {
+    // Every one of these is a file the sniffing path would refuse or classify.
+    // As ciphertext each is opaque, and each is accepted as Sealed.
+    for (const std::string_view prefix :
+         {std::string_view{"<svg onload=\"alert(1)\">"}, std::string_view{"<?xml version=\"1.0\"?>"},
+          std::string_view{"%PDF-1.7\n"}, std::string_view{"\x89PNG\r\n\x1a\n"},
+          std::string_view{"GIF89a"}}) {
+        const std::vector<std::uint8_t> blob = ciphertext_looking_like(prefix, 512);
+        fs::UploadSink sink = open_sink(testapp::kSealed);
+        ASSERT_TRUE(sink.write(blob).ok());
+        const anvil::Result<fs::UploadResult> finished =
+            sink.finish_sealed(anvil::crypto::sha256(blob));
+        ASSERT_TRUE(finished.ok()) << prefix;
+        EXPECT_EQ(finished.value().mime, fs::Mime::Sealed);
+    }
+}
+
+TEST_F(StorageFixture, EachNamespaceClassHasExactlyOneWayToFinish) {
+    const std::vector<std::uint8_t> blob = ciphertext_looking_like("%PDF-1.7\n", 512);
+
+    // The sniffing finish on ciphertext would act on a "type" found in random
+    // bytes, so it refuses before reading any.
+    fs::UploadSink sealed = open_sink(testapp::kSealed);
+    ASSERT_TRUE(sealed.write(blob).ok());
+    const anvil::Result<fs::UploadResult> sniffed = sealed.finish("application/pdf");
+    ASSERT_FALSE(sniffed.ok());
+    EXPECT_EQ(sniffed.error().code, anvil::ErrorCode::Internal);
+
+    // And a namespace that sniffs cannot be talked out of it by a declared hash.
+    fs::UploadSink chat = open_sink(testapp::kChat);
+    ASSERT_TRUE(chat.write(blob).ok());
+    const anvil::Result<fs::UploadResult> skipped =
+        chat.finish_sealed(anvil::crypto::sha256(blob));
+    ASSERT_FALSE(skipped.ok());
+    EXPECT_EQ(skipped.error().code, anvil::ErrorCode::Internal);
+}
+
+TEST_F(StorageFixture, ASealedUploadIsStillCappedDuringTheStreamAndMayNotBeEmpty) {
+    fs::UploadSink capped = open_sink(testapp::kSealed, 1024);
+    const std::vector<std::uint8_t> blob = ciphertext_looking_like("", 2048);
+    EXPECT_EQ(capped.write(blob).code(), anvil::ErrorCode::PayloadTooLarge);
+    const anvil::Result<fs::UploadResult> over = capped.finish_sealed(anvil::crypto::sha256(blob));
+    ASSERT_FALSE(over.ok());
+    EXPECT_EQ(over.error().field, fs::kRejectOversize);
+
+    fs::UploadSink empty = open_sink(testapp::kSealed);
+    const anvil::Result<fs::UploadResult> nothing =
+        empty.finish_sealed(anvil::crypto::sha256(std::string_view{}));
+    ASSERT_FALSE(nothing.ok());
+    EXPECT_EQ(nothing.error().field, fs::kRejectEmpty);
 }
 
 // --- SIGKILL mid-upload leaves a sweepable .part ----------------------------

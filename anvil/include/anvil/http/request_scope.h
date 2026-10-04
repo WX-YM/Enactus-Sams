@@ -70,7 +70,7 @@ struct RequestScope final {
     // whether to insert the attribute at all, so the semantics are unchanged by
     // the move.
     bool        has_context;  //  1
-    // APPENDED, rather than ordered by alignment as ENGINEERING_RULES.md §3.2 asks.
+    // APPENDED, rather than ordered by alignment as CLAUDE.md §3.2 asks.
     //
     // Everything from `request_id` down has alignment 1, so there is no packing
     // to win by moving it: the struct is 106 bytes of members either way. What

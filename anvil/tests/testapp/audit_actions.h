@@ -36,13 +36,16 @@ enum class Action : std::int32_t {
     CapabilityConsumed = 10,
     MediaUploaded = 11,
     MediaDeleted = 12,
+    // A staff member read a conversation they are not in (docs/22-chat.md §9.2):
+    // the actor is the reader, the subject the conversation.
+    ChatConversationReviewed = 13,
 };
 
 // The CLASSIFICATION is the load-bearing column, not a label. AccessDenied is
 // the only Traffic row here, and that is what makes a flood compressible and a
 // permission change undroppable — get it backwards and a burst of denials evicts
 // the one row nothing else has a copy of (anvil/audit/buffer.h).
-inline constexpr std::array<anvil::audit::AuditActionSpec, 12> kAuditActions{{
+inline constexpr std::array<anvil::audit::AuditActionSpec, 13> kAuditActions{{
     {"LoginSucceeded", 1, anvil::audit::AuditClass::Change},
     {"LoginFailed", 2, anvil::audit::AuditClass::Change},
     {"SignupSucceeded", 3, anvil::audit::AuditClass::Change},
@@ -55,12 +58,13 @@ inline constexpr std::array<anvil::audit::AuditActionSpec, 12> kAuditActions{{
     {"CapabilityConsumed", 10, anvil::audit::AuditClass::Change},
     {"MediaUploaded", 11, anvil::audit::AuditClass::Change},
     {"MediaDeleted", 12, anvil::audit::AuditClass::Change},
+    {"ChatConversationReviewed", 13, anvil::audit::AuditClass::Change},
 }};
 
 static_assert(anvil::audit::audit_table_is_well_formed(kAuditActions),
               "duplicate action value or name, empty name, or a non-positive value");
 
-static_assert(static_cast<std::int32_t>(Action::MediaDeleted) ==
+static_assert(static_cast<std::int32_t>(Action::ChatConversationReviewed) ==
                   static_cast<std::int32_t>(kAuditActions.size()),
               "the action values are 1..N with no gap; naming one is not optional");
 

@@ -43,7 +43,7 @@ export type ServerError<Code extends string = string, Reason extends string = st
     //
     // A Map because the keys come off the wire, and null rather than absent
     // because an optional property is two object shapes, which deoptimises
-    // every call site that has seen the other one (`ENGINEERING_RULES.md` §2.3).
+    // every call site that has seen the other one (`CLAUDE.md` §2.3).
     readonly fields: ReadonlyMap<string, Reason> | null;
 };
 
@@ -97,6 +97,49 @@ export type StaleClientError = {
     readonly kind: "stale-client";
     readonly serverHash: string;
     readonly clientHash: string;
+};
+
+// A client-side password prehash that did not produce a credential
+// (`docs/01-seams.md` §21). Declared here, beside the rest of the error model,
+// so that `hammer/dom` can name it without importing the layer that raises it —
+// and deliberately NOT a member of `HammerError`: widening that union would
+// break every application that switches over it exhaustively, for a failure
+// that only a login or a signup screen can meet.
+export type PrehashError = {
+    readonly kind: "prehash";
+    readonly cause:
+        // The body handed over has no identifier or no secret under the names
+        // the application configured, or one of them is empty.
+        | "missing-field"
+        // Over the byte ceiling the server applies before it hashes. Refused here
+        // so the person is told before a worker spends seconds on it.
+        | "secret-too-long"
+        // The salt route answered with something other than the contract shape:
+        // another algorithm, a salt of the wrong length, a missing number.
+        | "bad-answer"
+        // A well-formed answer whose cost is outside the bounds the application
+        // configured. Surfaced rather than hashed: a server answering below the
+        // floor is misconfigured, and one answering far above it is asking a
+        // phone for memory it does not have.
+        | "out-of-bounds"
+        // The device could not allocate the Argon2 memory.
+        | "out-of-memory"
+        // A hash is already running. The pool holds one, because one is 64 MiB.
+        | "busy"
+        // The worker died or reported a failure; the pool is closed.
+        | "worker-failed"
+        | "aborted";
+};
+
+// A request `hammer/accounts` refused to build, before anything was sent. The
+// server's own bounds, published in the descriptor, applied where a person can
+// be told at once — and where, under client hashing, they are the ONLY place
+// they can be applied, because the server receives a credential rather than
+// the password (anvil `docs/05` §13). Outside `HammerError` for PrehashError's
+// reason.
+export type AccountError = {
+    readonly kind: "account";
+    readonly cause: "secret-too-short" | "secret-too-long";
 };
 
 export type HammerError<Code extends string = string, Reason extends string = string> =

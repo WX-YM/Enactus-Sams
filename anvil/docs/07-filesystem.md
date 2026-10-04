@@ -163,6 +163,44 @@ The reference application narrows exactly one: `guest` takes JPEG and PNG,
 because it is the only namespace fed by unauthenticated input and the AVIF and
 WebP decoders are the newer and larger of the four attack surfaces.
 
+### Images, and files that are never decoded
+
+The list is two classes with different treatment (`fs::mime_class`):
+
+| Class | Types | What the server does | What makes it safe to serve |
+|---|---|---|---|
+| Image | JPEG, PNG, WebP, AVIF | probe, normalise, strip, derive variants (`media::process`) | the pixels are ones this process wrote |
+| File | MP4, WebM, Ogg Opus, M4A, PDF | publish the bytes as sent, nothing else (`media::store_file`) | the response: stored type, `nosniff`, a `sandbox` policy, and a disposition |
+| Sealed | any bytes | count, hash during the stream, compare with the client's declared SHA-256 (`finish_sealed`, then `media::store_sealed`) | the response alone: `application/octet-stream`, always `attachment`, `nosniff`, `default-src 'none'; sandbox`, and only on a grant |
+
+A file is **never decoded here**. A container parser per format on the upload path is a far
+larger surface than the four image decoders, and transcoding video is minutes of CPU per
+upload; a client records in a format the class accepts. Each class refuses the other's stage:
+`process` will not decode a file, and `store_file` will not store an image as sent, because
+an image stored that way keeps the metadata the image path exists to strip.
+
+A PDF is **always an attachment**, because a PDF viewer is a document engine with script in
+it. Audio and video are inline, so a voice note plays where it is, and nginx answers `Range`
+itself behind `X-Accel-Redirect`.
+
+**Sealed is chosen by the namespace, never by the bytes.** It is ciphertext under a key the
+server never holds (docs/22-chat.md §7.7), so there is nothing to sniff: sniffing random bytes
+finds a "type" one time in a few hundred and would act on it. `sniff` and the claim never answer
+it. A namespace that takes `kSealedMimes` takes nothing else, never deduplicates and is
+`Private`, which `fs::namespace_is_well_formed` asserts over the application's table at compile
+time. `finish` refuses a sealed namespace and `finish_sealed` refuses any other, so a sink has
+exactly one way to finish. Serving a sealed object takes the type, the disposition and the file
+from the NAMESPACE, not the row, so a corrupt row cannot make ciphertext render as a PDF.
+
+And `publish()` requires a finish that ACCEPTED the bytes. It used to require only that a finish
+had run, and `finish` marks the file synced before it checks anything, so a caller that ignored
+a refusal (`upload.svg`, a hash mismatch) could still publish the refused file into a namespace.
+
+**The default accept list is the image class, not the whole enum.** When files landed, a
+default derived from every `Mime` would have made every namespace that never stated a list
+start accepting PDFs and video at the next deploy. A namespace takes files only by naming
+`kFileMimes`.
+
 The stored type is an **enum**, and the serving path reads that enum. A file
 cannot be allowed to choose how a browser interprets it, and the one place that
 could happen is the response header.
@@ -302,7 +340,7 @@ One 64 KB streaming buffer per concurrent upload, and nothing else.
 
 That is the whole of it, and it is the number every other decision in this
 document protects. Any payload that can exceed 256 KB is streamed or rejected;
-there is no third option (ENGINEERING_RULES.md §2.4). A `std::string` holding a request body
+there is no third option (CLAUDE.md §2.4). A `std::string` holding a request body
 is the one allocation that would make peak memory a function of what a client
 chose to send rather than of how many clients there are.
 

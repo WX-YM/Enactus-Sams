@@ -30,7 +30,7 @@
 //      wrong URI" must not be a thing only a backup recovers from.
 //   4. It SHARES EVERY TABLE with tests/testapp/, so what a browser run sees and
 //      what the suite asserts cannot disagree — which is the entire value of the
-//      reference application being the proof (ENGINEERING_RULES.md §1).
+//      reference application being the proof (CLAUDE.md §1).
 //   5. It is NEVER `install()`ed, and it serves exactly ONE static directory at
 //      ONE path. That static exception to docs/00-architecture.md §1 — where
 //      bytes on disk are the edge's job — is the reason this row exists at all:
@@ -44,7 +44,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
+#include <filesystem>
+#include <mutex>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -69,8 +73,21 @@
 #include "anvil/accesscontrol/route_registration.h"
 #include "anvil/accesscontrol/route_registry.h"
 #include "anvil/accesscontrol/stealth.h"
+#include "anvil/accounts/routes.h"
+#include "anvil/accounts/service.h"
 #include "anvil/auth/password.h"
+#include "anvil/auth/prehash.h"
 #include "anvil/auth/token.h"
+#include "anvil/audit/service.h"
+#include "anvil/chat/repository.h"
+#include "anvil/chat/live.h"
+#include "anvil/chat/device_queue.h"
+#include "anvil/chat/devices.h"
+#include "anvil/chat/prekeys.h"
+#include "anvil/chat/push.h"
+#include "anvil/chat/routes.h"
+#include "anvil/chat/service.h"
+#include "anvil/chat/socket.h"
 #include "anvil/core/locale.h"
 #include "anvil/core/perm_set.h"
 #include "anvil/core/result.h"
@@ -94,11 +111,36 @@
 #include "anvil/input/arena.h"
 #include "anvil/input/json.h"
 #include "anvil/identity/session_service.h"
+#include "anvil/identity/prehash_service.h"
 #include "anvil/identity/users.h"
-#include "anvil/redis/redis_client.h"
+#include "anvil/media/grant.h"
+#include "anvil/media/grant_route.h"
+#include "anvil/media/service.h"
+#include "anvil/notifications/outbound.h"
+#include "anvil/notifications/repository.h"
+#if ANVIL_HAS_VIPS
+#include <vips/vips.h>
 
+#include "anvil/fs/paths.h"
+#include "anvil/fs/upload.h"
+#include "anvil/images/probe.h"
+#include "anvil/http/origin_check.h"
+#include "anvil/media/edit_routes.h"
+#include "anvil/media/pipeline.h"
+#endif
+#include "anvil/redis/redis_client.h"
+#include "anvil/timer/queue.h"
+
+#include "accounts.h"
+#include "audit_actions.h"
+#include "chat_cards.h"
+#include "chat_collections.h"
+#include "chat_kinds.h"
+#include "chat_push.h"
 #include "indexes.h"
+#include "rate_limits.h"
 #include "migrations.h"
+#include "namespaces.h"
 #include "perms.h"
 #include "responses.h"
 #include "route_descriptions.h"
@@ -177,6 +219,18 @@ constexpr std::string_view kMarkerId = "anvil_reference_server";
 struct Secrets final {
     std::array<std::uint8_t, anvil::auth::TokenKeys::kKeyBytes> signing_key;
     std::array<std::uint8_t, 32>                                pepper;
+    // The two client-prehash keys (docs/05 §12): the stage pepper every stored
+    // record is keyed under, and the key that derives a missing account's salt.
+    std::array<std::uint8_t, 32>                                prehash_pepper;
+    std::array<std::uint8_t, 32>                                prehash_salt_key;
+    // Contact verification's two keys: one hashes the CODE, one the address
+    // index (identity/verification.h says why they are two).
+    std::array<std::uint8_t, 32>                                code_pepper;
+    std::array<std::uint8_t, 32>                                address_index_key;
+    // Chat: the key every media grant and upload handle is sealed under, and
+    // the pepper mixed into every invite token's digest.
+    std::array<std::uint8_t, anvil::media::GrantKeys::kKeyBytes> grant_key;
+    std::array<std::uint8_t, 32>                                invite_pepper;
     std::string                                                 superadmin_password;
     std::string                                                 editor_password;
 };
@@ -192,6 +246,12 @@ struct Secrets final {
     static const Secrets drawn{
         .signing_key = anvil::crypto::random_array<anvil::auth::TokenKeys::kKeyBytes>(),
         .pepper = anvil::crypto::random_array<32>(),
+        .prehash_pepper = anvil::crypto::random_array<32>(),
+        .prehash_salt_key = anvil::crypto::random_array<32>(),
+        .code_pepper = anvil::crypto::random_array<32>(),
+        .address_index_key = anvil::crypto::random_array<32>(),
+        .grant_key = anvil::crypto::random_array<anvil::media::GrantKeys::kKeyBytes>(),
+        .invite_pepper = anvil::crypto::random_array<32>(),
         .superadmin_password = drawn_password(),
         .editor_password = drawn_password(),
     };
@@ -211,11 +271,332 @@ struct Secrets final {
     return service;
 }
 
+[[nodiscard]] const anvil::chat::ChatService& chat_service();
+
+// Every session this application revokes, by any path, ends the chat device it
+// registered: otherwise "sign out everywhere" leaves a stolen phone in every
+// conversation's device set, and senders keep encrypting to it (docs/22 §7.3).
+void end_chat_devices(mongocxx::client& client, const Uuid& user,
+                      std::span<const Uuid> sessions) {
+    for (const Uuid& session : sessions) {
+        if (const anvil::Status ended = chat_service().session_ended(client, user, session);
+            !ended) {
+            LOG_ERROR << "a revoked session's chat device was not ended: "
+                      << static_cast<int>(ended.code());
+        }
+    }
+}
+
 [[nodiscard]] id::SessionService& sessions() {
-    static id::SessionService service{primary_database(),  kSessionsCollection,
-                                      kUsersCollection,    secrets().pepper,
-                                      token_keys(),        authz()};
+    static id::SessionService service{primary_database(), kSessionsCollection,
+                                      kUsersCollection,   secrets().pepper,
+                                      token_keys(),       authz(),
+                                      id::SessionPolicy{}, &end_chat_devices};
     return service;
+}
+
+[[nodiscard]] anvil::crypto::Key256 key_from(const std::array<std::uint8_t, 32>& bytes) {
+    anvil::crypto::Key256 key;
+    std::copy(bytes.begin(), bytes.end(), key.mutable_span().begin());
+    return key;
+}
+
+// Client hashing with the keyed-digest stage — the account layer's default
+// (docs/05 §12). This server receives no password on any route: the browser
+// derives the credential, and a sign-in costs one HMAC rather than a 64 MiB
+// Argon2 on hash_pool.
+//
+// The client parameters are plain mode's own defaults, so what a guess against
+// a dump of this database costs is exactly what it cost before. A function
+// that builds a fresh policy each time, because the policy owns its keys and
+// both the account service and the seeding below need one.
+[[nodiscard]] anvil::auth::PrehashPolicy prehash_policy() {
+    return anvil::auth::PrehashPolicy{
+        .client = anvil::auth::kDefaultArgon2Params,
+        .server = anvil::auth::PrehashKeyedDigestStage{.key_id = "boot",
+                                                       .key = key_from(secrets().prehash_pepper)},
+        .retired_peppers = {},
+        .salt_key = key_from(secrets().prehash_salt_key),
+    };
+}
+
+[[nodiscard]] id::VerificationService& verification() {
+    static id::VerificationService service{primary_database(), "email_verifications",
+                                           secrets().code_pepper, secrets().address_index_key};
+    return service;
+}
+
+[[nodiscard]] anvil::http::RateLimiter& limiter() {
+    static anvil::http::RateLimiter shared;
+    return shared;
+}
+
+// The budgets, by bucket, from this application's own table — with the bucket
+// name prefixed by this run's database.
+//
+// A deployment shares its budgets across every process it runs, which is the
+// point of keeping them in Redis. This binary is different: RULE 3 gives every
+// run a database of its own, and Redis is the one piece of state two runs
+// would otherwise share, so a harness that registered a few accounts an hour
+// ago would find this run's signup budget already spent. The prefix makes each
+// run's budgets as much its own as its database already is.
+[[nodiscard]] anvil::http::RateLimitRule rule(std::string_view bucket) {
+    static std::mutex guard;
+    static std::deque<std::string> names;  // stable addresses for the string_views
+    for (const anvil::http::RateLimitRule& candidate : testapp::kRateLimits) {
+        if (candidate.bucket != bucket) { continue; }
+        const std::lock_guard lock{guard};
+        names.push_back(primary_database() + ":" + std::string{bucket});
+        return anvil::http::RateLimitRule{names.back(), candidate.window, candidate.max_events};
+    }
+    throw std::logic_error{"no rate-limit rule named " + std::string{bucket}};
+}
+
+// Where a code goes. A deployment hands it to a queue that sends mail
+// (anvil/notifications/outbound.h); this binary PRINTS it, one line per code,
+// for the same reason it prints its drawn passwords (rule 2): a harness driving
+// it has to be able to complete a verification and a reset, and the line is on
+// stdout, which belongs to the harness.
+void print_code(anvil::accounts::CodeDelivery delivery) {
+    const char* purpose = delivery.purpose == anvil::accounts::CodePurpose::Verify  ? "verify"
+                          : delivery.purpose == anvil::accounts::CodePurpose::Reset ? "reset"
+                                                                                    : "exists";
+    std::printf("code %s %s %s\n", purpose, delivery.address.c_str(),
+                delivery.code.empty() ? "-" : delivery.code.c_str());
+    std::fflush(stdout);
+}
+
+#if ANVIL_HAS_VIPS
+// Where an edit's audit row goes. A deployment writes one through its
+// AuditService; this binary PRINTS it, for print_code's reason: the harness on
+// stdout is the only reader that can check the row was written, and written
+// once per answer.
+void print_edit(const anvil::media::EditOutcome& outcome) {
+    std::printf("edited %s %s %s %s\n", std::string{anvil::http::wire_name(outcome.code)}.c_str(),
+                anvil::uuid::to_string(outcome.source).c_str(),
+                outcome.edit.has_value() ? anvil::uuid::to_string(*outcome.edit).c_str() : "-",
+                outcome.created ? "created" : "-");
+    std::fflush(stdout);
+}
+#endif
+
+[[nodiscard]] const anvil::accounts::AccountService& accounts() {
+    static const anvil::accounts::AccountService service{
+        anvil::accounts::AccountServiceDeps{primary_database(), kUsersCollection, sessions(),
+                                            authz(), verification(), limiter()},
+        anvil::accounts::AccountConfig{
+            .description = testapp::kAccounts,
+            .credentials = anvil::accounts::ClientHashing{prehash_policy()},
+            .budgets = {.sign_in_ip = rule("login"),
+                        .sign_in_account = rule("login-acct"),
+                        .register_ip = rule("signup"),
+                        .code_ip = rule("verify"),
+                        .code_account = rule("verify-addr"),
+                        .issue_ip = rule("verify"),
+                        .issue_account = rule("resend-addr")},
+            // Five consecutive failures lock the account for fifteen minutes,
+            // then each further one doubles it, to a day. This application's
+            // decision (docs/05 §4 "Lockout is a counter, not a policy").
+            .lock_after = [](std::int32_t failures,
+                             anvil::db::TimeMs now) -> std::optional<anvil::db::TimeMs> {
+                if (failures < 5) { return std::nullopt; }
+                const std::int32_t doublings = std::min(failures - 5, 7);
+                return now + std::chrono::minutes{15} * (1 << doublings);
+            },
+            .deliver = &print_code,
+            .code_lifetime = std::chrono::minutes{15},
+        }};
+    return service;
+}
+
+[[nodiscard]] const anvil::media::MediaService& media_service() {
+    static const anvil::media::MediaService service{primary_database(), "media"};
+    return service;
+}
+
+[[nodiscard]] const anvil::media::GrantKeys& grant_keys() {
+    static const anvil::media::GrantKeys keys{1, secrets().grant_key};
+    return keys;
+}
+
+[[nodiscard]] const anvil::chat::ChatRepository& chat_repository() {
+    static const anvil::chat::ChatRepository repository{database_names(),
+                                                        testapp::kChatCollections,
+                                                        testapp::kChatKinds};
+    return repository;
+}
+
+// The device machinery an encrypted kind needs (docs/22-chat.md §7): the
+// directory, the one-time keys and the per-device queue, all three or none.
+[[nodiscard]] const anvil::chat::DeviceDirectory& device_directory() {
+    static const anvil::chat::DeviceDirectory devices{
+        database_names(), testapp::kDeviceCollections, testapp::kDeviceConfig};
+    return devices;
+}
+
+[[nodiscard]] const anvil::chat::PrekeyDirectory& prekey_directory() {
+    static const anvil::chat::PrekeyDirectory prekeys{
+        database_names(), testapp::kDeviceCollections, testapp::kDeviceConfig};
+    return prekeys;
+}
+
+[[nodiscard]] const anvil::chat::DeviceQueue& device_queue() {
+    static const anvil::chat::DeviceQueue queue{database_names(),
+                                                testapp::kDeviceCollections.queue};
+    return queue;
+}
+
+// Live delivery: the wake channel, the hub and the member cache (docs/22-chat.md
+// §8). The subscriber holds a Redis connection of its own, at the same URL the
+// rest of the process uses; built on first use, which boot() makes after Redis
+// has answered.
+[[nodiscard]] anvil::chat::ChatLive& chat_live() {
+    static anvil::chat::ChatLive live{
+        anvil::chat::ChatLiveConfig{
+            .subscriber = anvil::chat::WakeSubscriberConfig{
+                .url = env_or("ANVIL_REFERENCE_REDIS_URL", "tcp://127.0.0.1:6379"),
+                .connect_timeout = std::chrono::milliseconds{1000},
+                .poll_interval = std::chrono::milliseconds{100},
+                .reconnect_initial = std::chrono::milliseconds{100},
+                .reconnect_max = std::chrono::milliseconds{5000},
+                .client_name = "anvil-reference-chat"},
+            .hub = anvil::chat::HubLimits{},
+            .member_cache_bytes = 1U << 20U},
+        anvil::redis::RedisClient::instance(), chat_repository()};
+    return live;
+}
+
+// Push nudges (docs/22-chat.md §8.4). The queue is a real one, keyed under this
+// run's database so two servers never share it, and the web push transport
+// prints what it would send, one line per endpoint:
+//
+//     push <endpoint address> <count> <title>|<body>
+//
+// which is what check-reference-server.sh reads. A deployment's transport
+// encrypts with notifications/webpush.h and POSTs.
+[[nodiscard]] const anvil::notifications::NotificationRepository& notification_repository() {
+    static const anvil::notifications::NotificationRepository repository{
+        std::string{database_names().for_collection("notification_clients")},
+        anvil::notifications::NotificationCollections{"notifications", "notification_inbox",
+                                                      "notification_clients"},
+        testapp::kTopics};
+    return repository;
+}
+
+[[nodiscard]] anvil::timer::JobQueue& job_queue() {
+    static anvil::timer::JobQueue queue{anvil::timer::JobQueueConfig{
+        .prefix = "anvil-reference:" + primary_database() + ":jobs",
+        .consumer = "reference",
+        .block = std::chrono::milliseconds{500},
+        .promoter_interval = std::chrono::milliseconds{250}}};
+    return queue;
+}
+
+// How a push names an account. The two the server seeds, by the name they are
+// printed under; anybody else is nameless, which a template renders as nothing.
+[[nodiscard]] std::map<Uuid, std::string>& account_names() {
+    static std::map<Uuid, std::string> names;
+    return names;
+}
+
+[[nodiscard]] anvil::chat::ChatPush& chat_push() {
+    static anvil::chat::ChatPush push{
+        // A second's window and a second's grace, so a harness waits seconds.
+        testapp::chat_push_config(std::chrono::seconds{1}, std::chrono::seconds{1}),
+        anvil::chat::PushHooks{
+            .enqueue = [](std::span<const std::uint8_t> args, anvil::db::TimeMs due,
+                          std::string_view key) -> anvil::Status {
+                const anvil::Result<anvil::timer::JobId> job =
+                    job_queue().schedule_at(testapp::kChatPushJob, args, due, key);
+                if (!job) { return job.error(); }
+                return anvil::ok();
+            },
+            // Every reader in the default locale with previews on: the reference
+            // accounts carry no language. An application reads its account row.
+            .reader = [](mongocxx::client&, const Uuid&) {
+                return anvil::chat::PushReader{Locale{}, true};
+            },
+            .name_of = [](mongocxx::client&, const Uuid& user) {
+                const auto found = account_names().find(user);
+                return found == account_names().end() ? std::string{} : found->second;
+            }},
+        chat_repository(), notification_repository(), testapp::kTemplates,
+        [](const anvil::notifications::Delivery& delivery)
+            -> anvil::Result<anvil::notifications::DeliveryVerdict> {
+            std::printf("push %.*s %d %s|%s\n", static_cast<int>(delivery.address.size()),
+                        delivery.address.data(), static_cast<int>(delivery.count),
+                        delivery.content.title.c_str(), delivery.content.body.c_str());
+            std::fflush(stdout);
+            return anvil::notifications::DeliveryVerdict::Delivered;
+        }};
+    return push;
+}
+
+// Where a staff read of a conversation is recorded (docs/22-chat.md §9.2). The
+// reference server keeps no other audit, so this one is the chat review's
+// alone; it writes synchronously, and needs no timer.
+[[nodiscard]] anvil::audit::AuditService& review_audit() {
+    static anvil::audit::AuditService audit{
+        std::string{database_names().for_collection("audit_log")}, "audit_log",
+        testapp::kAuditActions, anvil::audit::AuditAction::of(testapp::Action::AccessDenied)};
+    return audit;
+}
+
+[[nodiscard]] const anvil::chat::ChatService& chat_service() {
+    static const anvil::chat::ChatService service{anvil::chat::ChatServiceDeps{
+        .repository = chat_repository(),
+        .media = media_service(),
+        .grants = grant_keys(),
+        .kinds = testapp::kChatKinds,
+        .cards = testapp::kChatCards,
+        .invite_pepper = secrets().invite_pepper,
+        .hooks = anvil::chat::ChatHooks{
+            // Everybody may reach everybody, which is the one policy a
+            // reference server with two accounts can have. An application's
+            // notion of a contact goes here (docs/22-chat.md §3.2), and leaving
+            // it unset refuses every reach.
+            .may_reach = [](mongocxx::client&, const Uuid&, const Uuid&) { return true; },
+            .on_membership = {},
+            .on_message = {},
+            .claim_activity_bump = {},
+            // A session here is made only by signing in with a password, and
+            // its id is a v7 minted at that instant, so its timestamp is when
+            // the account last proved who it is on this session. An
+            // application with step-up authentication answers from its own
+            // record of that instead.
+            .authenticated_at =
+                [](mongocxx::client&, const Uuid&, const Uuid& session)
+                    -> std::optional<anvil::db::TimeMs> {
+                    return anvil::db::TimeMs{
+                        std::chrono::milliseconds{anvil::uuid::v7_timestamp_ms(session)}};
+                },
+            .on_device = {}},
+        .live = &chat_live(),
+        .push = &chat_push(),
+        .devices = &device_directory(),
+        .queue = &device_queue(),
+        .prekeys = &prekey_directory(),
+        .review = anvil::chat::ChatReview{
+            .audit = &review_audit(),
+            .read_action =
+                anvil::audit::AuditAction::of(testapp::Action::ChatConversationReviewed)}}};
+    return service;
+}
+
+// The group the two seeded accounts share, printed as `chat <id>`, so a harness
+// has a conversation to send in without first learning how to make one.
+std::optional<Uuid>& seeded_group() {
+    static std::optional<Uuid> id;
+    return id;
+}
+
+// The one stored image this process starts with, printed as `media <ns> <id>`.
+// A harness needs a SOURCE to edit, and this server has no upload route: an
+// upload is a streamed body on a loop thread, which is a subsystem with suites
+// of its own, and what a live run proves here is the edit path around it.
+std::optional<Uuid>& seeded_media() {
+    static std::optional<Uuid> id;
+    return id;
 }
 
 [[nodiscard]] id::UserRepository users() {
@@ -268,13 +649,25 @@ struct SeededAccount final {
     UserType    type;
 };
 
-// Hashed on THIS thread, at boot, which is the one place in the system where
+// Enrolled on THIS thread, at boot, which is the one place in the system where
 // Argon2 on the calling thread is correct: there is no event loop yet, nothing is
 // waiting, and `hash_pool` exists to bound concurrent hashes rather than to move
-// them off a thread that has nothing else to do (ENGINEERING_RULES.md §4).
-void seed(mongocxx::client& client, const SeededAccount& account) {
-    const anvil::auth::PasswordHasher hasher{anvil::auth::kDefaultArgon2Params};
-    const std::string hash = hasher.hash(account.password);
+// them off a thread that has nothing else to do (CLAUDE.md §4).
+//
+// From the plaintext, because this process drew it: the server runs the client
+// stage itself under the salt the salt route will serve for this email, so a
+// browser that asks for the salt and hashes the printed password arrives at the
+// same credential.
+// The account's id when this call enrolled it, nullopt when it was already
+// there from an earlier start of this same database.
+std::optional<Uuid> seed(mongocxx::client& client, const SeededAccount& account) {
+    // Under the salt the account layer derives for this email at registration,
+    // so the salt route answers a browser that hashes the printed password with
+    // exactly what this record was enrolled under.
+    const anvil::auth::PrehashHasher hasher{prehash_policy()};
+    const std::string hash = hasher.enroll_plaintext(
+        account.password,
+        hasher.derive_salt(static_cast<std::uint8_t>(id::LoginIdentity::Email), account.email));
 
     const Uuid id = anvil::uuid::generate_v7();
     const std::string username = account.email.substr(0, account.email.find('@'));
@@ -295,7 +688,7 @@ void seed(mongocxx::client& client, const SeededAccount& account) {
         if (inserted.error().code != ErrorCode::Conflict) {
             LOG_ERROR << "seeding " << account.email << " failed";
         }
-        return;
+        return std::nullopt;
     }
 
     auto session = client.start_session();
@@ -313,10 +706,80 @@ void seed(mongocxx::client& client, const SeededAccount& account) {
     if (!typed.ok()) {
         session.abort_transaction();
         LOG_ERROR << "granting " << account.email << " its authority failed";
-        return;
+        return std::nullopt;
     }
     session.commit_transaction();
+    return id;
 }
+
+#if ANVIL_HAS_VIPS
+// Storage in a directory of this run's own, like the database (RULE 3): a
+// harness's edits are files, and two runs sharing a tree would see each other's.
+std::string& storage_dir() {
+    static std::string dir;
+    return dir;
+}
+
+[[nodiscard]] bool open_storage(std::string& why_not) {
+    std::string pattern = env_or("TMPDIR", "/tmp") + "/anvil-reference-XXXXXX";
+    if (::mkdtemp(pattern.data()) == nullptr) {
+        why_not = "could not create a storage directory";
+        return false;
+    }
+    anvil::images::init("anvil_reference_server");
+    anvil::fs::Storage::init(pattern);
+    storage_dir() = pattern;
+    std::fprintf(stderr, "anvil_reference_server: media storage at %s\n", pattern.c_str());
+    return true;
+}
+
+// A generated picture, stored through the same stages an upload takes: a
+// gradient with a bright band, so an edit of it is visibly an edit.
+void seed_media(mongocxx::client& client) {
+    VipsImage* xy = nullptr;
+    if (vips_xyz(&xy, 1600, 1200, nullptr) != 0) { return; }
+    VipsImage* scaled = nullptr;
+    const int scaled_ok = vips_linear1(xy, &scaled, 0.12, 0.0, "uchar", TRUE, nullptr);
+    g_object_unref(xy);
+    if (scaled_ok != 0) { return; }
+    VipsImage* rgb = nullptr;
+    const int joined = vips_bandjoin_const1(scaled, &rgb, 180.0, nullptr);
+    g_object_unref(scaled);
+    if (joined != 0) { return; }
+    void* buffer = nullptr;
+    std::size_t size = 0;
+    const int encoded = vips_image_write_to_buffer(rgb, ".png", &buffer, &size, nullptr);
+    g_object_unref(rgb);
+    if (encoded != 0) { return; }
+
+    auto opened = anvil::fs::UploadSink::open(
+        anvil::fs::Storage::instance(),
+        anvil::fs::UploadLimits{anvil::images::kMaxBytes, 0}, testapp::kMedia);
+    if (!opened) {
+        g_free(buffer);
+        return;
+    }
+    anvil::fs::UploadSink sink = std::move(opened).value();
+    const anvil::Status written =
+        sink.write(std::span<const std::uint8_t>{static_cast<std::uint8_t*>(buffer), size});
+    g_free(buffer);
+    if (!written) { return; }
+    const anvil::Result<anvil::fs::UploadResult> finished = sink.finish("image/png");
+    if (!finished) { return; }
+    const anvil::Result<anvil::media::ProcessedMedia> processed =
+        anvil::media::process(testapp::kMedia, finished.value());
+    if (!processed) {
+        LOG_ERROR << "seeding the reference image failed";
+        return;
+    }
+    if (media_service()
+            .record(client, testapp::kMedia, Uuid{}, processed.value(), finished.value().sha256,
+                    std::nullopt)
+            .ok()) {
+        seeded_media() = processed.value().id;
+    }
+}
+#endif
 
 // --- responses --------------------------------------------------------------
 
@@ -329,173 +792,7 @@ void seed(mongocxx::client& client, const SeededAccount& account) {
     return response;
 }
 
-// Through the one writer, so this server's failures are byte-identical to the
-// filter's own and to what `anvil_emit_envelopes` records.
-[[nodiscard]] HttpResponsePtr failure(const HttpRequestPtr& req, ErrorCode code) {
-    std::string body;
-    body.reserve(96);
-    anvil::http::append_error_body(body, code, anvil::http::request_id_of(req));
-    return json(anvil::http::http_status(code), std::move(body));
-}
-
-void set_session_cookies(const HttpResponsePtr& response, const id::IssuedSession& issued) {
-    // Secure is set although this server is reached over http://127.0.0.1.
-    // Browsers treat localhost as a secure context, so the cookie is still
-    // stored — and dropping the attribute here would make this binary a worked
-    // example of a cookie nobody should copy.
-    drogon::Cookie access{std::string{ac::kAccessCookieName}, issued.access_token};
-    access.setPath("/");
-    access.setSecure(true);
-    access.setHttpOnly(true);
-    access.setSameSite(drogon::Cookie::convertString2SameSite(
-        std::string{ac::kAccessCookieSameSite}));
-    access.setMaxAge(static_cast<int>(issued.access_expires_in_seconds));
-    response->addCookie(std::move(access));
-
-    // Empty when the refresh token was not rotated, which is the common case
-    // between rotations — and NOT an error. Overwriting the stored cookie with
-    // an empty value would sign the caller out on the next refresh.
-    if (!issued.refresh_token.empty()) {
-        drogon::Cookie refresh{std::string{ac::kRefreshCookieName}, issued.refresh_token};
-        refresh.setPath("/");
-        refresh.setSecure(true);
-        refresh.setHttpOnly(true);
-        refresh.setSameSite(drogon::Cookie::convertString2SameSite(
-            std::string{ac::kRefreshCookieSameSite}));
-        refresh.setMaxAge(static_cast<int>(issued.refresh_expires_in_seconds));
-        response->addCookie(std::move(refresh));
-    }
-}
-
-// Every database touch goes through here. Nothing blocking runs on a Trantor
-// event-loop thread (ENGINEERING_RULES.md §4), and a full queue sheds 503 rather than
-// queueing — which is what the bound is for.
-void on_db(const HttpRequestPtr& req, Responder callback,
-           std::function<HttpResponsePtr(mongocxx::client&)> work) {
-    const bool posted = anvil::Pools::db().try_post(anvil::guarded("db", [req, callback, work] {
-        auto client = anvil::db::MongoPool::instance().acquire();
-        callback(work(*client));
-    }));
-    if (!posted) { callback(failure(req, ErrorCode::ServiceUnavailable)); }
-}
-
 // --- handlers ---------------------------------------------------------------
-
-void login(const HttpRequestPtr& req, Responder&& callback) {
-    // Through anvil's own parser, not a scan of the body for two quoted keys.
-    // A reference application that hand-rolled this would be demonstrating the
-    // one thing `input/json.h` exists to make unnecessary: every limit enforced
-    // DURING the parse, duplicate keys refused rather than resolved, and the
-    // arena on the stack so a body costs no allocation.
-    //
-    // `as_string()` is the type assertion, and it is the half that matters:
-    // `{"email":{"$gt":""}}` must not reach a query as an object, which is why
-    // there is no accessor that coerces (ENGINEERING_RULES.md §5).
-    input::BodyArena arena;
-    const input::JsonDocument document = input::parse_json(req->body(), arena);
-    if (!document.ok() || !document.root().is_object()) {
-        callback(failure(req, ErrorCode::ValidationFailed));
-        return;
-    }
-
-    const auto field = [&document](std::string_view key) -> std::string {
-        const input::JsonValue* value = document.root().find(key);
-        if (value == nullptr) { return {}; }
-        const std::optional<std::string_view> text = value->as_string();
-        return text.has_value() ? std::string{*text} : std::string{};
-    };
-
-    const std::string email = field("email");
-    const std::string password = field("password");
-    if (email.empty() || password.empty()) {
-        // One code for "no such key", "not a string" and "empty": a login form
-        // that learns WHICH is a login form that can be probed.
-        callback(failure(req, ErrorCode::ValidationFailed));
-        return;
-    }
-
-    const anvil::http::PackedAddress ip = anvil::http::client_address(req);
-    const std::string agent = req->getHeader("user-agent");
-
-    on_db(req, std::move(callback), [email, password, ip, agent](mongocxx::client& client) {
-        const auto found =
-            users().find_for_login(client, email, id::LoginIdentity::Email);
-        // One answer for "no such account" and for "wrong password". Telling the
-        // two apart is account enumeration in one response.
-        const anvil::auth::PasswordHasher hasher{anvil::auth::kDefaultArgon2Params};
-        const std::string stored =
-            (found.ok() && found.value().has_value()) ? found.value()->password_hash : std::string{};
-        if (hasher.verify(stored, password) != anvil::auth::VerifyOutcome::Match) {
-            std::string body;
-            anvil::http::append_error_body(body, ErrorCode::Unauthenticated,
-                                           anvil::http::RequestId{});
-            return json(401, std::move(body));
-        }
-
-        const auto issued = sessions().create(
-            client, *found.value(), ip,
-            agent, anvil::db::now_ms());
-        if (!issued.ok()) {
-            std::string body;
-            anvil::http::append_error_body(body, issued.error().code, anvil::http::RequestId{});
-            return json(anvil::http::http_status(issued.error().code), std::move(body));
-        }
-
-        const HttpResponsePtr response = json(200, R"({"signed_in":true})");
-        set_session_cookies(response, issued.value());
-        return response;
-    });
-}
-
-void refresh(const HttpRequestPtr& req, Responder&& callback) {
-    const std::string token = req->getCookie(std::string{ac::kRefreshCookieName});
-    if (token.empty()) {
-        callback(failure(req, ErrorCode::Unauthenticated));
-        return;
-    }
-
-    on_db(req, std::move(callback), [token](mongocxx::client& client) {
-        const auto issued =
-            sessions().refresh(client, token, anvil::db::now_ms());
-        if (!issued.ok()) {
-            std::string body;
-            anvil::http::append_error_body(body, issued.error().code, anvil::http::RequestId{});
-            return json(anvil::http::http_status(issued.error().code), std::move(body));
-        }
-        const HttpResponsePtr response = json(200, R"({"refreshed":true})");
-        set_session_cookies(response, issued.value());
-        return response;
-    });
-}
-
-void logout(const HttpRequestPtr& req, Responder&& callback) {
-    const std::shared_ptr<const UserContext> ctx = ac::user_context(req);
-    if (ctx == nullptr) {
-        callback(ac::not_found_response());
-        return;
-    }
-    const Uuid session_id = ctx->session_id;
-    const Uuid user_id = ctx->user_id;
-
-    on_db(req, std::move(callback), [session_id, user_id](mongocxx::client& client) {
-        // The result is deliberately not reported: revoking a session that is
-        // already gone is the ordinary shape of a retried logout, and
-        // `auth.logout` is described as idempotent precisely so a client may
-        // repeat it after a response nobody saw.
-        (void)sessions().revoke(client, session_id, user_id);
-
-        const HttpResponsePtr response = json(200, R"({"signed_out":true})");
-        for (const std::string_view name : {ac::kAccessCookieName, ac::kRefreshCookieName}) {
-            drogon::Cookie cleared{std::string{name}, ""};
-            cleared.setPath("/");
-            cleared.setSecure(true);
-            cleared.setHttpOnly(true);
-            cleared.setMaxAge(0);
-            response->addCookie(std::move(cleared));
-        }
-        return response;
-    });
-}
 
 // The holder-scoped route table, which is the first call a cold client makes and
 // the only one whose address it is allowed to compile in.
@@ -580,10 +877,12 @@ void no_content(const HttpRequestPtr&, Responder&& callback) {
 // --- boot -------------------------------------------------------------------
 
 void install_routes() {
-    ac::register_route(testapp::kRoutes, "/login", drogon::Post, &login);
-    ac::register_route(testapp::kRoutes, "/auth/refresh", drogon::Post, &refresh);
+    // Every account flow — salt, registration, verification, sign-in, reset,
+    // change, refresh, sign-out — at the paths this application declared for
+    // the route ids accounts.h gives each role.
+    anvil::accounts::install_account_routes(accounts(), testapp::kRoutes,
+                                            testapp::kRouteDescriptions);
     ac::register_route(testapp::kRoutes, "/session", drogon::Get, &session);
-    ac::register_route(testapp::kRoutes, "/session/logout", drogon::Post, &logout);
     ac::register_route(testapp::kRoutes, "/me", drogon::Get, &me);
 
     ac::register_route(testapp::kRoutes, "/content/{id}", drogon::Get, &not_found);
@@ -591,8 +890,77 @@ void install_routes() {
     ac::register_route(testapp::kRoutes, "/media/{ns}/{id}", drogon::Get, &empty_list);
     ac::register_route(testapp::kRoutes, "/media/{ns}/{id}", drogon::Delete, &no_content);
     ac::register_route(testapp::kRoutes, "/media/{ns}/{id}/{role}", drogon::Get, &not_found);
+#if ANVIL_HAS_VIPS
+    anvil::media::install_media_edit_routes(
+        media_service(), limiter(), testapp::kRoutes, testapp::kRouteDescriptions,
+        anvil::media::EditRoutes{.edit_route_id = "media.edit",
+                                 .state_route_id = "media.edit_state",
+                                 .budget = rule("media"),
+                                 .on_edit = &print_edit});
+#else
+    ac::register_route(testapp::kRoutes, "/media-edits/{ns}/{id}", drogon::Post, &not_found);
+    ac::register_route(testapp::kRoutes, "/media-edits/{ns}/{id}", drogon::Get, &not_found);
+#endif
     ac::register_route(testapp::kRoutes, "/audit", drogon::Get, &empty_list);
     ac::register_route(testapp::kRoutes, "/preview/{id}", drogon::Get, &not_found);
+
+    anvil::chat::install_chat_routes(
+        chat_service(), limiter(), testapp::kRoutes, testapp::kRouteDescriptions,
+        anvil::chat::ChatRoutes{
+            .ids = {.create = "chat.create",
+                    .open_direct = "chat.open_direct",
+                    .list = "chat.list",
+                    .get = "chat.get",
+                    .update = "chat.update",
+                    .set_timer = "chat.set_timer",
+                    .members = "chat.members",
+                    .add_members = "chat.add_members",
+                    .update_member = "chat.update_member",
+                    .remove_member = "chat.remove_member",
+                    .send = "chat.send",
+                    .history = "chat.history",
+                    .edit = "chat.edit",
+                    .revoke = "chat.revoke",
+                    .react = "chat.react",
+                    .read_by = "chat.read_by",
+                    .receipts = "chat.receipts",
+                    .preferences = "chat.preferences",
+                    .create_invite = "chat.create_invite",
+                    .revoke_invite = "chat.revoke_invite",
+                    .join = "chat.join",
+                    .follow = "chat.follow",
+                    .block = "chat.block",
+                    .unblock = "chat.unblock",
+                    .presence = "chat.presence",
+                    .my_devices = "chat.my_devices",
+                    .register_device = "chat.register_device",
+                    .link_device = "chat.link_device",
+                    .unlink_device = "chat.unlink_device",
+                    .upload_prekeys = "chat.upload_prekeys",
+                    .claim_prekeys = "chat.claim_prekeys",
+                    .conversation_devices = "chat.conversation_devices",
+                    .device_queue = "chat.device_queue",
+                    .acknowledge_queue = "chat.acknowledge_queue",
+                    .presence_many = "chat.presence_many",
+                    .rotate_prekeys = "chat.rotate_prekeys",
+                    .request_link = "chat.request_link",
+                    .read_link_request = "chat.read_link_request",
+                    .approve_link_request = "chat.approve_link_request",
+                    .collect_link_approval = "chat.collect_link_approval",
+                    .review_conversation = "chat.review_conversation",
+                    .review_history = "chat.review_history",
+                    .report = "chat.report",
+                    .reports = "chat.reports"},
+            .send_budget = rule("chat-send"),
+            .write_budget = rule("chat-write"),
+            .claim_budget = rule("chat-claim"),
+            .claim_target_budget = rule("chat-claim-target")});
+    // In the same process here; a deployment serves it from MEDIA_ORIGIN, where
+    // the session cookie never arrives and the grant is the whole authority.
+    anvil::media::install_media_grant_route(media_service(), grant_keys(), testapp::kRoutes,
+                                            testapp::kRouteDescriptions, "media.grant");
+    anvil::chat::install_chat_socket(chat_live(), chat_service(), testapp::kRoutes,
+                                     testapp::kRouteDescriptions, "chat.socket");
 }
 
 // Why this process is not going to serve, if it is not.
@@ -619,7 +987,10 @@ enum class Boot : int {
                                         .cpu_threads = 2,
                                         .cpu_queue = 16,
                                         // The memory cap, not a tuning knob:
-                                        // 64 MiB per Argon2 hash (ENGINEERING_RULES.md §4).
+                                        // 64 MiB per Argon2 hash (CLAUDE.md §4).
+                                        // No request path hashes here in
+                                        // prehash mode: a login is one HMAC
+                                        // (docs/05 §12).
                                         .hash_threads = 2,
                                         .hash_queue = 8,
                                         .audit_threads = 1,
@@ -676,14 +1047,62 @@ enum class Boot : int {
                                               testapp::kCollectionOptions,
                                               anvil::db::OptionsPhase::Validate);
 
-    seed(*client, SeededAccount{.email = "root@reference.test",
-                                .password = secrets().superadmin_password,
-                                .permissions = PermSet{},
-                                .type = UserType::SuperAdmin});
-    seed(*client, SeededAccount{.email = "editor@reference.test",
-                                .password = secrets().editor_password,
-                                .permissions = anvil::perm_mask(testapp::Perm::ContentRead),
-                                .type = UserType::Staff});
+    const std::optional<Uuid> root =
+        seed(*client, SeededAccount{.email = "root@reference.test",
+                                    .password = secrets().superadmin_password,
+                                    .permissions = PermSet{},
+                                    .type = UserType::SuperAdmin});
+    const std::optional<Uuid> editor =
+        seed(*client, SeededAccount{.email = "editor@reference.test",
+                                    .password = secrets().editor_password,
+                                    .permissions = anvil::perm_mask(testapp::Perm::ContentRead),
+                                    .type = UserType::Staff});
+    // The editor's group with root in it. Made through the service with the
+    // creating bit handed to the seed rather than to the account: the editor
+    // then holds exactly the authority it is printed with, and a harness can
+    // still assert what a member who could never have made a group may do in
+    // one. Only on a first start, when both ids are this run's.
+    if (root.has_value() && editor.has_value()) {
+        const std::array<Uuid, 1> members{*root};
+        const anvil::Result<anvil::chat::CreatedConversation> made = chat_service().create(
+            *client,
+            anvil::chat::Actor{*editor, anvil::perm_mask(testapp::Perm::ChatCreateGroup)},
+            anvil::chat::CreateConversation{"group", "Reference", "", members, false});
+        if (!made) {
+            why_not = "seeding the chat group failed";
+            return Boot::Refused;
+        }
+        seeded_group() = made.value().conversation.id;
+        account_names()[*root] = "root";
+        account_names()[*editor] = "editor";
+        // Root's browser, as notifications registers one. Its keys are empty
+        // because this server's transport prints rather than encrypts.
+        anvil::notifications::ClientRow browser{};
+        browser.id = anvil::uuid::generate_v4();
+        browser.addr = "https://push.reference.test/root";
+        browser.owner = *root;
+        browser.created_at = anvil::db::now_ms();
+        browser.prefs = anvil::notifications::Preferences::all_enabled();
+        browser.type = anvil::notifications::ClientType::WebPush;
+        if (!notification_repository().insert_client(*client, browser)) {
+            why_not = "seeding root's push endpoint failed";
+            return Boot::Refused;
+        }
+    }
+
+    // The queue the push nudges run on. Its handler reaches the push through
+    // the one pointer testapp/chat_push.h keeps.
+    testapp::installed_chat_push().store(&chat_push(), std::memory_order_release);
+    if (!job_queue().ensure_group()) {
+        why_not = "the job queue could not be created";
+        return Boot::Unavailable;
+    }
+    job_queue().start();
+
+#if ANVIL_HAS_VIPS
+    if (!open_storage(why_not)) { return Boot::Refused; }
+    seed_media(*client);
+#endif
 
     ac::AccessControl::init(ac::AccessControlDeps{
         .keys = token_keys(),
@@ -706,9 +1125,23 @@ void announce_credentials() {
     std::printf("  editor@reference.test  %s   staff, ContentRead\n",
                 secrets().editor_password.c_str());
     std::printf("\n");
+    // A source for the image edit routes, if this build can render one. The
+    // same one-line shape as the codes below, so a harness reads it the same way.
+    if (seeded_media().has_value()) {
+        std::printf("media %s %s\n", std::string{testapp::kMedia.dir()}.c_str(),
+                    anvil::uuid::to_string(*seeded_media()).c_str());
+        std::printf("\n");
+    }
+    if (seeded_group().has_value()) {
+        std::printf("chat %s\n", anvil::uuid::to_string(*seeded_group()).c_str());
+        std::printf("\n");
+    }
     std::printf("the signing key and the session pepper are also drawn at boot and are\n");
     std::printf("deliberately NOT printed: nothing outside this process needs them, and a\n");
     std::printf("key on a terminal is a key in a scrollback buffer.\n");
+    std::printf("\n");
+    std::printf("every verification and reset code this process sends is printed as one\n");
+    std::printf("line, `code <verify|reset|exists> <address> <code>`, when it is sent.\n");
     std::fflush(stdout);
 }
 
@@ -753,6 +1186,15 @@ int main() {
 
     drogon::app().registerBeginningAdvice([] {
         const std::uint16_t port = drogon::app().getListeners().at(0).toPort();
+        // Its own address is the one origin a write may come from. Installed
+        // before the address is announced, so no harness can send a write the
+        // list does not yet cover.
+        auto origins = std::make_shared<anvil::http::AllowedOrigins>();
+        if (!origins->parse("http://127.0.0.1:" + std::to_string(port))) {
+            std::fprintf(stderr, "anvil_reference_server: cannot parse its own origin\n");
+            std::exit(1);
+        }
+        anvil::http::install_allowed_origins(std::move(origins));
         // THE FIRST LINE OF STDOUT, flushed, so a harness reads the port rather
         // than guessing it.
         std::printf("http://127.0.0.1:%u\n", static_cast<unsigned>(port));
@@ -766,6 +1208,19 @@ int main() {
         .addListener("127.0.0.1", configured_port())
         .run();
 
+    // Everything with a thread of its own that reaches the pools, before them.
+    job_queue().stop();
+    (void)job_queue().purge();
+    chat_live().stop();
     anvil::Pools::shutdown();
+#if ANVIL_HAS_VIPS
+    // After the pools, so no render is still writing into the tree it removes.
+    if (anvil::fs::Storage::initialised()) {
+        anvil::fs::Storage::shutdown();
+        std::error_code ignored;
+        std::filesystem::remove_all(storage_dir(), ignored);
+    }
+    anvil::images::shutdown();
+#endif
     return 0;
 }

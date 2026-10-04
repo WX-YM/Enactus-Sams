@@ -141,7 +141,7 @@ review comment.
 
 ## Conventions
 
-[`ENGINEERING_RULES.md`](ENGINEERING_RULES.md) is the engineering contract. `.clang-format` and `.clang-tidy` are
+[`CLAUDE.md`](CLAUDE.md) is the engineering contract. `.clang-format` and `.clang-tidy` are
 checked in. Three scripts run as CTest entries and fail the build rather than a review:
 
 - `tools/check-source-bans.sh` — `std::regex`, bcrypt, `rand`, `localtime`, `strcpy`

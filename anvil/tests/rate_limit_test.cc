@@ -226,6 +226,33 @@ TEST(RateLimiter, ARefusedHitCarriesAWindowAndThereforeAHeader) {
     EXPECT_LE(seconds, 60U);
 }
 
+TEST(RateLimiter, AWeightedCheckSpendsItsWeightAndRefusesPastTheRule) {
+    ANVIL_REQUIRE_REDIS();
+    RateLimiter limiter;
+    // A byte budget: a thousand bytes a minute.
+    constexpr RateLimitRule kBytes{"weighted-test", std::chrono::minutes{1}, 1000};
+    const std::string who = "weighted-" + std::to_string(unique_address()[15]) +
+                            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    const RateLimitVerdict first = limiter.check_account_weighted(who, kBytes, 600);
+    ASSERT_FALSE(first.degraded);
+    EXPECT_TRUE(first.allowed);
+    EXPECT_EQ(first.count, 600U);
+    const RateLimitVerdict over = limiter.check_account_weighted(who, kBytes, 600);
+    EXPECT_FALSE(over.allowed);
+    EXPECT_EQ(over.count, 1200U) << "a refused weight is spent, or it could be retried free";
+    // An unweighted check on the same bucket counts one.
+    EXPECT_EQ(limiter.check_account(who, kBytes).count, 1201U);
+}
+
+TEST(LocalBuckets, AWeightedHitCountsItsWeightAndSaturates) {
+    LocalBuckets buckets;
+    const auto now = LocalBuckets::Clock::now();
+    EXPECT_EQ(buckets.hit("w", kMinute, now, 40).count, 40U);
+    EXPECT_EQ(buckets.hit("w", kMinute, now, 2).count, 42U);
+    EXPECT_EQ(buckets.hit("w", kMinute, now, std::uint64_t{1} << 40U).count, UINT32_MAX);
+    EXPECT_EQ(buckets.hit("w", kMinute, now, 0).count, UINT32_MAX);
+}
+
 TEST(RateLimiter, RepairsAKeyThatLostItsExpiryRatherThanLockingItForever) {
     ANVIL_REQUIRE_REDIS();
 

@@ -4,7 +4,7 @@
 // they do in a browser: parsed out of a `text/event-stream` body by
 // `wire/sse.ts`, in chunks that do not respect frame boundaries.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import { Inbox, kInboxHeld, kInboxRingSlots } from "../../src/state/inbox.js";
 import type { StateCount } from "../../src/state/counts.js";
@@ -236,7 +236,7 @@ describe("Inbox", () => {
 // deployment is allowed to see.
 //
 // A tab stays open for days. Every bound here is the difference between a store
-// and a leak with a slow fuse (`ENGINEERING_RULES.md` §2.3), so each one is asserted
+// and a leak with a slow fuse (`CLAUDE.md` §2.3), so each one is asserted
 // against the behaviour it produces rather than only against its own literal —
 // a constant can be right while the code that was supposed to read it is not.
 describe("the bounds an inbox keeps", () => {

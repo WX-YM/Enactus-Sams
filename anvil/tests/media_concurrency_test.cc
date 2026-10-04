@@ -114,7 +114,7 @@ TEST_F(MediaConcurrency, ConcurrentUploadsOfIdenticalBytesConvergeWithoutCorrupt
         EXPECT_EQ(found.value()->variants.size(), 1U);
     }
 
-    const auto deduped = media().find_by_hash(db(), ns, sha);
+    const auto deduped = media().find_by_hash(db(), ns, anvil::uuid::generate_v7(), sha);
     ASSERT_TRUE(deduped.ok());
     EXPECT_TRUE(deduped.value().has_value());
 }

@@ -17,6 +17,7 @@
 // itself would be shipping English grammar to every consumer at once.
 
 import type { ChartCopy } from "hammer/chart";
+import type { EditorCopy } from "hammer/edit";
 import type {
     BellCopy,
     ConsentCopy,
@@ -37,6 +38,7 @@ export type ComponentCopy = {
     readonly pager: PagerCopy;
     readonly consent: ConsentCopy;
     readonly chart: ChartCopy;
+    readonly editor: EditorCopy;
     readonly failure: ErrorCopy<ErrorCode | "Unknown">;
 };
 
@@ -90,6 +92,39 @@ const en: ComponentCopy = {
         seriesHeader: "Series",
         xHeader: "Week",
         yHeader: "Signups",
+    },
+    editor: {
+        canvas: "Photo being edited",
+        toolbar: "Editing tools",
+        crop: "Crop",
+        draw: "Draw",
+        rotateLeft: "Rotate left",
+        rotateRight: "Rotate right",
+        flip: "Flip",
+        undo: "Undo",
+        redo: "Redo",
+        resetCrop: "Remove crop",
+        cropBox: "Crop area, arrow keys move it",
+        handles: {
+            n: "Top edge", s: "Bottom edge", e: "Right edge", w: "Left edge",
+            ne: "Top right corner", nw: "Top left corner", se: "Bottom right corner", sw: "Bottom left corner",
+        },
+        strokes: "Drawn lines",
+        strokeName: (index, total) => `Line ${index} of ${total}`,
+        deleteStroke: "Delete line",
+        resize: "Longest side, in pixels",
+        cropSize: (width, height) => `${width} by ${height} pixels`,
+        refused: {
+            "edit.format": "That edit could not be read.",
+            "edit.canonical": "That edit could not be read.",
+            "edit.empty": "Nothing has been changed yet.",
+            "edit.crop": "The crop is outside the photo.",
+            "edit.too_small": "That would be too small to show.",
+            "edit.upscale": "An image can only be made smaller.",
+            "edit.stroke": "That line cannot be drawn.",
+            "edit.bounds": "No more lines fit on this photo.",
+            "stroke-limit": "That line is too long. Try a shorter one.",
+        },
     },
     failure: {
         // Shares the failure table rather than restating it: the words for a
@@ -167,6 +202,39 @@ const ar: ComponentCopy = {
         seriesHeader: "السلسلة",
         xHeader: "الأسبوع",
         yHeader: "التسجيلات",
+    },
+    editor: {
+        canvas: "الصورة قيد التعديل",
+        toolbar: "أدوات التعديل",
+        crop: "قص",
+        draw: "رسم",
+        rotateLeft: "تدوير لليسار",
+        rotateRight: "تدوير لليمين",
+        flip: "قلب",
+        undo: "تراجع",
+        redo: "إعادة",
+        resetCrop: "إزالة القص",
+        cropBox: "منطقة القص، تتحرك بمفاتيح الأسهم",
+        handles: {
+            n: "الحافة العليا", s: "الحافة السفلى", e: "الحافة اليمنى", w: "الحافة اليسرى",
+            ne: "الزاوية العليا اليمنى", nw: "الزاوية العليا اليسرى", se: "الزاوية السفلى اليمنى", sw: "الزاوية السفلى اليسرى",
+        },
+        strokes: "الخطوط المرسومة",
+        strokeName: (index, total) => `الخط ${index} من ${total}`,
+        deleteStroke: "حذف الخط",
+        resize: "أطول ضلع، بالبكسل",
+        cropSize: (width, height) => `${width} × ${height} بكسل`,
+        refused: {
+            "edit.format": "تعذّرت قراءة هذا التعديل.",
+            "edit.canonical": "تعذّرت قراءة هذا التعديل.",
+            "edit.empty": "لم يتغيّر شيء بعد.",
+            "edit.crop": "منطقة القص خارج الصورة.",
+            "edit.too_small": "ستكون الصورة أصغر من أن تُعرض.",
+            "edit.upscale": "يمكن تصغير الصورة فقط.",
+            "edit.stroke": "لا يمكن رسم هذا الخط.",
+            "edit.bounds": "لا تتسع الصورة لخطوط أخرى.",
+            "stroke-limit": "هذا الخط طويل جدًا. جرّب خطًا أقصر.",
+        },
     },
     failure: {
         errors: {

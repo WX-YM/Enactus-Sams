@@ -2,7 +2,7 @@
 //
 // tests/testapp/migrations.h is the reference consumer's table and its
 // static_assert is the shape check: a malformed table is a build failure, never
-// a 500 at three in the morning (ENGINEERING_RULES.md §1). What is left for a runtime test
+// a 500 at three in the morning (CLAUDE.md §1). What is left for a runtime test
 // is the half a static_assert cannot show — that the predicate REJECTS, which is
 // the direction nobody notices has stopped working.
 

@@ -42,7 +42,8 @@ Everything of that shape arrives through the generated descriptor module
 | | Minimum | Notes |
 |---|---|---|
 | An anvil application | current | Its tables are the source of every seam |
-| Node | 20 | Build and test only; hammer ships nothing that needs it at run time |
+| Node | 22 | Build and test only; hammer ships nothing that needs it at run time |
+| A Chromium | any recent | Build and test only. `npm run test` runs the DOM and React suite in it, and fails rather than skips with none found (`HAMMER_BROWSER`, else the system binary) |
 | A bundler | any | Must honour `exports` and `"sideEffects": false` |
 
 [`CHANGELOG.md`](CHANGELOG.md) is what to read before upgrading: every entry-point change
@@ -64,11 +65,12 @@ npm run check        # type-check, suite, and every script in tools/
 | Script | Purpose |
 |---|---|
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run test` | The unit, DOM, react and contract suites |
-| `npm run test:browser` | The browser suite, against a Chromium on your machine. Excluded from `npm run check`, and it fails rather than skips with no browser |
+| `npm run test` | The unit, contract, DOM and React suites. The DOM and React suite runs inside a real Chromium (`tests/dom/in_browser.test.ts`) and fails rather than skips with no browser found |
+| `npm run test:browser` | The Trusted Types, credential and resilience browser suite, against the same Chromium. Excluded from `npm run check`, and it fails rather than skips with no browser |
 | `npm run test:live` | The live suite, against a server you started. Excluded from `npm run check`, and it fails rather than skips with no `HAMMER_LIVE_ORIGIN` |
 | `npm run lint` | Every check in `tools/`: the source bans, wire discipline, vocabulary, layering, dependencies, the generated client's staleness, **every TypeScript block in the docs against the source it names**, the per-entry-point byte ceilings, what the package publishes, and the published API surface |
 | `npm run check` | All of the above. This is the gate before a commit |
+| `npm run check:production` | `check`, plus the dependency policy with every warning as an error and `npm audit` over the whole tree. This is the gate before a release or a deploy, and it fails closed when the registry cannot be reached (`CLAUDE.md` §12) |
 
 ## Using hammer in an application
 
@@ -130,7 +132,7 @@ rather than a review comment.
 
 ## Conventions
 
-[`ENGINEERING_RULES.md`](ENGINEERING_RULES.md) is the engineering contract. Nine scripts run as part of
+[`CLAUDE.md`](CLAUDE.md) is the engineering contract. Nine scripts run as part of
 `npm run check` and fail the build rather than a review:
 
 - `tools/check-source-bans.sh` — `innerHTML`, `eval`, `new Function`, `document.write`,

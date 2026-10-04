@@ -46,6 +46,14 @@ inline constexpr std::size_t kMaxNsDirLength = [] {
 
 static_assert(kMaxNsDirLength > 0, "a namespace directory name may not be empty");
 
+static_assert([] {
+    for (const NamespaceSpec& spec : config::kNamespaces) {
+        if (!namespace_is_well_formed(spec)) { return false; }
+    }
+    return true;
+}(), "a namespace that accepts kSealedMimes must accept nothing else, and be Dedupe::None "
+     "and Visibility::Private (anvil/fs/namespace_spec.h)");
+
 class Ns final {
 public:
     // No default constructor. There is no sensible "default namespace" — every
@@ -105,6 +113,23 @@ public:
     // lists that agree until somebody edits one.
     [[nodiscard]] constexpr MimeMask accepts() const noexcept {
         return config::kNamespaces[index_].accepts;
+    }
+
+    // How far an upload into this namespace may be deduplicated. Read by the
+    // repository's lookup, which is where the scope becomes part of the filter.
+    [[nodiscard]] constexpr Dedupe dedupe() const noexcept {
+        return config::kNamespaces[index_].dedupe;
+    }
+
+    [[nodiscard]] constexpr Visibility visibility() const noexcept {
+        return config::kNamespaces[index_].visibility;
+    }
+
+    // Whether uploads here are ciphertext, taken by UploadSink::finish_sealed
+    // and never sniffed. namespace_is_well_formed guarantees that such a
+    // namespace takes nothing else, so this one bit decides the upload path.
+    [[nodiscard]] constexpr bool sealed() const noexcept {
+        return mime_accepted(accepts(), Mime::Sealed);
     }
 
     [[nodiscard]] constexpr bool operator==(const Ns&) const noexcept = default;

@@ -37,7 +37,7 @@
 // controller that registers anything. Registering needs `HttpAppFramework.h`,
 // which is the heaviest header Drogon publishes. Keeping them apart means a
 // caller that only wants the boot guard does not pay for the framework
-// (ENGINEERING_RULES.md §8, explicit includes).
+// (CLAUDE.md §8, explicit includes).
 
 #include <stdexcept>
 #include <string>

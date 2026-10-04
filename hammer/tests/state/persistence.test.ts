@@ -14,7 +14,7 @@
 // environment, which is why the suite runs in `node` and this file puts them
 // there.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "../support/test.js";
 
 import { AnalyticsSink } from "../../src/state/analytics.js";
 import { Form } from "../../src/state/forms.js";

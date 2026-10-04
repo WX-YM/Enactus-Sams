@@ -36,7 +36,7 @@ void append_decimal(std::string& out, std::int64_t value) {
     std::size_t length = 0;
     const bool negative = value < 0;
     // Negated into an UNSIGNED accumulator: -(-2^63) overflows in int64 and
-    // signed overflow is undefined behaviour (ENGINEERING_RULES.md §5).
+    // signed overflow is undefined behaviour (CLAUDE.md §5).
     auto magnitude = negative ? (~static_cast<std::uint64_t>(value) + 1U)
                               : static_cast<std::uint64_t>(value);
     do {
@@ -53,7 +53,7 @@ void append_decimal(std::string& out, std::int64_t value) {
 
 // The host and port of an `https://` URL, without a full URL parser.
 //
-// Bounded, linear and hand-written, for the reason ENGINEERING_RULES.md §5 bans std::regex
+// Bounded, linear and hand-written, for the reason CLAUDE.md §5 bans std::regex
 // on a request path — and because a URL parser that disagrees with the HTTP
 // client's own parser is precisely how an SSRF check gets bypassed. What this
 // refuses rather than interprets is as important as what it accepts.

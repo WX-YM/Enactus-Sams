@@ -218,7 +218,7 @@ and — separately — `kPermissionBits`, the whole map.
   onto the wire for every client to un-conflate.
 
   What hammer HOLDS is still `Uint8Array(16)`, because that half of the rule is about the
-  client: one AND against a string compare per check (`ENGINEERING_RULES.md` §2.3). The mapping happens
+  client: one AND against a string compare per check (`CLAUDE.md` §2.3). The mapping happens
   once, in `decodeSessionView`, through `kPermissionBits`.
 - **`kPermissionBits` is its own `const` and is not in `kApiTables`.** It is the one table of
   names a client cannot avoid, so it is emitted where a bundler can drop it: a chunk that
@@ -430,8 +430,8 @@ the output of `JSON.parse`, and a brand asserts work that nobody here has done.
 | `string` | `string` | — |
 | `int` | `number` | — |
 | `bool` | `boolean` | — |
-| `uuid` | `UuidText` (an alias for `string`) | `Uuid.parse` — a 36-character string compared with `===` is what that type is for (`ENGINEERING_RULES.md` §2.3) |
-| `time` | `ServerTimeText` (an alias for `string`) | `ServerInstant.fromServerIso` — the device clock is user-settable, so a duration is never the difference of two clocks (`ENGINEERING_RULES.md` §6) |
+| `uuid` | `UuidText` (an alias for `string`) | `Uuid.parse` — a 36-character string compared with `===` is what that type is for (`CLAUDE.md` §2.3) |
+| `time` | `ServerTimeText` (an alias for `string`) | `ServerInstant.fromServerIso` — the device clock is user-settable, so a duration is never the difference of two clocks (`CLAUDE.md` §6) |
 | `strings` | `readonly string[]` | — |
 
 **`nullable` is carried because a nullable field is a different type.** A consumer told a field
@@ -467,7 +467,7 @@ describes no longer need it.
 ### What hammer ships
 
 `Locale`, the direction and digit-shaping rules, NFC normalisation, the bidi isolation helpers,
-and code-point counting (`ENGINEERING_RULES.md` §8).
+and code-point counting (`CLAUDE.md` §8).
 
 ### What the descriptor carries
 
@@ -564,7 +564,7 @@ booleans — `options`, `attachment`, `ranged`, `code_point_capped`, `multi_line
   does not own. The value of generating both from one descriptor is that the two *agree* — a
   form that accepts what the server refuses is a user staring at a field with no error on it.
 - **A control is a mapping, not a component.** `"control": "text"` says what kind of input it
-  is; what it looks like is the application's (`ENGINEERING_RULES.md` §1, §9).
+  is; what it looks like is the application's (`CLAUDE.md` §1, §9).
 - An unknown field type is a **generation** failure, not a runtime fallback. A fallback renders
   a text box for a signature pad and posts a string the server rejects.
 - **`pii` and `answer` are checked against each other at generate time.** They say the same
@@ -573,6 +573,22 @@ booleans — `options`, `attachment`, `ranged`, `code_point_capped`, `multi_line
 - **This is the table that is emitted as a table** (§14). A field type is resolved by the `code`
   a definition carries at run time, so there is no bundle in which a subset of it is the useful
   part.
+- **An option's VALUE and its LABEL are two seams, and only the first is in the descriptor.**
+  A form definition is a runtime document rather than a compile-time table, so a `FieldDefinition`
+  an application builds carries `choices` — the stored values, which anvil constrains to
+  `[A-Za-z0-9_-]` so they are safe in a CSV cell, a JSON string, a URL and a BSON value at once
+  — and, optionally, `choiceLabels`, a map from each of those values to the word a person reads.
+
+  The constraint on the value is what makes the second seam necessary: `[A-Za-z0-9_-]` cannot
+  hold a word in Arabic, in Greek or in Chinese, so a renderer that printed the value would put
+  `new_site` on screen in every edition of a bilingual site. `choiceLabels` is **not** a locale
+  map; the application has already chosen the locale by the time it builds the definitions, and
+  a map keyed by locale here would be a second copy of a table hammer must not hold (§1).
+
+  It is optional, and a value with no entry is drawn as itself. That is the ordinary case for a
+  **section** field (§8), whose `choices` arrive from the descriptor as bare values with nowhere
+  to put a word — and a blank option is worse than an unlocalised one, because a picker with
+  empty rows is a picker nobody can operate at all.
 
 ---
 
@@ -702,18 +718,32 @@ The event sink: consent gate, batching, and delivery on `pagehide` with `sendBea
 ### What the descriptor carries
 
 Each event's `name` and stored `code`, its `class`, whether it `requires_consent`, and its
-`dimensions` — each a name and the closed set of `values` it admits.
+`dimensions` — each a name, a `kind`, and, for an `"enum"` dimension, the closed set of
+`values` it admits.
 
 ```jsonc
 { "name": "PageViewed", "code": 0, "class": "behaviour", "requires_consent": true,
-  "dimensions": [ { "name": "surface", "values": ["web", "ios", "android"] } ] }
+  "dimensions": [
+    { "name": "surface", "kind": "enum", "values": ["web", "ios", "android"] },
+    { "name": "project", "kind": "entity", "values": [] }
+  ] }
 ```
+
+A dimension's `kind` is `"enum"` or `"entity"`. `"enum"` is anvil's original and only shape, so
+`kind` absent entirely reads as `"enum"` — a descriptor from before the distinction existed is
+not a malformed one. `"entity"` is a foreign id rather than a member of a closed set: the server
+stores no index for it, and its `values` must be empty. At most one entity dimension per event,
+because the row an event ingests has one column for a foreign id.
 
 ### Notes that are not obvious
 
 - **A dimension's values are a closed set, so a typo is a compile error.** The generated union
   is the values the server will accept; an event sent with a value outside it is a row the
   server drops, and dropped rows are the analytics defect nobody notices for a quarter.
+- **An entity dimension's value at the call site is a `Uuid`, and is OPTIONAL.** `report()`
+  takes it directly rather than a wire string, encodes it to the canonical 36-character form
+  exactly once, and omits it entirely when the screen renders before the id is known — never an
+  empty string and never an index, because there is nothing here to index into.
 - **Consent is at the door, and an event that requires it is not queued.** Not queued and
   filtered later, not buffered pending a decision — anvil's `ingest.h` makes exactly this
   argument server-side, and "recorded and then excluded" is a policy one forgotten filter away
@@ -785,7 +815,7 @@ build it with, so the pattern was written out in the application. That was a row
 
 ### Notes that are not obvious
 
-- **Bytes never enter the JS heap** (`ENGINEERING_RULES.md` §2.2). Format negotiation is `Vary: Accept`,
+- **Bytes never enter the JS heap** (`CLAUDE.md` §2.2). Format negotiation is `Vary: Accept`,
   which is the browser's job and not a branch in the client.
 - **The public grammar is still a ROLE, and the width is published beside it.** This section
   once recorded a tension and left it open: anvil's `fs/namespace_spec.h` kept the width ladder
@@ -820,7 +850,7 @@ build it with, so the pattern was written out in the application. That was a row
   that never matches what it is compared against refuses uploads for a reason nobody can see.
 - **It still is not the enforcement.** A namespace's accept list saves an upload that was going
   to be refused and shapes a picker; anvil sniffs the bytes, and a client-side type check is a
-  check an attacker skips (`ENGINEERING_RULES.md` §5).
+  check an attacker skips (`CLAUDE.md` §5).
 - **`onProgress` goes BACKWARDS when an attempt is retried**, and the number is the honest one:
   a retry sends the file again from the start, so the bytes really are leaving the device a
   second time. A bar that latches its maximum is drawing a claim about what the server holds
@@ -833,6 +863,26 @@ build it with, so the pattern was written out in the application. That was a row
   call retry itself into its own attempt cap. Everything else a `BodyInit` can be is
   re-readable and is passed as itself.
 
+### Image edits
+
+Crop, rotate, flip, resize and freehand drawing, as a canonical recipe the server renders into a
+new object (anvil `docs/21-image-edits.md`, and [`04-image-edits.md`](04-image-edits.md) for
+this side).
+
+- **What the descriptor carries** is `limits.edit`, emitted as `kEditLimits`:
+  `{ maxStrokes, maxPoints, maxEdgePx, minEdgePx }`. `hammer/edit` validates a recipe against
+  exactly these, and a descriptor from a server that predates them emits no `kEditLimits`, so
+  an editor mounted against it fails to type-check rather than validating against numbers
+  nobody sent. The two edges are the server's widest and narrowest variant widths: numbers
+  beside names, as the role widths above are, and no more an address than those.
+- **What the application declares** is two routes, the edit and its state, and anvil's
+  reference application calls them `media.edit` and `media.edit_state` under
+  `/media-edits/{ns}/{id}`. Their response shapes are anvil's own, so the generated
+  `ResponseOf` for each is exactly what the handlers write.
+- **The generator does not know which routes those are.** Route ids are the application's, and
+  a generator that looked for `media.edit` by name would be hammer holding an application's
+  route table. The editor takes the two routes as arguments, typed by the generated constants.
+
 ---
 
 ## 13. What the application still writes
@@ -842,7 +892,7 @@ application declares in TypeScript and hammer requires:
 
 | | What it is | Why it cannot be generated |
 |---|---|---|
-| **Copy** | every user-visible string hammer's own surfaces need, per locale — the error-code and validation-reason maps above all | words are an audience decision, and hammer ships no string in any language (`ENGINEERING_RULES.md` §1) |
+| **Copy** | every user-visible string hammer's own surfaces need, per locale — the error-code and validation-reason maps above all | words are an audience decision, and hammer ships no string in any language (`CLAUDE.md` §1) |
 | **Class names** | what each component's parts are called | styling is the application's, and a library that ships class names ships a design system |
 | **Invalidation** | which resources a mutation invalidates | the server knows what a write touches; it does not know what a screen is showing |
 
@@ -978,7 +1028,7 @@ application needs none of them.
 | **`api`** | `kApiTables` from the generated module: the error and reason value maps, `rateLimits`, `singleUse`, `bodyMaxBytes`, and the descriptor `hash` that pairs them with `Api` | It IS generated — it is passed in rather than imported, because a library that imported one application's module would carry that application's tables (§1) |
 | **`origin`** | `pageOrigin` (`location.origin`) and `apiOrigin`, plus `site` when the two differ, **unvalidated** — `createClient` is what checks them | A descriptor is a build artefact shared by every environment; an origin is a property of one deployment of it |
 | **`refreshRoute`** | the route a credential refresh is made to | Neither hammer nor the generator can know which route it is: the descriptor carries the route and nothing that marks it as the refresh, so it is the one table member an application still names by hand (`docs/15-tasks.md` §Cross-repo) |
-| **The platform's singletons** | `fetch`, `navigator.locks`, a `BroadcastChannel`, the monotonic clock | Injected rather than read, so a test supplies its own instead of racing every other test in the file (`ENGINEERING_RULES.md` §3.3). A null lock manager is a degraded election, not an error |
+| **The platform's singletons** | `fetch`, `navigator.locks`, a `BroadcastChannel`, the monotonic clock | Injected rather than read, so a test supplies its own instead of racing every other test in the file (`CLAUDE.md` §3.3). A null lock manager is a degraded election, not an error |
 | **`session`** | how to read the current session and how to refetch it | The store that holds a session is the thing that will dispose it; a client with a session of its own would be a second opinion about who is signed in |
 | **`telemetry`** | where one record per request and hammer's own counters go | This library declares no metric name in an application's namespace and ships no reporter (`docs/00-architecture.md` §9) |
 | **`onLogout`** | what this tab drops when the session ends | hammer knows the session ended; the application knows what is on the screen |
@@ -1043,7 +1093,7 @@ application. What construction does about a deployment that is not:
 | `http:` on anything but loopback | **refused** — `__Host-` cookies require `Secure` |
 
 **A refusal here is a throw**, not a `Result`, and it is the one place in this library that is
-true: a misconfigured client is programmer error (`ENGINEERING_RULES.md` §3.1), and the alternative is a
+true: a misconfigured client is programmer error (`CLAUDE.md` §3.1), and the alternative is a
 deployment whose every request is silently anonymous. `SameSite=Lax` cookies are not sent on a
 cross-site subresource request, so the session is already gone; the only question is whether it
 fails at construction with a reason or at the first login with a 401.
@@ -1089,7 +1139,7 @@ Three rules about all of them:
   deployment that reads it.
 - **A header is not a URL**, and that is why the capability travels in one: a header is in no
   address bar, no history entry, no `Referer` and no analytics payload, and the redacting logger
-  drops every header rather than choosing between them (`ENGINEERING_RULES.md` §5).
+  drops every header rather than choosing between them (`CLAUDE.md` §5).
 - **A custom header makes a cross-origin request preflight.** It is one more reason §16's
   same-origin invariant is worth keeping; it costs nothing at all when it holds.
 
@@ -1115,7 +1165,7 @@ type-checking alone does not prove.
 | **The section query and stage** | how a section key and its stage reach the request | The same reason. What hammer insists on is that the stage is never optional, so a draft cannot be read into the published key |
 | **The section control map** | which stored field type each section control writes into | `SectionFieldType` and `FieldTypeName` are two closed sets in the descriptor, and the bridge is a product decision: whether a rich-text control stores `TEXT_LONG` is an application's answer. Written `satisfies Record<SectionFieldType, FieldTypeSpec>`, so it is total by type |
 | **The validation-reason names** | which member of the descriptor's enum each form failure is | The enum is append-only server-side and the words for it are §13's. hammer takes the names as a parameter so it spells none |
-| **The inbox decode and badge rule** | what a notification event's payload is, and which topics deserve a badge | A notification's shape is a response shape (§4), and which topics count is a product decision (`ENGINEERING_RULES.md` §9) |
+| **The inbox decode and badge rule** | what a notification event's payload is, and which topics deserve a badge | A notification's shape is a response shape (§4), and which topics count is a product decision (`CLAUDE.md` §9) |
 | **The media origin and grammar** | `MEDIA_ORIGIN`, and the route an image is addressed by | The origin is a deployment fact. The route should come from the descriptor and does not yet — see the note below |
 | **The worker factory** | a function returning a `Worker` | `new Worker(new URL("./x.js", import.meta.url))` is a bundler contract, and a library with a zero-dependency rule has no bundler and takes no dependency on one. The application's worker entry is two lines against `serveImagePool` / `serveDecodePool` |
 | **The beacon target and the analytics delivery** | where a batch goes, and where the LAST batch goes | An ingest route is an application's route, and the wire shape of a batch is a response shape from the other direction |
@@ -1153,7 +1203,7 @@ application names the `const`, which is one line whose absence is a compile erro
 - **A resource handle must be released.** It is refcounted: two components reading one address
   share one entry, one store and one request, and the entry's request is aborted and its store
   closed when the last watcher lets go. A handle nobody releases is a request that outlives the
-  screen that wanted it (`ENGINEERING_RULES.md` §3.3).
+  screen that wanted it (`CLAUDE.md` §3.3).
 - **Freshness has no default and no constant to tune.** A response with no `Cache-Control` is
   one the server said nothing about, and saying nothing is not permission — it is read again on
   the next open. Stale is served only where `stale-while-revalidate` granted it, and serving
@@ -1185,15 +1235,15 @@ from outside hammer for every component at once.
 
 | | What it is | Why it cannot be generated |
 |---|---|---|
-| **The mount point** | the element to build in | The document arrives *through* it and never from the global, so a component renders into a preview, a print view or a frame with no branch for it, and a test supplies its own (`ENGINEERING_RULES.md` §3.3) |
+| **The mount point** | the element to build in | The document arrives *through* it and never from the global, so a component renders into a preview, a print view or a frame with no branch for it, and a test supplies its own (`CLAUDE.md` §3.3) |
 | **The class names** | `ClassNames<Part>`, where the `Part` union is the component's and the strings are the application's | A library that ships class names ships a design system (§13). The union is hammer's because only the component knows what its parts are; the spelling is the application's because only it knows its design |
 | **The words** | one copy object per component, total over its own slot union | §13's rule, at component granularity. `Copy<Locale, …>` is the *failure* vocabulary — an error code and a validation reason — and a component's own words are a second seam rather than a growth of that one. A slot that embeds a number is a function, because plural rules and digit shaping belong to the locale, not to the count |
 | **The store** | `Readable<T>` — the read side only | A component handed a store it can write is a component that can decide somebody consented, marked a notification read, or is signed in. It renders a value and calls back to change one |
-| **The action callbacks** | `markRead`, `signIn`, `signOut`, `upload`, `more`, `setConsent` | Every one of them is a request against a route, and `hammer/dom` may not import `hammer/wire` (`docs/00-architecture.md` §2). The component owns *when* and the application owns *what* |
+| **The action callbacks** | `markRead`, `signIn`, `signUp`, `signOut`, `upload`, `more`, `setConsent` — and `prepare`, the step between a credential form and its call | Every one of them is a request against a route, and `hammer/dom` may not import `hammer/wire` (`docs/00-architecture.md` §2). The component owns *when* and the application owns *what* |
 | **The locale index** | which entry of the descriptor's label arrays to read | Locale order is persisted server-side and append-only, and index 0 means nothing in particular (§5). Which locale a person is reading is the application's answer |
 | **An image's intrinsic box** | `width` and `height`, in CSS pixels | The media table publishes a width per role and no height (§12), and the aspect ratio of a particular image is not in any table. Without both attributes every image is a layout shift |
 | **The upload bounds** | `maxBytes` and the accepted media types | `maxBytes` is the descriptor's; the accept list is the application's because anvil has no table of them to emit — a cross-repo row in `docs/15-tasks.md` |
-| **The monotonic clock** | for anything that counts down | Expiry is the server's and a countdown is rendered from a *duration* (`ENGINEERING_RULES.md` §6). The clock is injected so a test does not wait out a real one |
+| **The monotonic clock** | for anything that counts down | Expiry is the server's and a countdown is rendered from a *duration* (`CLAUDE.md` §6). The clock is injected so a test does not wait out a real one |
 
 ### The component contract
 
@@ -1207,7 +1257,7 @@ renderX(mount: Element, options: XOptions): Mounted      // { element, close }
   are refcounted, and may hold a timer; a caller that drops the handle leaks all three in a tab
   that stays open for days. It is idempotent, and it releases in reverse order of construction
   so a subscription taken out over a resource comes off before the resource does.
-- **A component holds mechanism and never a name, a word or a look** (`ENGINEERING_RULES.md` §9). The bell
+- **A component holds mechanism and never a name, a word or a look** (`CLAUDE.md` §9). The bell
   owns the unread count reconciled against an at-least-once stream, the popover's focus and its
   return, and a live region that announces without stealing focus. It owns no topic name, no
   sentence and no colour.
@@ -1224,7 +1274,7 @@ renderX(mount: Element, options: XOptions): Mounted      // { element, close }
   permissive Trusted Types policy, because the parser it uses is not a Trusted Types sink.
 - **A Trusted Types default policy is installed by the application, never by importing a
   module.** A library that installed a throwing default policy on import would break the
-  application's own markup from a side effect it never asked for (`ENGINEERING_RULES.md` §2.1). It takes
+  application's own markup from a side effect it never asked for (`CLAUDE.md` §2.1). It takes
   the scope as a parameter and hands back the removal.
 - **`"unknown"` is a state every gate has to render differently from a refusal.** A session that
   has not answered yet is not a signed-out session — rendering one is a login form that flashes
@@ -1256,7 +1306,7 @@ supply the only thing React can: when a subscription starts and when it stops.
 
 | | What it is | Why it cannot be generated |
 |---|---|---|
-| **The store** | `Readable<T>` — a session, a form, an inbox, a pager, a consent, or an application's own `Store` | `useStore` is the primitive the other four are typed wrappers of. The stores are constructed by whoever will dispose them (`ENGINEERING_RULES.md` §3.3), which is never a hook |
+| **The store** | `Readable<T>` — a session, a form, an inbox, a pager, a consent, or an application's own `Store` | `useStore` is the primitive the other four are typed wrappers of. The stores are constructed by whoever will dispose them (`CLAUDE.md` §3.3), which is never a hook |
 | **The `open` factory** | a `useCallback` returning `resources.open(route, …)`, stable over the address | The address is the application's, and its identity is what decides the lifetime — exactly as `useSyncExternalStore`'s own `subscribe` argument does |
 | **The `perform` call** | `(signal) => api.call(route, { body, signal })`, handed to `run` at the moment of the write | Passed at call time rather than held from the render that declared it, so there is no closure to go stale: a callback captured at render time sends the value the field held two keystrokes ago |
 
@@ -1282,10 +1332,227 @@ supply the only thing React can: when a subscription starts and when it stops.
   (`state/optimistic.ts`), and a double submit is a control the application disables from
   `state.status`.
 - **A `perform` that throws is programmer error and is rethrown.** Failure belongs in the return
-  type (`ENGINEERING_RULES.md` §3.1), so there is no error value of the caller's own vocabulary to publish
+  type (`CLAUDE.md` §3.1), so there is no error value of the caller's own vocabulary to publish
   and none is invented: the mutation goes back to `idle`, where it can be retried from, and the
   throw continues to whoever wrote it.
 - **React is an optional peer and nothing below this layer names it.** An application that does
   not use React installs nothing and ships nothing; `tests/react/boundary.test.ts` asserts the
   edge in both directions, because a store that imported a hook would make `hammer/state`
   unusable without a framework.
+
+---
+
+## 21. Client-side password prehashing
+
+anvil can run in a mode where the browser performs the Argon2id and the server never receives
+the password (anvil `docs/05-auth-sessions.md` §12). hammer ships the half of that which runs
+here. It is optional: an application whose server hashes passwords itself uses none of it and
+ships none of it.
+
+### `hammer/crypto` — the algorithm
+
+`argon2(params)` and `blake2b(input, outBytes, key?)`, and the incremental `Blake2b`. Argon2 is
+RFC 9106 version 0x13 in all three variants, and returns a `Result` whose failure is
+`{ kind: "argon2", cause: "bad-parameters" | "out-of-memory" }` — never a throw, because at
+every call site that matters the parameters came from a server.
+
+| | What it is | Why it is this and not something else |
+|---|---|---|
+| **Plain JavaScript** | no WebAssembly | Compiling WebAssembly needs `'wasm-unsafe-eval'` in `script-src`. anvil's CSP carries no unsafe source (anvil `docs/19` §7), and a library that required one would be asking every consumer to widen the policy that bounds an XSS in exchange for a faster sign-in |
+| **Synchronous, no `AbortSignal`** | one call, one answer | A signal is delivered by the event loop the call is blocking, so no abort could be observed mid-hash. Cancelling means terminating the worker it runs in, which is also the only way its memory is returned promptly |
+| **For a worker** | never the main thread at real parameters | 64 MiB at three passes measured 887 ms on a desktop in node — a mid-range phone is several times that, and a frame is 16.7 ms (`CLAUDE.md` §4) |
+| **Zeroes its memory** | the matrix, H0 and every working block | A released `ArrayBuffer` is not cleared, and a tab lives for days |
+
+No parameter has a default here. What a phone of an application's audience can afford is a
+product decision, and it arrives from the server that stored the record.
+
+### `hammer/prehash` — the step between a form and its call
+
+```ts sketch: the wiring, not a call site
+const pool = new Argon2Pool({ create: () => new Worker(workerUrl, { type: "module" }) });
+const prehasher = new Prehasher({
+    pool,
+    saltFor: (identifier, purpose, signal) =>
+        api.call(routeSalt, { body: { identifier, purpose }, signal }),
+    bounds: { minMemoryKib, maxMemoryKib, minIterations, maxIterations, maxParallelism },
+    fields: { identifier: "email", secret: "password", credential: "credential" },
+});
+const prepared = await prehasher.prepare(form.body(), signal);   // secret out, credential in
+```
+
+and the worker entry, which is the application's file because only its bundler can name it:
+
+```ts sketch: the application's worker entry
+serveArgon2Pool(self);   // from "hammer/prehash-worker"
+```
+
+| What the application supplies | Why hammer cannot |
+|---|---|
+| **The worker factory** | `new Worker(new URL(…))` is a bundler contract, as for `imagePool` |
+| **The salt route call** | with the purpose — `sign_in` for the account's stored salt, `enroll` for the salt a new credential is enrolled under. The route is the application's (anvil serves it as `/auth/prehash` only in its reference application). Whatever it answers, hammer decodes — `decodeSaltAnswer` is the one place that shape is read |
+| **The cost bounds** | what a phone of this audience can afford is a product decision. An answer outside them is refused as `out-of-bounds` rather than hashed |
+| **The field names** | the login and signup handlers are the application's, so the names they read are too |
+
+What is fixed, because it is anvil's contract rather than anyone's choice: the password is
+NFC-normalised and never trimmed or folded; it is refused over **1,024 UTF-8 bytes** before a
+worker spends seconds on it; the algorithm is Argon2id version 0x13 with a 16-byte salt and a
+32-byte output; and the credential is that output as unpadded base64url.
+
+**One `Prehasher` for every screen that sends a password.** A registration enrols the credential
+every later sign-in derives, so the two must not be two implementations of one derivation.
+`tests/testapp/app/state.ts` routes `signIn` and `signUp` through the same one.
+
+Notes that are not obvious:
+
+- **The pool holds one worker and queues nothing.** One hash is 64 MiB at anvil's own
+  parameters; a second concurrent one is a double submit, answered `busy`, never a second
+  matrix.
+- **Cancelling terminates the worker**, which is the only way a hash stops and the only way its
+  memory is returned promptly. Close the pool when the screen that owns it closes: an idle
+  worker keeps the heap that just ran the hash.
+- **The password's buffer is transferred to the worker**, not copied, so the page is left
+  holding no bytes of it. The JavaScript string the form held is a different matter and is
+  the form's to drop — `Form.accepted()` does, after a successful call.
+- **`prefetch(identifier)` hides the salt round trip** — call it when the identifier field loses
+  focus and the request runs while the person types their password. One entry, used once,
+  aborted when the identifier changes.
+- **Failures are `PrehashError`**, exported from `hammer`, and deliberately not a member of
+  `HammerError`: widening that union would break every exhaustive switch over it, for a
+  failure only two screens can meet.
+
+### On the login and signup forms
+
+`renderLogin` and `renderSignup` take an optional `prepare`, run between the form and the call
+on the body the form produced. Pass `prehasher.prepare` and the call receives the credential
+body; the password never reaches it.
+
+- **A failed `prepare` sends nothing** and keeps what the person typed, so they can try again;
+  its words come from `errors` under the failure's `kind` — `"prehash"` — as a transport
+  failure's do under `"transport"`.
+- **It gets the screen's signal.** Closing the screen mid-hash aborts it, which terminates the
+  worker, and nothing is sent afterwards.
+- **After a successful call the form forgets the secret**, exactly as the login form always has
+  (`Form.accepted()`): the JavaScript string the person typed is the one copy `prepare` could
+  not take away, so it is dropped the moment it has done its job.
+
+---
+
+## 22. Accounts
+
+### What hammer ships
+
+Nothing yet. This section describes a new content table and the constant the generator emits
+from it; the client that registers, verifies, signs in and rotates a credential is separate
+work built on top of it, the way `hammer/prehash` (§21) was built on top of the route table
+years after routes themselves were first read.
+
+### What the descriptor carries
+
+`null` for an application that declares no accounts, and `null` too for a descriptor written
+before this table existed — the two are the identical case, the way an absent dimension `kind`
+reads as `"enum"` (§10). Present otherwise:
+
+```jsonc
+"accounts": {
+  "hashing": "client",                 // or "server" — client-side prehashing, `docs/01-seams.md` §21
+  "activation": "verify",              // or "immediate"
+  "contact": "email",                  // or "phone" — must name a declared, REQUIRED identifier
+  "identifiers": [
+    { "kind": "email", "required": true, "sign_in": true },
+    { "kind": "username", "required": true, "sign_in": true },
+    { "kind": "phone", "required": false, "sign_in": true }
+  ],
+  "profile": [
+    { "key": "given_name", "required": true, "min_code_points": 1, "max_code_points": 80,
+      "text": "prose", "line_breaks": false }
+  ],
+  "secret": { "min_code_points": 12, "max_code_points": 128, "max_bytes": 1024 },
+  "code_digits": 6,
+  "routes": { "salt": "auth.prehash", "register": "auth.signup", "verify": "auth.verify",
+              "resend": "auth.resend", "sign_in": "auth.login", "reset_request": "auth.reset",
+              "reset_confirm": "auth.reset_confirm", "change": "auth.password",
+              "refresh": "auth.refresh", "sign_out": "auth.logout" }
+}
+```
+
+`routes` carries only the roles the application actually has, in the fixed order above —
+`salt`, `register`, `verify`, `resend`, `sign_in`, `reset_request`, `reset_confirm`, `change`,
+`refresh`, `sign_out` — and each value is a route **id**, not a path: the generator emits it as
+a reference to that route's own generated `const` (`routeAuthLogin`, never `"auth.login"`), so
+a role naming a route anvil later retires is a compile error at the reference rather than a
+call that 404s at run time.
+
+### Notes that are not obvious
+
+- **At least one identifier is `sign_in`.** An accounts table describing nothing anyone can
+  actually sign in with is not a smaller accounts table; it is a broken one.
+- **No identifier `kind` twice.** Two `email` identifiers are two readings of one column.
+- **`contact` must name a declared, *required* identifier.** It is the channel a verification
+  code and a reset link go to, so an identifier that is optional — or not declared at all — is
+  a reset flow with no address it can rely on being there.
+- **A profile key is never one of hammer's own words.** `email`, `username`, `phone`,
+  `password`, `credential`, `locale`, `code`, `identifier` and `profile` are refused as profile
+  keys: they are the names the generated shapes and the wire body already use, and a profile
+  field called `password` would collide with the one the credential form already has.
+- **`salt` is present exactly when `hashing` is `"client"`.** A server hashing its own passwords
+  has no salt to hand out — a salt route on that table is a route nothing would ever call — and
+  a client told to prehash with no salt route has nowhere to fetch one from.
+- **`sign_in` is the one role every table carries.** Every other role is optional: an
+  application may run with no self-service reset, no email verification, no in-app credential
+  change — but not with no way in.
+- **`code_digits` is a length, never a code.** Nothing here generates or checks a code; it is
+  the number of blanks a verification screen renders before an answer arrives.
+- **Every bound here is the identical unit §8's field bounds are: code points, never
+  `String.length`** (`CLAUDE.md` §8). A limit that disagreed with the server's would be a form
+  that accepts what the server then refuses.
+
+---
+
+## 23. The account flows' client
+
+anvil ships registration, verification, sign-in, reset, change and sign-out as built-in flows
+(anvil `docs/05-auth-sessions.md` §13), and §22's `kAccounts` publishes their schema and routes.
+`hammer/accounts` is their client. An application writes none of the flow:
+
+```ts sketch: the whole of the wiring
+const accounts = new Accounts({
+    table: kAccounts,                           // generated
+    call: accountCall(api),                     // the application's client
+    prehash: { pool, bounds },                  // client hashing, anvil's default
+});
+
+await accounts.signIn({ identifier, password }, signal);
+const fields = accountFields(kAccounts, "register");   // the screen's fields
+await accounts.submit("register", form.body(), signal);
+```
+
+| What the application supplies | Why hammer cannot |
+|---|---|
+| **The client** | its origin, its queue and its breaker are configured by the application (§16) |
+| **The Argon2 pool and its bounds** — when `kAccounts.hashing` is `"client"`, the default | a worker is a bundler contract, and what a phone of this audience can afford is a product decision (§21) |
+| **The screens, their labels and their look** | words and classes are the application's (`CLAUDE.md` §9); the fields are not |
+
+What is fixed, because getting it wrong fails silently:
+
+- **Which salt each credential is derived under.** A sign-in and the current password of a change
+  derive under the account's stored salt; a registration, a reset and a new password under the
+  enrolment salt, for exactly the identifier anvil derives it from — the contact for a
+  registration, the named identifier otherwise. A new password derived under the stored salt is a
+  credential the server never matches again.
+- **Which field carries the secret.** `password` under server hashing, `credential` under client
+  hashing, `current_*`/`new_*` for a change — chosen from the table, never by the application.
+- **The secret's bounds**, in code points after NFC and in UTF-8 bytes, as the table publishes
+  them. Under client hashing this is the only place they can be applied: the server receives a
+  credential, not the password.
+
+Notes that are not obvious:
+
+- **`accountFields(table, flow)` derives each screen's fields from the table**, keyed as `submit`
+  reads them and bounded as the server bounds them, with each field's platform purpose set — so a
+  registration form asks for exactly what the schema declares, and a password manager recognises
+  every screen.
+- **A flow the table has no route for throws** rather than failing: a screen offering it is a
+  programming error, not a network one.
+- **`AccountError`** (exported from `hammer`) is a refusal made before anything was sent — a
+  secret outside the published bounds. Like `PrehashError`, it is not a member of `HammerError`.
+

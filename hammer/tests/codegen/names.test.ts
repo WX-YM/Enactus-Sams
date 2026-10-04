@@ -8,7 +8,7 @@
 // derives its expectation the same way the code does would have agreed with the
 // bug, so every expectation below is written out.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import {
     isSpellable,

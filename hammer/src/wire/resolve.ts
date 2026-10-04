@@ -37,7 +37,7 @@ import { isRoutePath } from "./session_view.js";
 // The shape a generated route `const` already has. Structural, so the generated
 // module needs no import from this layer and this layer needs no import from a
 // generated module — which is what keeps `hammer/wire` free of any application's
-// table (`ENGINEERING_RULES.md` §1).
+// table (`CLAUDE.md` §1).
 export type ResolvableRoute = {
     readonly id: string;
     readonly visibility: "public" | "holder";
@@ -46,7 +46,7 @@ export type ResolvableRoute = {
 };
 
 // Injected rather than owned. The store that holds a session is the thing that
-// will dispose it (`ENGINEERING_RULES.md` §3.3), and a resolver with a store of its own is
+// will dispose it (`CLAUDE.md` §3.3), and a resolver with a store of its own is
 // a second opinion about who is signed in.
 export type SessionSource = {
     // What this tab holds now, or null before the first fetch and after a

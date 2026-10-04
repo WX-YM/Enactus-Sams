@@ -4,7 +4,7 @@
 // stops the build until somebody answers it, and a test that only ran would
 // never see that.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "../support/test.js";
 
 import type { ClassNames, Copy, Invalidations } from "hammer";
 

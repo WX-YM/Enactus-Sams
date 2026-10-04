@@ -211,7 +211,7 @@ first row with no `uniq` would lock out every other one.
 ### The transaction is skipped when there is nothing to bind
 
 A submission with no attachment is **one document and one write**, which the server already
-applies atomically — the first of the two options ENGINEERING_RULES.md §6 allows, and there is no second
+applies atomically — the first of the two options CLAUDE.md §6 allows, and there is no second
 document for a transaction to bind it to. This is the common case rather than an optimisation
 for a rare one: an anonymous submitter cannot upload anything, so every submission to a public
 form takes it. The transaction it skips costs a session, a commit round trip and a
@@ -307,7 +307,7 @@ Four properties answer that, and each is a decision rather than an implementatio
 where the sealing key belongs, and deriving both from one master would mean a compromise of
 either purpose is a compromise of both. The index key must be online for every write; the
 sealing key need only be online for an unseal. The equality check is `CRYPTO_memcmp` even
-though neither value is attacker-supplied — ENGINEERING_RULES.md §5 admits no exception for "this one
+though neither value is attacker-supplied — CLAUDE.md §5 admits no exception for "this one
 cannot leak", because the next reader cannot tell which comparisons were exempt and why.
 
 ### The AAD binds an envelope to one form and one field
