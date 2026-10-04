@@ -1,0 +1,36 @@
+# /etc/systemd/system/enactus.service
+#
+# The backend as a sandboxed service. Configuration (including every secret)
+# comes from /etc/enactus/env, mode 0600, owned by root — see README.
+[Unit]
+Description=Enactus SAMS backend
+After=network-online.target mongod.service redis-server.service
+Wants=network-online.target
+
+[Service]
+User=enactus
+Group=enactus
+EnvironmentFile=/etc/enactus/env
+ExecStart=/opt/enactus/bin/enactus_backend
+Restart=on-failure
+RestartSec=2
+# Files the backend writes are group-readable (0640) so nginx, in the
+# enactus group, can serve them through X-Accel-Redirect.
+UMask=0027
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# STORAGE_ROOT is the only directory the service may write.
+ReadWritePaths=/var/lib/enactus/storage
+
+[Install]
+WantedBy=multi-user.target
