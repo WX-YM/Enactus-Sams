@@ -134,10 +134,6 @@
 </script>
 
 <script src="./support.js"></script>
-<script>
-  // Track page visit dynamically via Anvil backend
-  fetch('/api/track_visit', { method: 'POST' }).catch(e => console.error(e));
-</script>
 </head>
 <body>
 <x-dc>
@@ -671,6 +667,67 @@ function safeUrl(value, fallback) {
   return '/' + u;
 }
 
+// The backend serves the site as anvil sections (GET /api/site). This page's
+// template predates them and names its values in camelCase, so the sections
+// are mapped back onto those names here — one table, kept beside the template
+// it serves (src/config/sections.h has the field list).
+const SECTION_KEYS = {
+  'home.about': { heading: 'aboutHeading', kicker: 'aboutKicker', p1: 'aboutP1', p2: 'aboutP2', tags: 'aboutTags' },
+  'home.footer': { facebook: 'footerSocialFb', instagram: 'footerSocialInsta', linkedin: 'footerSocialLinkedin', note: 'footerNote', tiktok: 'footerSocialTiktok' },
+  'home.hero': {
+    campus: 'heroCampus', chapter: 'heroChapter', cta1: 'heroCta1', cta2: 'heroCta2',
+    headline1: 'heroHeadline1', headline2: 'heroHeadline2', headline3: 'heroHeadline3',
+    stat1_label: 'heroStat1Label', stat1_num: 'heroStat1Num', stat2_label: 'heroStat2Label', stat2_num: 'heroStat2Num',
+    stat3_label: 'heroStat3Label', stat3_num: 'heroStat3Num', subtitle: 'heroSubtitle', tagline: 'heroTagline'
+  },
+  'home.inside': { desc: 'insideDesc', kicker: 'insideKicker', title: 'insideTitle' },
+  'home.join': {
+    closed_desc: 'closedBannerDesc', closed_title: 'closedBannerTitle', cta_closed: 'joinCtaClosed', cta_open: 'joinCtaOpen',
+    desc: 'joinDesc', kicker_closed: 'joinKickerClosed', kicker_open: 'joinKickerOpen', note_closed: 'joinNoteClosed',
+    note_open: 'joinNoteOpen', title: 'joinTitle'
+  },
+  'home.life': { kicker: 'lifeKicker', subtitle: 'lifeSubtitle', title: 'lifeTitle' },
+  'home.tafrah': {
+    desc: 'tafrahDesc', footer: 'tafrahFooter', h1_desc: 'tafrahH1Desc', h1_title: 'tafrahH1Title', h2_desc: 'tafrahH2Desc',
+    h2_title: 'tafrahH2Title', h3_desc: 'tafrahH3Desc', h3_title: 'tafrahH3Title', h4_desc: 'tafrahH4Desc', h4_title: 'tafrahH4Title',
+    kicker: 'tafrahKicker', tagline: 'tafrahTagline', title: 'tafrahTitle'
+  }
+};
+
+// Images are served per role: thumb 320, card 640, hero 1024, full 1600 wide.
+function mediaUrl(image, role) {
+  return image && typeof image.src === 'string' ? safeUrl(image.src + '/' + role, '') : '';
+}
+
+function siteToContent(site) {
+  const content = {};
+  const sections = (site && site.sections) || {};
+  Object.keys(SECTION_KEYS).forEach((key) => {
+    const data = (sections[key] && sections[key].data) || {};
+    const names = SECTION_KEYS[key];
+    Object.keys(names).forEach((field) => {
+      if (typeof data[field] === 'string' && data[field] !== '') content[names[field]] = data[field];
+    });
+  });
+  const footer = (sections['home.footer'] && sections['home.footer'].data) || {};
+  const address = [footer.address_line1, footer.address_line2].filter((l) => typeof l === 'string' && l !== '');
+  if (address.length) content.footerAbout = address.join('\n');
+  content.recruitmentOpen = site.open === true;
+  const tafrah = sections['home.tafrah'] || {};
+  if (tafrah.data && tafrah.data.visible === false) content.tafrahHidden = true;
+  const site_image = tafrah.images && tafrah.images.site;
+  if (site_image) content.tafrahSiteImage = mediaUrl(site_image, 'hero');
+  const photos = (list) => (list || []).filter((p) => p.image).map((p) => ({ url: mediaUrl(p.image, 'card'), alt: p.caption || '' }));
+  const gallery = site.gallery || {};
+  content.aboutImages = photos(gallery.about);
+  content.mediaGallery = photos(gallery.life);
+  content.tafrahImages = photos(gallery.tafrah);
+  const teams = site.teams || [];
+  content.insideTeams = teams.filter((t) => t.showcase).map((t) => ({ name: t.name, desc: t.desc }));
+  content.recruitmentTeams = teams.filter((t) => t.recruiting).map((t) => t.name);
+  return content;
+}
+
 function showBrutalistAlert({ kicker = 'ATTENTION REQUIRED', title = 'NOTICE', message = '', buttonText = 'UNDERSTOOD', type = 'warning' } = {}) {
   const existing = document.getElementById('brutalist-alert-modal');
   if (existing) existing.remove();
@@ -754,9 +811,10 @@ class Component extends DCLogic {
     this._mq.addEventListener('change', this._onMq);
     if (this._mq.matches !== this.state.mobile) this.setState({ mobile: this._mq.matches });
 
-    fetch('/api/content')
-      .then(res => res.json())
-      .then(data => {
+    fetch('/api/site')
+      .then(res => (res.ok ? res.json() : null))
+      .then(site => {
+        const data = site ? { content: siteToContent(site) } : null;
         if (data && data.content) {
           this.setState({ content: data.content });
           const normalizeUrl = (u) => safeUrl(u, '');
@@ -849,7 +907,8 @@ class Component extends DCLogic {
       })
       .catch(console.error);
 
-    fetch('/api/track_visit', { method: 'POST' }).catch(() => {});
+    // One page view; the server derives everything it records.
+    fetch('/api/visits', { method: 'POST' }).catch(() => {});
 
     function getTeamSvg(name, idx) {
       const n = (name || '').toLowerCase();
@@ -927,19 +986,8 @@ class Component extends DCLogic {
       hasLoadedRecruitmentTeams = true;
     };
 
-    fetch('/api/teams')
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.teams && data.teams.length > 0) {
-          if (!hasLoadedInsideTeams) {
-            renderInsideTeams(data.teams);
-          }
-          if (!hasLoadedRecruitmentTeams) {
-            renderTeamSelector(data.teams);
-          }
-        }
-      })
-      .catch(console.error);
+    // Teams arrive with the site payload above, already split by where each
+    // one is shown.
   }
   componentWillUnmount() {
     window.removeEventListener('keydown', this._key);
@@ -1024,17 +1072,32 @@ class Component extends DCLogic {
         fetch('/api/applications', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            name: fname + ' ' + lname, 
-            email, phone, 
-            team: this.state.picked, 
-            reason 
-          }) 
-        }).then(res => res.json()).then(data => {
-          this.setState({ submitting: false, submitted: true });
-          if (sideBtn) sideBtn.style.display = 'none';
+          body: JSON.stringify({
+            first_name: fname,
+            last_name: lname,
+            email, phone,
+            team: this.state.picked,
+            reason
+          })
+        }).then(async res => {
+          if (res.ok) {
+            this.setState({ submitting: false, submitted: true });
+            if (sideBtn) sideBtn.style.display = 'none';
+            return;
+          }
+          const body = await res.json().catch(() => null);
+          const code = body && body.error && body.error.code;
+          const fields = (body && body.error && body.error.fields) || {};
+          const err = new Error(code || 'FAILED');
+          err.message = fields.phone ? 'Please enter an Egyptian mobile number, for example 010 1234 5678.'
+            : fields.email ? 'Please check your email address.'
+            : (fields.first_name || fields.last_name) ? 'Please check your name.'
+            : fields.team ? 'That team is not taking applications right now. Please pick another.'
+            : code === 'CONFLICT' ? 'Applications are closed right now.'
+            : code === 'RATE_LIMITED' ? 'Too many attempts. Please wait a few minutes and try again.'
+            : 'Failed to submit your application. Please check your connection and try again.';
+          throw err;
         }).catch(err => {
-          console.error(err);
           this.setState({ submitting: false });
           const defText = openRecruit ? (content.joinCtaOpen || 'Apply now') : (content.joinCtaClosed || 'Join the waitlist');
           if (sideBtn) {
@@ -1044,9 +1107,9 @@ class Component extends DCLogic {
           }
           showBrutalistAlert({
             type: 'danger',
-            kicker: 'SYSTEM ERROR',
+            kicker: 'NOT SENT',
             title: 'SUBMISSION FAILED',
-            message: 'Failed to submit your application. Please check your connection and try again.',
+            message: (err && err.message && err.message !== 'Failed to fetch') ? err.message : 'Failed to submit your application. Please check your connection and try again.',
             buttonText: 'CLOSE'
           });
         });
@@ -1099,6 +1162,7 @@ class Component extends DCLogic {
       // Join
       joinKicker: openRecruit ? (content.joinKickerOpen || 'Recruitment is open') : (content.joinKickerClosed || 'Recruitment'),
       joinTitle: content.joinTitle || 'Join the next season.',
+      joinDesc: content.joinDesc || 'Pick the team you want to start in, tell us why, and come to the interview. No experience required — only the willingness to do the work.',
       joinCta: openRecruit ? (content.joinCtaOpen || 'Apply now') : (content.joinCtaClosed || 'Join the waitlist'),
       joinCtaText: this.state.submitting ? 'Submitting...' : (openRecruit ? (content.joinCtaOpen || 'Apply now') : (content.joinCtaClosed || 'Join the waitlist')),
       joinNote: openRecruit

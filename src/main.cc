@@ -33,9 +33,10 @@ namespace {
 namespace ac = anvil::accesscontrol;
 
 // The browser-facing headers. The public site's runtime compiles its inline
-// component script with `new Function` and loads React/Babel from unpkg under
-// SRI, so its policy has to allow inline/eval; the admin panel is a built bundle
-// and gets a strict script policy. API answers are data and are never framed.
+// component script with `new Function`, using React and Babel served from
+// /vendor (same origin, pinned by SRI), so its policy has to allow inline and
+// eval; the admin panel is a built bundle and gets a strict script policy. API
+// answers are data and are never framed.
 void install_security_headers() {
     drogon::app().registerPreSendingAdvice([](const drogon::HttpRequestPtr& req,
                                               const drogon::HttpResponsePtr& resp) {
@@ -47,7 +48,7 @@ void install_security_headers() {
             "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
             "frame-ancestors 'none'";
         static const std::string kPublicCsp =
-            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com; "
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; "
             "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "

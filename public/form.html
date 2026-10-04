@@ -279,58 +279,70 @@
   </div>
 
   <script>
-    let formSchema = null;
+    // The form is an anvil form (the admin's Form Maker): ?form=<id> names one,
+    // and with no id the newest open form is used. Answers are keyed by each
+    // field's id and validated server-side against the same definition.
+    let formDef = null;
+
+    const FIELD_INPUTS = {
+      TEXT_SHORT: { tag: 'input', type: 'text' },
+      TEXT_LONG: { tag: 'textarea' },
+      EMAIL: { tag: 'input', type: 'email' },
+      PHONE: { tag: 'input', type: 'tel' },
+      SELECT_SINGLE: { tag: 'select' },
+    };
+
+    function showUnavailable(message) {
+      document.getElementById('loading-state').innerText = message;
+    }
 
     async function initForm() {
       try {
-        const res = await fetch('/api/form_schema');
-        const data = await res.json();
-        
-        if (data && data.schema && data.schema.fields && data.schema.fields.length > 0) {
-          formSchema = data.schema;
-          renderForm(data.schema);
-        } else {
-          // Fallback schema
-          formSchema = {
-            title: 'Recruitment Application Form',
-            description: 'Pick the team you want to start in, tell us why, and join the next season at Enactus SAMS Maadi.',
-            fields: [
-              { id: 'fname', label: 'First Name', type: 'text', placeholder: 'First Name', required: true },
-              { id: 'lname', label: 'Last Name', type: 'text', placeholder: 'Last Name', required: true },
-              { id: 'email', label: 'Email Address', type: 'email', placeholder: 'name@example.com', required: true },
-              { id: 'phone', label: 'Phone Number', type: 'tel', placeholder: '+20 1xx xxx xxxx', required: true },
-              { id: 'team', label: 'Preferred Team', type: 'select', placeholder: 'Select Team', required: true, options: 'Presentation, Project Management, HR, External Affairs, Social Media, Media Production' },
-              { id: 'reason', label: 'Why do you want to join?', type: 'textarea', placeholder: 'Tell us about your motivation and expectations...', required: true }
-            ]
-          };
-          renderForm(formSchema);
+        let id = new URLSearchParams(window.location.search).get('form');
+        if (!id) {
+          const site = await fetch('/api/site').then(r => (r.ok ? r.json() : null));
+          const open = site && Array.isArray(site.forms) ? site.forms : [];
+          if (open.length === 0) {
+            showUnavailable('There is no open form right now. Applications to join a team are on the home page.');
+            return;
+          }
+          id = open[0].id;
         }
+        if (!/^[0-9a-f-]{36}$/i.test(id)) {
+          showUnavailable('That form link is not valid.');
+          return;
+        }
+        const res = await fetch('/api/forms/' + encodeURIComponent(id));
+        if (!res.ok) {
+          showUnavailable('This form is closed or no longer exists.');
+          return;
+        }
+        formDef = await res.json();
+        renderForm(formDef);
       } catch (err) {
-        console.error('Failed to fetch form schema:', err);
-        document.getElementById('loading-state').innerText = 'Failed to load form. Please try again later.';
+        showUnavailable('Failed to load the form. Please try again later.');
       }
     }
 
-    function renderForm(schema) {
+    function renderForm(form) {
       document.getElementById('loading-state').style.display = 'none';
       document.getElementById('form-container').style.display = 'block';
-
-      document.getElementById('form-title').innerText = schema.title || 'Application Form';
-      document.getElementById('form-desc').innerText = schema.description || '';
+      // Every string here was typed by a form builder: text, never markup.
+      document.getElementById('form-title').textContent = form.title || 'Form';
+      document.getElementById('form-desc').textContent = '';
 
       const container = document.getElementById('fields-container');
-      container.innerHTML = '';
+      container.replaceChildren();
 
-      schema.fields.forEach(f => {
+      form.fields.forEach(f => {
         const group = document.createElement('div');
         group.className = 'field-group';
 
         const label = document.createElement('label');
         label.className = 'field-label';
-        label.htmlFor = 'field-' + f.id;
-        // Labels come from the form builder; render them as text, never markup.
+        label.htmlFor = 'field-' + f.fid;
         label.textContent = f.label;
-        if (f.required) {
+        if (!f.optional) {
           const star = document.createElement('span');
           star.className = 'required';
           star.textContent = '*';
@@ -338,35 +350,31 @@
         }
         group.appendChild(label);
 
-        let inputEl;
-        if (f.type === 'textarea') {
-          inputEl = document.createElement('textarea');
+        const kind = FIELD_INPUTS[f.type] || FIELD_INPUTS.TEXT_SHORT;
+        const inputEl = document.createElement(kind.tag);
+        if (kind.tag === 'textarea') {
           inputEl.className = 'field-textarea';
           inputEl.rows = 4;
-        } else if (f.type === 'select') {
-          inputEl = document.createElement('select');
+        } else if (kind.tag === 'select') {
           inputEl.className = 'field-select';
-          const defOpt = document.createElement('option');
-          defOpt.value = '';
-          defOpt.innerText = f.placeholder || 'Select...';
-          inputEl.appendChild(defOpt);
-          const opts = (f.options || '').split(',').map(s => s.trim()).filter(Boolean);
-          opts.forEach(opt => {
+          const placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.textContent = 'Select…';
+          inputEl.appendChild(placeholder);
+          (f.options || []).forEach(opt => {
             const o = document.createElement('option');
-            o.value = opt;
-            o.innerText = opt;
+            o.value = opt.value;
+            o.textContent = opt.label;
             inputEl.appendChild(o);
           });
         } else {
-          inputEl = document.createElement('input');
           inputEl.className = 'field-input';
-          inputEl.type = f.type || 'text';
+          inputEl.type = kind.type;
         }
-
-        inputEl.id = 'field-' + f.id;
-        inputEl.name = f.label;
-        inputEl.placeholder = f.placeholder || '';
-        if (f.required) inputEl.required = true;
+        if (f.max_cp > 0 && kind.tag !== 'select') inputEl.maxLength = f.max_cp;
+        inputEl.id = 'field-' + f.fid;
+        inputEl.dir = 'auto';
+        if (!f.optional) inputEl.required = true;
 
         group.appendChild(inputEl);
         container.appendChild(group);
@@ -375,54 +383,45 @@
 
     document.getElementById('dynamic-form').addEventListener('submit', async function(e) {
       e.preventDefault();
+      if (!formDef) return;
       const submitBtn = document.getElementById('submit-btn');
+      const label = submitBtn.innerText;
       submitBtn.innerText = 'Submitting...';
       submitBtn.disabled = true;
 
-      const formData = {};
-      formSchema.fields.forEach(f => {
-        const el = document.getElementById('field-' + f.id);
-        if (el) {
-          formData[f.label] = el.value;
-        }
+      // An empty optional answer is sent as nothing at all.
+      const answers = {};
+      formDef.fields.forEach(f => {
+        const el = document.getElementById('field-' + f.fid);
+        const value = el ? el.value.trim() : '';
+        if (value !== '') answers[f.fid] = value;
       });
 
+      const fail = (message) => {
+        showBrutalistAlert({ type: 'danger', kicker: 'NOT SENT', title: 'COULD NOT SUBMIT', message, buttonText: 'TRY AGAIN' });
+        submitBtn.innerText = label;
+        submitBtn.disabled = false;
+      };
+
       try {
-        const res = await fetch('/api/form_submissions', {
+        const res = await fetch('/api/forms/' + encodeURIComponent(formDef.id) + '/responses', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            formTitle: formSchema.title,
-            data: formData
-          })
+          body: JSON.stringify({ answers })
         });
-
-        const result = await res.json();
-        if (result && result.status === 'ok') {
+        if (res.ok) {
           document.getElementById('form-container').style.display = 'none';
           document.getElementById('success-container').style.display = 'block';
-        } else {
-          showBrutalistAlert({
-            type: 'danger',
-            kicker: 'SUBMISSION FAILED',
-            title: 'COULD NOT SUBMIT',
-            message: (result && result.message) || 'Submission failed. Please check your answers and try again.',
-            buttonText: 'TRY AGAIN'
-          });
-          submitBtn.innerText = 'Submit Application';
-          submitBtn.disabled = false;
+          return;
         }
+        const body = await res.json().catch(() => null);
+        const code = body && body.error && body.error.code;
+        fail(code === 'VALIDATION_FAILED' ? 'Some answers were not accepted. Please check required fields and email or phone formats.'
+          : code === 'RATE_LIMITED' ? 'Too many submissions from your connection. Please wait a few minutes.'
+          : code === 'CONFLICT' || code === 'NOT_FOUND' ? 'This form is no longer accepting responses.'
+          : 'Submission failed. Please try again.');
       } catch (err) {
-        console.error('Error submitting form:', err);
-        showBrutalistAlert({
-          type: 'danger',
-          kicker: 'NETWORK ERROR',
-          title: 'SUBMISSION FAILED',
-          message: 'Network error occurred while submitting. Please check your internet connection and try again.',
-          buttonText: 'CLOSE'
-        });
-        submitBtn.innerText = 'Submit Application';
-        submitBtn.disabled = false;
+        fail('Network error occurred while submitting. Please check your internet connection and try again.');
       }
     });
 
