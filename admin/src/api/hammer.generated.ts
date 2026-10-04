@@ -5,7 +5,7 @@
 //     hammer codegen --descriptor <descriptor.json> --out <dir>
 //
 // Descriptor format: 4
-// Tables: sha256 f8ded797049128c3ffe4cedf4250939e91fc140be4a5ef75f697e691c5f38b7d
+// Tables: sha256 da4e42af51cb5704742e03a8036501fbfc863f82299f04eb2df9607b195c266b
 //
 // Nothing above `tables` in the descriptor reaches this file, and the
 // omission is the reason the hash covers `tables` and nothing else: an
@@ -26,7 +26,7 @@ export const kDescriptorFormat = 4;
 // stale bundle, and it is surfaced rather than acted on: an automatic reload
 // discards whatever the user had typed, on the deploy most likely to be
 // happening during working hours (docs/00-architecture.md §7.1).
-export const kTablesHash = "f8ded797049128c3ffe4cedf4250939e91fc140be4a5ef75f697e691c5f38b7d";
+export const kTablesHash = "da4e42af51cb5704742e03a8036501fbfc863f82299f04eb2df9607b195c266b";
 
 // --- error codes ------------------------------------------------------------
 
@@ -339,6 +339,7 @@ export type RouteId =
     | "members.update"
     | "members.remove"
     | "teams.reorder"
+    | "teams.leads"
     | "sections.list"
     | "sections.publish"
     | "gallery.list"
@@ -392,6 +393,7 @@ export type HolderRouteId =
     | "members.update"
     | "members.remove"
     | "teams.reorder"
+    | "teams.leads"
     | "sections.list"
     | "sections.publish"
     | "gallery.list"
@@ -442,6 +444,7 @@ export type RouteParams = {
     readonly "members.update": { readonly id: string; readonly member: string };
     readonly "members.remove": { readonly id: string; readonly member: string };
     readonly "teams.reorder": Record<string, never>;
+    readonly "teams.leads": Record<string, never>;
     readonly "sections.list": Record<string, never>;
     readonly "sections.publish": { readonly key: string };
     readonly "gallery.list": { readonly kind: string };
@@ -491,6 +494,7 @@ export type RouteCapability = {
     readonly "members.update": null;
     readonly "members.remove": null;
     readonly "teams.reorder": null;
+    readonly "teams.leads": null;
     readonly "sections.list": null;
     readonly "sections.publish": null;
     readonly "gallery.list": null;
@@ -895,6 +899,19 @@ export const routeTeamsReorder = {
     page: null,
 } as const;
 
+export const routeTeamsLeads = {
+    id: "teams.leads",
+    access: "guarded",
+    visibility: "holder",
+    method: null,
+    path: null,
+    perms: [kPermTeams],
+    capability: null,
+    rateLimit: null,
+    idempotent: true,
+    page: null,
+} as const;
+
 export const routeSectionsList = {
     id: "sections.list",
     access: "guarded",
@@ -992,7 +1009,7 @@ export const routeFormsList = {
     visibility: "holder",
     method: null,
     path: null,
-    perms: [kPermFormMaker],
+    perms: [kPermFormRead],
     capability: null,
     rateLimit: null,
     idempotent: true,

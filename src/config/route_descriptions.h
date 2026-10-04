@@ -50,6 +50,7 @@ inline constexpr std::array<d::RouteDescription, kRoutes.size()> kRouteDescripti
     {"members.remove", "/api/teams/{id}/members/{member}", "", "staff-write", "", 0, M::Delete,
      true},
     {"teams.reorder", "/api/team-order", "", "staff-write", "", 0, M::Put, true},
+    {"teams.leads", "/api/team-leads", "", "", "", 0, M::Get, true},
 
     {"sections.list", "/api/sections", "", "", "", 0, M::Get, true},
     {"sections.publish", "/api/sections/{key}", "", "staff-write", "", 0, M::Put, false},

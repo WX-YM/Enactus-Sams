@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { HashRouter as Router, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Users as UsersIcon, FileText, CheckSquare, Menu, X, Shield, LogOut, Image, PenTool, Inbox, ScrollText } from 'lucide-react';
+import { LayoutDashboard, Users as UsersIcon, FileText, CheckSquare, Menu, X, Shield, LogOut, Image, PenTool, Inbox } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Teams from './pages/Teams';
 import Content from './pages/Content';
@@ -10,16 +10,14 @@ import Gallery from './pages/Gallery';
 import FormMaker from './pages/FormMaker';
 import FormResponses from './pages/FormResponses';
 import Users from './pages/Users';
-import Audit from './pages/Audit';
 import Login from './pages/Login';
 import { ConfirmProvider } from './context/ConfirmContext';
 import type { Me } from './app/responses';
 import { SessionProvider, openSession, useSession } from './app/ui';
 import {
   routeApplicationsList,
-  routeAuditList,
   routeDashboardGet,
-  routeFormsList,
+  routeFormsCreate,
   routeGalleryList,
   routeResponsesList,
   routeSectionsList,
@@ -88,12 +86,11 @@ function Shell(): ReactNode {
     dashboard: affords(routeDashboardGet),
     applications: affords(routeApplicationsList),
     responses: affords(routeResponsesList),
-    forms: affords(routeFormsList),
+    forms: affords(routeFormsCreate),
     teams: affords(routeTeamsCreate),
     content: affords(routeSectionsList),
     gallery: affords(routeGalleryList),
     users: affords(routeStaffList),
-    audit: affords(routeAuditList),
   };
   const roleLabel = superadmin ? 'SUPER ADMIN' : me.role.toUpperCase();
   const firstPath = can.dashboard ? '/' : can.applications ? '/applications' : can.forms ? '/form-maker'
@@ -171,17 +168,12 @@ function Shell(): ReactNode {
                 </>
               )}
 
-              {(can.users || can.audit) && (
+              {can.users && (
                 <>
                   <div style={sectionLabel} className="font-mono">Administration</div>
                   {can.users && (
                     <NavLink to="/users" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                       <Shield size={18} /> Access Control
-                    </NavLink>
-                  )}
-                  {can.audit && (
-                    <NavLink to="/audit" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                      <ScrollText size={18} /> Audit Log
                     </NavLink>
                   )}
                 </>
@@ -223,7 +215,6 @@ function Shell(): ReactNode {
                 <Route path="/content" element={guard(can.content, <Content />)} />
                 <Route path="/gallery" element={guard(can.gallery, <Gallery />)} />
                 <Route path="/users" element={guard(can.users, <Users />)} />
-                <Route path="/audit" element={guard(can.audit, <Audit />)} />
                 <Route path="/none" element={<NoAccess />} />
                 <Route path="*" element={<Navigate to={firstPath} replace />} />
               </Routes>

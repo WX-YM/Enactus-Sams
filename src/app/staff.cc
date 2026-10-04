@@ -8,6 +8,8 @@
 
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/basic/kvp.hpp>
+#include <bsoncxx/builder/basic/array.hpp>
+#include <mongocxx/options/find.hpp>
 #include <mongocxx/options/update.hpp>
 
 #include "anvil/accesscontrol/decision.h"
@@ -273,6 +275,64 @@ void staff_list(const http::HttpRequestPtr& req, http::Responder&& respond) {
             if (listed.value().size() < 100) { break; }
             const auto& last = listed.value().back();
             after = anvil::identity::AccountCursor{last.id, last.user_type};
+        }
+        body += "]}";
+        respond(http::json(200, std::move(body)));
+    });
+}
+
+// Who leads each team: the active accounts whose role is manager or vice
+// manager, by the team their profile names. For the Manage Teams cards; the
+// public team list carries no staff addresses.
+void team_leads(const http::HttpRequestPtr& req, http::Responder&& respond) {
+    http::db_or_shed(req, respond, [req, respond](mongocxx::client& client) {
+        struct Lead final {
+            Uuid        id;
+            std::string role;
+            std::string team;
+        };
+        const auto leads = anvil::repo::guarded([&]() -> anvil::Result<std::vector<Lead>> {
+            mongocxx::options::find options{};
+            options.limit(400);
+            std::vector<Lead> out;
+            auto cursor = profiles(client).find(
+                make_document(kvp(codec::key_of(kRole),
+                                  make_document(kvp("$in", bsoncxx::builder::basic::make_array(
+                                                               "manager", "vice manager"))))),
+                options);
+            for (const bsoncxx::document::view row : cursor) {
+                const auto id = codec::read_uuid(row, "_id");
+                const auto role = codec::read_text(row, kRole);
+                const auto team = codec::read_text(row, kTeam);
+                if (!id || !role || !team || team.value().empty()) { continue; }
+                out.push_back(Lead{id.value(), std::string{role.value()}, std::string{team.value()}});
+            }
+            return out;
+        });
+        if (!leads) {
+            respond(http::failure(req, leads.error()));
+            return;
+        }
+        std::string body{R"({"leads":[)"};
+        bool first = true;
+        for (const Lead& lead : leads.value()) {
+            const auto account = services().accounts_repo.find_account(client, lead.id);
+            if (!account) {
+                respond(http::failure(req, account.error()));
+                return;
+            }
+            if (!account.value().has_value() || account.value()->status != UserStatus::Active) {
+                continue;
+            }
+            if (!first) { body += ','; }
+            first = false;
+            body += '{';
+            http::append_key(body, "id");
+            anvil::http::append_json_uuid(body, lead.id);
+            http::append_string_field(body, "email", account.value()->email);
+            http::append_string_field(body, "role", lead.role);
+            http::append_string_field(body, "team", lead.team);
+            body += '}';
         }
         body += "]}";
         respond(http::json(200, std::move(body)));

@@ -41,6 +41,8 @@ export type Team = {
     readonly showcase: boolean;
 };
 
+export type TeamLead = { readonly id: string; readonly email: string; readonly role: string; readonly team: string };
+
 export type Member = { readonly id: string; readonly name: string; readonly role: string; readonly version: number };
 
 export type SectionValue = string | number | boolean;
@@ -142,6 +144,7 @@ declare module "../api/hammer.generated" {
         "applications.update": { readonly version: number };
         "teams.list": { readonly teams: readonly Team[] };
         "teams.create": { readonly id: string };
+        "teams.leads": { readonly leads: readonly TeamLead[] };
         "members.list": { readonly members: readonly Member[] };
         "members.add": { readonly id: string };
         "sections.list": { readonly sections: readonly StoredSection[] };

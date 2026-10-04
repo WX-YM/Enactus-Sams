@@ -183,6 +183,21 @@ if code == 200 and listing["responses"]:
     code, _ = hr.req("DELETE", "/api/forms/%s/responses/%s" % (fid, listing["responses"][0]["id"]), {})
     check(code == 403, "applications reviewer cannot delete a response (%s)" % code)
 
+# The form list is readable with form-response access, so reviewers can pick a form.
+code, forms = hr.req("GET", "/api/forms", origin=False)
+check(code == 200 and any(f["id"] == fid for f in forms["forms"]), "applications reviewer lists forms (%s)" % code)
+code, _ = hr.req("POST", "/api/forms", {"title": "x", "status": "draft", "closes_at": None, "max_submissions": 0, "fields": []})
+check(code == 403, "applications reviewer cannot create a form (%s)" % code)
+
+# Team leads (manager emails) are behind the Teams permission, never public.
+code, _ = anon.req("GET", "/api/team-leads", origin=False)
+check(code == 401, "team leads need a session (%s)" % code)
+code, leads = hr.req("GET", "/api/team-leads", origin=False)
+check(code == 200 and any(l["email"] == "hr.lead@enactussams.org" and l["team"] == "Human Resources" and l["role"] == "manager" for l in leads["leads"]),
+      "team leads list the HR manager (%s)" % code)
+code, public_teams = anon.req("GET", "/api/teams", origin=False)
+check(code == 200 and "@" not in json.dumps(public_teams), "public team list carries no staff addresses")
+
 code, _ = admin.req("POST", "/api/auth/logout", {})
 code2, _ = admin.req("GET", "/api/me", origin=False)
 check(code2 == 401, "after logout the session is gone (%s/%s)" % (code, code2))

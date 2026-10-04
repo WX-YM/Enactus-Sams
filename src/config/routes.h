@@ -22,7 +22,7 @@ namespace ac = anvil::accesscontrol;
 
 [[nodiscard]] constexpr anvil::PermSet need(Perm bit) noexcept { return anvil::perm_mask(bit); }
 
-inline constexpr std::array<ac::RoutePolicy, 45> kRoutes{{
+inline constexpr std::array<ac::RoutePolicy, 46> kRoutes{{
     // --- account flows (anvil/accounts) --------------------------------------
     {anvil::PermSet{}, "/api/auth/salt", ac::RouteAccess::Public, ac::RouteMethod::Post},
     {anvil::PermSet{}, "/api/auth/login", ac::RouteAccess::Public, ac::RouteMethod::Post},
@@ -68,6 +68,7 @@ inline constexpr std::array<ac::RoutePolicy, 45> kRoutes{{
     {need(Perm::Teams), "/api/teams/{id}/members/{member}", ac::RouteAccess::Guarded,
      ac::RouteMethod::Delete},
     {need(Perm::Teams), "/api/team-order", ac::RouteAccess::Guarded, ac::RouteMethod::Put},
+    {need(Perm::Teams), "/api/team-leads", ac::RouteAccess::Guarded, ac::RouteMethod::Get},
 
     // --- content CMS and gallery ---------------------------------------------
     {need(Perm::Content), "/api/sections", ac::RouteAccess::Guarded, ac::RouteMethod::Get},
@@ -83,7 +84,7 @@ inline constexpr std::array<ac::RoutePolicy, 45> kRoutes{{
     {need(Perm::MediaUpload), "/api/media", ac::RouteAccess::Guarded, ac::RouteMethod::Post},
 
     // --- form maker ----------------------------------------------------------
-    {need(Perm::FormMaker), "/api/forms", ac::RouteAccess::Guarded, ac::RouteMethod::Get},
+    {need(Perm::FormRead), "/api/forms", ac::RouteAccess::Guarded, ac::RouteMethod::Get},
     {need(Perm::FormMaker), "/api/forms", ac::RouteAccess::Guarded, ac::RouteMethod::Post},
     {need(Perm::FormMaker), "/api/forms/{id}", ac::RouteAccess::Guarded, ac::RouteMethod::Put},
     {need(Perm::FormMaker), "/api/forms/{id}", ac::RouteAccess::Guarded,

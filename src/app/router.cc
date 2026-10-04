@@ -98,6 +98,7 @@ void install_routes() {
     add("/api/teams/{id}/members/{member}", Patch, &routes::members_update);
     add("/api/teams/{id}/members/{member}", Delete, &routes::members_remove);
     add("/api/team-order", Put, &routes::teams_reorder);
+    add("/api/team-leads", Get, &routes::team_leads);
 
     add("/api/sections", Get, &routes::sections_list);
     add("/api/sections/{key}", Put, &routes::sections_publish);

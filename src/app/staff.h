@@ -54,6 +54,7 @@ namespace routes {
 void session(const http::HttpRequestPtr& req, http::Responder&& respond);
 void me(const http::HttpRequestPtr& req, http::Responder&& respond);
 void staff_list(const http::HttpRequestPtr& req, http::Responder&& respond);
+void team_leads(const http::HttpRequestPtr& req, http::Responder&& respond);
 void staff_create(const http::HttpRequestPtr& req, http::Responder&& respond);
 void staff_update(const http::HttpRequestPtr& req, http::Responder&& respond,
                   const std::string& id);
