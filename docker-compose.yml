@@ -1,11 +1,15 @@
 version: '3.8'
 
+# MongoDB and Redis run without authentication here, so their ports are
+# published on the loopback interface only. Never expose them on 0.0.0.0: an
+# unauthenticated database reachable from the internet gives away every user,
+# password hash and application.
 services:
   mongo:
     image: mongo:7.0
     command: ["--replSet", "rs0", "--bind_ip_all"]
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -19,7 +23,7 @@ services:
     image: redis:7.0
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
 

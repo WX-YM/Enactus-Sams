@@ -2,6 +2,12 @@
 // Kept in its own .cc so api.cc changes do not force a re-parse of the heavy stb headers.
 
 #define STB_IMAGE_IMPLEMENTATION
+// Uploads are untrusted input. Compile in only the two decoders the upload
+// endpoint accepts: most published stb_image CVEs live in the GIF, PSD, HDR,
+// PIC, PNM and TGA decoders, which this removes from the binary entirely.
+#define STBI_ONLY_JPEG
+#define STBI_ONLY_PNG
+#define STBI_MAX_DIMENSIONS 16384
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 

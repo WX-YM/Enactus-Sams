@@ -16,7 +16,7 @@ import { authFetch } from './api';
 const MAX_INACTIVITY_MS = 2 * 60 * 60 * 1000; // 2 hours of inactivity
 
 function App() {
-  const [role, setRole] = useState(localStorage.getItem('admin_role') || 'superadmin'); 
+  const [role, setRole] = useState(localStorage.getItem('admin_role') || ''); 
   const [email, setEmail] = useState(localStorage.getItem('admin_email') || '');
   const [team, setTeam] = useState(localStorage.getItem('admin_team') || '');
   const [permissions, setPermissions] = useState<string[]>(() => {
@@ -60,6 +60,13 @@ function App() {
   const closeMenu = () => setMenuOpen(false);
 
   const handleLogout = (msg?: string) => {
+    // End the session server-side too, so a copied token stops working.
+    // Plain fetch (not authFetch): an already-expired token answers 401 and
+    // must not trigger authFetch's reload.
+    const token = localStorage.getItem('admin_token');
+    if (token) {
+      fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+    }
     localStorage.removeItem('admin_auth');
     localStorage.removeItem('admin_token');
     localStorage.removeItem('admin_role');

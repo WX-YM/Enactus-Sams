@@ -28,7 +28,7 @@ export default function Login({
     .then(data => {
       setLoading(false);
       if (data.status === 'ok') {
-        const role = data.role || 'superadmin';
+        const role = data.role || '';
         const perms = data.permissions || [];
         const team = data.team || '';
         const now = Date.now();

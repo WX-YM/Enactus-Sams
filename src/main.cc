@@ -1,15 +1,31 @@
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include "anvil/db/mongo_pool.h"
 #include "anvil/core/thread_pools.h"
 #include <drogon/drogon.h>
+#include <bsoncxx/builder/basic/document.hpp>
+#include <mongocxx/client.hpp>
+#include <mongocxx/options/update.hpp>
+#include "security/jwt.h"
 
 int main() {
     const char* env_uri = std::getenv("MONGODB_URI");
     std::string uri = (env_uri && std::strlen(env_uri) > 0) ? env_uri : "mongodb://127.0.0.1:27017/?replicaSet=rs0";
 
     const char* env_port = std::getenv("PORT");
-    uint16_t port = (env_port && std::strlen(env_port) > 0) ? static_cast<uint16_t>(std::stoi(env_port)) : 8085;
+    uint16_t port = 8085;
+    if (env_port && std::strlen(env_port) > 0) {
+        char* end = nullptr;
+        long parsed = std::strtol(env_port, &end, 10);
+        if (*end != '\0' || parsed < 1 || parsed > 65535) {
+            std::cerr << "Fatal error: PORT must be a number between 1 and 65535" << std::endl;
+            return 1;
+        }
+        port = static_cast<uint16_t>(parsed);
+    }
 
     const char* env_bind = std::getenv("BIND_ADDR");
     std::string bind_addr = (env_bind && std::strlen(env_bind) > 0) ? env_bind : "0.0.0.0";
@@ -18,6 +34,9 @@ int main() {
     std::string docRoot = (env_docroot && std::strlen(env_docroot) > 0) ? env_docroot : "public";
 
     try {
+        // Refuse to boot without a strong signing key; see security/jwt.h.
+        enactus::security::initJwtSecret();
+
         anvil::db::MongoPool::init(uri, 16);
         
         anvil::Pools::init(anvil::PoolSizes{
@@ -38,15 +57,45 @@ int main() {
         extern void registerApiHandlers();
         registerApiHandlers();
 
-        drogon::app().registerPreSendingAdvice([](const drogon::HttpRequestPtr&, const drogon::HttpResponsePtr& resp) {
+        // Security headers on every response. The public site's runtime
+        // (support.js) compiles its inline component script with
+        // `new Function` and loads React/Babel from unpkg under SRI, so its
+        // policy has to allow inline/eval; the admin panel is a plain Vite
+        // bundle and gets a strict script policy. API responses are data and
+        // are never rendered or cached.
+        drogon::app().registerPreSendingAdvice([](const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp) {
+            static const std::string kApiCsp = "default-src 'none'; frame-ancestors 'none'";
+            static const std::string kAdminCsp =
+                "default-src 'self'; script-src 'self'; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; "
+                "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+                "frame-ancestors 'none'";
+            static const std::string kPublicCsp =
+                "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; "
+                "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+                "frame-ancestors 'self'";
+
+            const std::string& path = req->path();
+            if (path.starts_with("/api/")) {
+                resp->addHeader("Content-Security-Policy", kApiCsp);
+                resp->addHeader("Cache-Control", "no-store");
+            } else if ((path == "/admin" || path.starts_with("/admin/"))) {
+                resp->addHeader("Content-Security-Policy", kAdminCsp);
+            } else {
+                resp->addHeader("Content-Security-Policy", kPublicCsp);
+            }
             resp->addHeader("X-Frame-Options", "SAMEORIGIN");
             resp->addHeader("X-Content-Type-Options", "nosniff");
-            resp->addHeader("X-XSS-Protection", "1; mode=block");
             resp->addHeader("Referrer-Policy", "strict-origin-when-cross-origin");
             resp->addHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+            resp->addHeader("Cross-Origin-Opener-Policy", "same-origin");
+            // Browsers ignore HSTS over plain HTTP, so this is inert until the
+            // site is served over TLS, and then pins it there.
+            resp->addHeader("Strict-Transport-Security", "max-age=31536000");
         });
-        
-#include <filesystem>
 
         auto serveCompressedFile = [docRoot](const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& callback, const std::string& relPath) {
             std::string path = docRoot + "/" + relPath;
@@ -120,8 +169,10 @@ int main() {
             .enableBrotli(true)
             .setGzipStatic(true)
             .setBrStatic(true)
-            .setClientMaxBodySize(50 * 1024 * 1024)
-            .setClientMaxMemoryBodySize(50 * 1024 * 1024)
+            // 15 MB image uploads arrive base64-encoded (~20 MB).
+            .setClientMaxBodySize(21 * 1024 * 1024)
+            .setClientMaxMemoryBodySize(21 * 1024 * 1024)
+            .enableServerHeader(false)
             .run();
             
     } catch (const std::exception& e) {

@@ -841,7 +841,7 @@ export default function Content() {
               <input
                 type="file"
                 ref={aboutInputRef}
-                accept="image/*"
+                accept="image/jpeg,image/png"
                 style={{ display: 'none' }}
                 onChange={e => handleDeviceUpload(e, 'about')}
               />
@@ -1051,7 +1051,7 @@ export default function Content() {
               <input
                 type="file"
                 ref={tafrahSiteInputRef}
-                accept="image/*"
+                accept="image/jpeg,image/png"
                 style={{ display: 'none' }}
                 onChange={e => handleDeviceUpload(e, 'tafrahSite')}
               />
@@ -1085,7 +1085,7 @@ export default function Content() {
               <input
                 type="file"
                 ref={tafrahInputRef}
-                accept="image/*"
+                accept="image/jpeg,image/png"
                 style={{ display: 'none' }}
                 onChange={e => handleDeviceUpload(e, 'tafrah')}
               />
@@ -1419,7 +1419,7 @@ export default function Content() {
               <input
                 type="file"
                 ref={mediaInputRef}
-                accept="image/*"
+                accept="image/jpeg,image/png"
                 style={{ display: 'none' }}
                 onChange={e => handleDeviceUpload(e, 'media')}
               />

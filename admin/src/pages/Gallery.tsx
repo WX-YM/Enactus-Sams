@@ -149,7 +149,7 @@ export default function Gallery() {
             type="file"
             ref={fileInputRef}
             onChange={handleFileUpload}
-            accept="image/*"
+            accept="image/jpeg,image/png"
             style={{ display: 'none' }}
           />
 

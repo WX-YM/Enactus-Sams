@@ -165,6 +165,7 @@ find public/ -type f \( -name "*.html" -o -name "*.js" -o -name "*.css" -o -name
 
 ### 5. Run the Server
 ```bash
+export JWT_SECRET="$(openssl rand -base64 48)"   # store it securely; changing it signs everyone out
 ./build/asan/enactus_backend
 ```
 
@@ -177,6 +178,8 @@ The server reads configuration from environment variables (with sensible local d
 | `BIND_ADDR` | Network interface IP address to bind | `0.0.0.0` (or `127.0.0.1` behind reverse proxy) |
 | `DOC_ROOT` | Document root directory for static files | `public` |
 | `MONGODB_URI` | MongoDB connection URI with optional auth credentials | `mongodb://127.0.0.1:27017/application` |
+| `JWT_SECRET` | **Required.** Session-token signing key, at least 32 bytes. The server refuses to start without it. Generate one with `openssl rand -base64 48` and keep it out of the repository. | — |
+| `TRUST_PROXY` | Set to `1` only when the backend sits behind a reverse proxy you control that sets `X-Real-IP`/`X-Forwarded-For`, and the backend port is not reachable directly. Rate limits then key on the real client IP instead of the proxy's. | unset |
 
 The application will listen on the configured port:
 - Public Website: `http://localhost:8080/`
@@ -189,34 +192,44 @@ The application will listen on the configured port:
 | Method | Endpoint | Description | Auth Required |
 |---|---|---|---|
 | `POST` | `/api/auth/login` | Authenticate user and return session token & permissions | No |
-| `GET` | `/api/analytics` | Retrieve total website visits and metrics | Yes |
-| `POST` | `/api/track_visit` | Increment website visit counter | No |
-| `GET` | `/api/logs` | Fetch recent database system activity logs | Yes |
-| `GET` | `/api/users` | List active users and their assigned roles/teams | Yes |
-| `POST` | `/api/users` | Create or update user permissions, role, and team | Yes |
-| `DELETE` | `/api/users` | Revoke access / delete user account | Yes (Super Admin) |
-| `GET` | `/api/teams` | List active teams, descriptions, and member counts | No |
-| `POST` | `/api/teams` | Team management actions (`create`, `update`, `delete`, `update_roster`) | Yes |
+| `POST` | `/api/auth/logout` | Sign out (invalidates every session token issued to the account so far) | Signed in |
+| `GET` | `/api/auth/me` | Current account's role, team and permissions | Signed in |
+| `GET` | `/api/analytics` | Retrieve total website visits and metrics | `dashboard` |
+| `POST` | `/api/track_visit` | Increment website visit counter (rate limited per IP) | No |
+| `GET` | `/api/logs` | Fetch recent database system activity logs | `dashboard` |
+| `GET` | `/api/users` | List active users and their assigned roles/teams | `users` |
+| `POST` | `/api/users` | Create or update user permissions, role, and team | `users` |
+| `DELETE` | `/api/users` | Revoke access / delete user account | `users` |
+| `GET` | `/api/teams` | List teams (public: name/description/count; signed in: full roster) | No |
+| `POST` | `/api/teams` | Team management actions (`create`, `update`, `delete`, `update_roster`) | `teams` or `content` (`update_roster`: `teams`) |
 | `GET` | `/api/content` | Fetch live website content configuration | No |
-| `POST` | `/api/content` | Update website content across all sections | Yes |
-| `POST` | `/api/apply` | Submit a member recruitment application | No |
-| `GET` | `/api/applications_list` | List submitted applications (scoped by user role) | Yes |
-| `POST` | `/api/applications_update` | Update application status (accept/reject/refer/delete) | Yes |
-| `GET` | `/api/form_submissions` | List responses collected from custom published forms | No / Admin |
-| `POST` | `/api/form_submissions` | Submit form response or delete submission (`action: "delete"`) | No / Admin |
-| `DELETE` | `/api/form_submissions` | Permanently delete a form submission by ID | Admin |
-| `POST` | `/api/upload` | Upload media assets (auto-downscales > 1600px, JPEG quality 82) | Yes |
+| `POST` | `/api/content` | Update website content across all sections | `content` (`gallery` may update image fields only) |
+| `POST` | `/api/applications` | Submit a member recruitment application | No |
+| `GET` | `/api/applications_list` | List submitted applications (scoped by user role) | `applications` (`dashboard`: statistics only, no applicant details) |
+| `POST` | `/api/applications_update` | Update application status (accept/reject/refer; delete is super admin only) | `applications` |
+| `GET` | `/api/form_schema` | Fetch the published custom form | No |
+| `POST` | `/api/form_schema` | Publish the custom form | `form_maker` |
+| `GET` | `/api/form_submissions` | List responses collected from custom published forms | `applications` or `form_maker` |
+| `POST` | `/api/form_submissions` | Submit form response, or delete one (`action: "delete"`, needs `applications` or `form_maker`) | No |
+| `DELETE` | `/api/form_submissions` | Permanently delete a form submission by ID | `applications` or `form_maker` |
+| `POST` | `/api/upload` | Upload a JPEG or PNG image (≤ 15 MB; re-encoded to JPEG, downscaled > 1600px) | `content` or `gallery` |
+
+Super admins hold every permission. Managers and vice managers with an assigned team are additionally scoped to that team: they only see and act on its applications (including candidates referred to it), can only edit its details and roster, and cannot create or delete teams.
 
 ---
 
 ## 6. Security & Engineering Standards
 
-- **Role-Based Access Control (RBAC)**: All administrative endpoints validate user permissions against MongoDB and Redis session stores.
-- **Super Admin Protection**: The primary super admin account (`admin@enactussams.org`) is protected at the API layer against modification, permission demotion, or deletion.
-- **Input Validation**: All incoming requests are strictly checked and sanitized to prevent injection attacks and memory corruption.
+- **Server-side authorization**: Every administrative endpoint verifies the session token, re-loads the account from MongoDB (so role, team and permissions always reflect the database, and deleted or revoked accounts lose access immediately), and checks the permission listed in the API table above. The admin panel's menus are a convenience only; the API is the enforcement point.
+- **Privilege boundaries**: Only a super admin can assign the `superadmin` role or modify/remove a super admin account, and a user with `users` permission can only grant permissions they hold themselves. The primary super admin account (`admin@enactussams.org`) cannot be modified or deleted through the API.
+- **Sessions**: HMAC-SHA256 tokens valid for 12 hours, signed with the mandatory `JWT_SECRET`. Signing out, or a password change, invalidates every token issued to that account before that moment.
+- **Passwords**: Argon2id hashes only; legacy plaintext values are migrated at boot. Login is rate limited per IP and per account, and unknown accounts cost the same time as known ones so emails cannot be enumerated by timing.
+- **Input validation**: Request fields are type-checked and length-bounded; user input embedded in MongoDB regex lookups is escaped; client JSON stored as documents is checked for operator (`$`) and dotted keys before it reaches BSON.
+- **Uploads**: Only JPEG and PNG are accepted. Every upload is decoded, size-checked against decompression bombs, and re-encoded as a fresh JPEG under a server-chosen name. Only the JPEG and PNG decoders are compiled into the binary.
+- **Output encoding**: The public site escapes all CMS and team data before inserting it into the page and only allows `http(s)` or site-relative URLs in links and images.
+- **HTTP headers**: Content-Security-Policy (strict script policy on the admin panel), HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`; API responses are `Cache-Control: no-store`.
+- **Infrastructure**: `docker-compose.yml` publishes MongoDB and Redis on `127.0.0.1` only. Run them with authentication enabled in production and never expose them to the internet.
 - **Memory Safety**: Clean modern C++20 patterns throughout, using RAII, stack allocations where sizes are fixed, and AddressSanitizer (ASan) verification in development builds.
-
----
 
 ## 7. License
 

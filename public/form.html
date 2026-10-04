@@ -328,7 +328,14 @@
         const label = document.createElement('label');
         label.className = 'field-label';
         label.htmlFor = 'field-' + f.id;
-        label.innerHTML = f.label + (f.required ? ' <span class="required">*</span>' : '');
+        // Labels come from the form builder; render them as text, never markup.
+        label.textContent = f.label;
+        if (f.required) {
+          const star = document.createElement('span');
+          star.className = 'required';
+          star.textContent = '*';
+          label.append(' ', star);
+        }
         group.appendChild(label);
 
         let inputEl;
@@ -419,6 +426,15 @@
       }
     });
 
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function showBrutalistAlert({ kicker = 'ATTENTION REQUIRED', title = 'NOTICE', message = '', buttonText = 'UNDERSTOOD', type = 'warning' } = {}) {
       const existing = document.getElementById('brutalist-alert-modal');
       if (existing) existing.remove();
@@ -446,21 +462,21 @@
                   ? '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>' 
                   : '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>'}
               </svg>
-              ${kicker}
+              ${escapeHtml(kicker)}
             </span>
           </div>
 
           <h2 style="margin:0; font-family:Archivo,sans-serif; font-size:24px; font-weight:900; text-transform:uppercase; letter-spacing:-0.02em; line-height:1.15; color:#0E1013;">
-            ${title}
+            ${escapeHtml(title)}
           </h2>
 
           <p style="margin:0; font-family:Archivo,sans-serif; font-size:15px; line-height:1.55; color:rgba(14, 16, 19, 0.82); font-weight:500;">
-            ${message}
+            ${escapeHtml(message)}
           </p>
 
           <div style="display:flex; gap:12px; margin-top:8px;">
             <button id="brutalist-alert-ok" type="button" style="flex:1; padding:12px 20px; font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; background:#FFC629; color:#0E1013; border:2px solid #0E1013; box-shadow:4px 4px 0px #0E1013; cursor:pointer; text-align:center; transition:transform 0.1s ease;">
-              ${buttonText}
+              ${escapeHtml(buttonText)}
             </button>
           </div>
         </div>

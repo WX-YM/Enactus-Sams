@@ -648,6 +648,29 @@
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;recruitmentOpen&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Recruitment&quot;},&quot;joinNote&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Applications close at the end of the month&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Recruitment&quot;}}">
+// CMS and team data is editable from the admin panel and must never be able to
+// inject markup or script into the public site. Everything interpolated into an
+// HTML string below goes through escapeHtml; every URL goes through safeUrl.
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Allow site-relative paths and http(s) URLs only; anything else (javascript:,
+// data:, vbscript:, ...) collapses to the fallback.
+function safeUrl(value, fallback) {
+  const u = String(value == null ? '' : value).trim();
+  if (!u) return fallback;
+  if (/^\/(?![\/\\])/.test(u)) return u;
+  if (/^https?:\/\//i.test(u)) return u;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(u) || /^[\/\\]/.test(u)) return fallback;
+  return '/' + u;
+}
+
 function showBrutalistAlert({ kicker = 'ATTENTION REQUIRED', title = 'NOTICE', message = '', buttonText = 'UNDERSTOOD', type = 'warning' } = {}) {
   const existing = document.getElementById('brutalist-alert-modal');
   if (existing) existing.remove();
@@ -675,21 +698,21 @@ function showBrutalistAlert({ kicker = 'ATTENTION REQUIRED', title = 'NOTICE', m
               ? '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>' 
               : '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>'}
           </svg>
-          ${kicker}
+          ${escapeHtml(kicker)}
         </span>
       </div>
 
       <h2 style="margin:0; font-family:Archivo,sans-serif; font-size:24px; font-weight:900; text-transform:uppercase; letter-spacing:-0.02em; line-height:1.15; color:#0E1013;">
-        ${title}
+        ${escapeHtml(title)}
       </h2>
 
       <p style="margin:0; font-family:Archivo,sans-serif; font-size:15px; line-height:1.55; color:rgba(14, 16, 19, 0.82); font-weight:500;">
-        ${message}
+        ${escapeHtml(message)}
       </p>
 
       <div style="display:flex; gap:12px; margin-top:8px;">
         <button id="brutalist-alert-ok" type="button" style="flex:1; padding:12px 20px; font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; background:#FFC629; color:#0E1013; border:2px solid #0E1013; box-shadow:4px 4px 0px #0E1013; cursor:pointer; text-align:center; transition:transform 0.1s ease;">
-          ${buttonText}
+          ${escapeHtml(buttonText)}
         </button>
       </div>
     </div>
@@ -736,7 +759,7 @@ class Component extends DCLogic {
       .then(data => {
         if (data && data.content) {
           this.setState({ content: data.content });
-          const normalizeUrl = (u) => (u && (u.startsWith('/') || u.startsWith('http'))) ? u : ('/' + (u || ''));
+          const normalizeUrl = (u) => safeUrl(u, '');
           const grid = document.getElementById('gallery-grid');
           if (grid && data.content.mediaGallery && data.content.mediaGallery.length > 0) {
             const currentSrcs = Array.from(grid.querySelectorAll('img')).map(img => img.getAttribute('data-src')).join(',');
@@ -748,7 +771,7 @@ class Component extends DCLogic {
                   ? 'width:100%; height:100%; min-height:220px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in; background:#E8E5DF;' 
                   : 'width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in; background:#E8E5DF;';
                 const u = normalizeUrl(m.url);
-                return '<img loading="lazy" decoding="async" src="' + u + '" alt="Life at Enactus" data-src="' + u + '" style="' + style + '" />';
+                return '<img loading="lazy" decoding="async" src="' + escapeHtml(u) + '" alt="Life at Enactus" data-src="' + escapeHtml(u) + '" style="' + style + '" />';
               }).join('');
               grid.querySelectorAll('img').forEach(img => {
                 img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
@@ -763,7 +786,7 @@ class Component extends DCLogic {
             if (currentTafrah !== newTafrah) {
               const htmlStr = data.content.tafrahImages.map(m => {
                 const u = normalizeUrl(m.url);
-                return '<img loading="lazy" decoding="async" src="' + u + '" alt="Tafrah project" data-src="' + u + '" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in; background:#1E232B;" />';
+                return '<img loading="lazy" decoding="async" src="' + escapeHtml(u) + '" alt="Tafrah project" data-src="' + escapeHtml(u) + '" style="width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:4px; cursor:zoom-in; background:#1E232B;" />';
               }).join('');
               if (gd) {
                 gd.innerHTML = htmlStr;
@@ -791,7 +814,7 @@ class Component extends DCLogic {
                     ? 'width:100%; height:100%; min-height:200px; object-fit:cover; border-radius:4px; grid-column:span 2; cursor:zoom-in; background:#E8E5DF;' 
                     : 'width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:4px; cursor:zoom-in; background:#E8E5DF;';
                   const u = normalizeUrl(m.url);
-                  return '<img loading="lazy" decoding="async" src="' + u + '" alt="Enactus team photo" data-src="' + u + '" style="' + style + '" />';
+                  return '<img loading="lazy" decoding="async" src="' + escapeHtml(u) + '" alt="Enactus team photo" data-src="' + escapeHtml(u) + '" style="' + style + '" />';
                 }).join('');
                 aboutGrid.querySelectorAll('img').forEach(img => {
                   img.addEventListener('click', (e) => this.setState({ lightbox: e.currentTarget.getAttribute('data-src') }));
@@ -801,17 +824,18 @@ class Component extends DCLogic {
           }
           if (data.content.tafrahSiteImage) {
             const img = document.getElementById('tafrah-site-img');
-            if (img) {
-              img.src = data.content.tafrahSiteImage;
-              img.setAttribute('data-src', data.content.tafrahSiteImage);
+            const siteSrc = safeUrl(data.content.tafrahSiteImage, '');
+            if (img && siteSrc) {
+              img.src = siteSrc;
+              img.setAttribute('data-src', siteSrc);
             }
           }
           if (data.content.aboutTags) {
             const tagsCont = document.getElementById('about-tags-container');
             if (tagsCont) {
-              const tags = data.content.aboutTags.split(',').map(t => t.trim()).filter(Boolean);
+              const tags = String(data.content.aboutTags).split(',').map(t => t.trim()).filter(Boolean);
               if (tags.length > 0) {
-                tagsCont.innerHTML = tags.map(t => '<span style="padding:9px 15px; border:1px solid rgba(14,16,19,0.16); border-radius:999px; font-family:\'IBM Plex Mono\',monospace; font-size:12px; letter-spacing:0.08em">' + t + '</span>').join('');
+                tagsCont.innerHTML = tags.map(t => '<span style="padding:9px 15px; border:1px solid rgba(14,16,19,0.16); border-radius:999px; font-family:\'IBM Plex Mono\',monospace; font-size:12px; letter-spacing:0.08em">' + escapeHtml(t) + '</span>').join('');
               }
             }
           }
@@ -869,9 +893,9 @@ class Component extends DCLogic {
             getTeamSvg(t.name, idx) +
           '</div>' +
           '<div style="padding:clamp(18px,2vw,26px); display:flex; flex-direction:column; gap:10px">' +
-            '<span style="font-family:\'IBM Plex Mono\',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">' + num + ' / ' + t.name + '</span>' +
-            '<h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">' + t.name + '</h3>' +
-            '<p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">' + (t.desc || '') + '</p>' +
+            '<span style="font-family:\'IBM Plex Mono\',monospace; font-size:11px; letter-spacing:0.2em; color:#FFC629">' + num + ' / ' + escapeHtml(t.name) + '</span>' +
+            '<h3 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.02em">' + escapeHtml(t.name) + '</h3>' +
+            '<p style="margin:0; font-size:15px; line-height:1.6; color:rgba(247,245,240,0.72)">' + escapeHtml(t.desc || '') + '</p>' +
           '</div>' +
         '</article>';
       }).join('');
@@ -883,7 +907,7 @@ class Component extends DCLogic {
       if (!sel || !teamsList || teamsList.length === 0) return;
       sel.innerHTML = teamsList.map(item => {
         const name = typeof item === 'string' ? item : (item && item.name ? item.name : '');
-        return '<button type="button" class="team-btn" data-team="' + name + '" style="padding:10px 20px; border-radius:999px; border:1px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s">' + name + '</button>';
+        return '<button type="button" class="team-btn" data-team="' + escapeHtml(name) + '" style="padding:10px 20px; border-radius:999px; border:1px solid #0E1013; background:transparent; color:#0E1013; font-family:Archivo,sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s">' + escapeHtml(name) + '</button>';
       }).join('');
       sel.querySelectorAll('.team-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -1090,9 +1114,9 @@ class Component extends DCLogic {
 
       // Footer
       footerAbout: content.footerAbout || 'Sadat Academy for Management Sciences — Maadi\nCairo, Egypt',
-      footerSocialInsta: content.footerSocialInsta || '#top',
-      footerSocialFb: content.footerSocialFb || '#top',
-      footerSocialTiktok: content.footerSocialTiktok || content.footerSocialLinkedin || '#top',
+      footerSocialInsta: safeUrl(content.footerSocialInsta, '#top'),
+      footerSocialFb: safeUrl(content.footerSocialFb, '#top'),
+      footerSocialTiktok: safeUrl(content.footerSocialTiktok || content.footerSocialLinkedin, '#top'),
       footerNote: content.footerNote || 'Enactus SAMS Maadi is a student chapter of the global Enactus network.'
     };
   }
