@@ -51,6 +51,12 @@ import {
 // against is exactly what this number exists to stop it guessing at.
 export const kSupportedFormat = 3;
 
+// Format 4 is format 3 plus `tables.limits.chat` — anvil's chat bounds, `null`
+// for an application with no chat (anvil descriptor.h). This reader does not
+// read chat limits, so it accepts 4 only where that member is null: a non-null
+// one is a table a chat client would need and this reading would silently drop.
+export const kChatLimitsFormat = 4;
+
 // anvil stores 128 bits and never renumbers one.
 const kMaxPermissionBit = 127;
 
@@ -2387,7 +2393,14 @@ export function readDescriptor(
 
     const format = collector.integer(root, "descriptor", "descriptor");
     if (format !== null && format !== kSupportedFormat) {
-        collector.error("descriptor", "unsupported-format");
+        const tables = root["tables"];
+        const limits =
+            typeof tables === "object" && tables !== null ? (tables as Record<string, unknown>)["limits"] : undefined;
+        const chat =
+            typeof limits === "object" && limits !== null ? (limits as Record<string, unknown>)["chat"] : undefined;
+        if (format !== kChatLimitsFormat || (chat !== null && chat !== undefined)) {
+            collector.error("descriptor", "unsupported-format");
+        }
     }
 
     const emittedBy = collector.string(root, "emitted_by", "emitted_by");

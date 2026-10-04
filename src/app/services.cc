@@ -116,7 +116,7 @@ Services::Services(const Config& cfg)
       sections{database, kSectionsCollection, kSections, media,
                anvil::sections::SectionServiceConfig{
                    .content_origin = cfg.site_origin,
-                   .image_url_base = "/media/site/",
+                   .image_url_base = "/media/site",
                    .cache_prefix = "enactus:sec",
                    .image_namespace = site_namespace(),
                    .on_invalidated = {}}},
@@ -133,8 +133,11 @@ Services::Services(const Config& cfg)
       analytics{databases, kAnalyticsCollections},
       hourly_rollup{databases, kAnalyticsCollections, anvil::analytics::Granularity::Hour},
       daily_rollup{databases, kAnalyticsCollections, anvil::analytics::Granularity::Day},
+      // The claim's XREADGROUP block stays under the Redis socket timeout
+      // (main.cc, 1 s), or every idle claim would surface as a read timeout.
       jobs{anvil::timer::JobQueueConfig{.prefix = "enactus:" + cfg.mongo_database + ":jobs",
-                                        .consumer = "backend"}} {}
+                                        .consumer = "backend",
+                                        .block = std::chrono::milliseconds{750}}} {}
 
 Services::~Services() = default;
 

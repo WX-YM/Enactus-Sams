@@ -667,7 +667,7 @@ void responses_delete(const http::HttpRequestPtr& req, http::Responder&& respond
 }
 
 // CSV through anvil's exporter: formula-injection guard, BOM, definition column
-// order. Bounded in memory by kMaxExportBytes.
+// order, answered as {"filename","csv"}. Bounded in memory by kMaxExportBytes.
 void responses_export(const http::HttpRequestPtr& req, http::Responder&& respond, const std::string& id_text) {
     const std::optional<Uuid> id = http::uuid_param(id_text);
     if (!id.has_value()) {
@@ -702,14 +702,13 @@ void responses_export(const http::HttpRequestPtr& req, http::Responder&& respond
             return;
         }
         http::audit(req, Action::FormResponsesExported, target);
-        http::HttpResponsePtr response = drogon::HttpResponse::newHttpResponse();
-        response->setStatusCode(drogon::k200OK);
-        response->setContentTypeString("text/csv; charset=utf-8");
-        response->addHeader("Content-Disposition", "attachment; filename=\"responses.csv\"");
-        response->addHeader("Cache-Control", "private, no-store");
-        response->addHeader("X-Content-Type-Options", "nosniff");
-        response->setBody(std::move(csv));
-        respond(response);
+        // JSON around the CSV, so the admin client decodes it through the one
+        // envelope path every other answer takes and saves it as a file itself.
+        std::string out{"{"};
+        http::append_string_field(out, "filename", "responses.csv", false);
+        http::append_string_field(out, "csv", csv);
+        out += '}';
+        respond(http::json(200, std::move(out)));
     });
 }
 

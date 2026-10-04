@@ -1072,10 +1072,27 @@ describe("the image edit bounds", () => {
 describe("the file itself", () => {
     it("refuses a format this generator cannot read", () => {
         // A format this generator was not written against, in the direction it
-        // cannot recover from: 4 is whatever anvil adds next, and reading it
+        // cannot recover from: 5 is whatever anvil adds next, and reading it
         // for the tables it recognises is guessing at a shape nobody checked.
         const descriptor = clone();
+        descriptor["descriptor"] = 5;
+        expect(problems(descriptor)).toContainEqual({
+            key: "descriptor",
+            issue: "unsupported-format",
+        });
+    });
+
+    it("reads format 4 when its one addition, limits.chat, is null", () => {
+        const descriptor = clone();
         descriptor["descriptor"] = 4;
+        ((descriptor["tables"] as Mutable)["limits"] as Mutable)["chat"] = null;
+        expect(readDescriptor(descriptor).ok).toBe(true);
+    });
+
+    it("refuses format 4 carrying chat limits it does not read", () => {
+        const descriptor = clone();
+        descriptor["descriptor"] = 4;
+        ((descriptor["tables"] as Mutable)["limits"] as Mutable)["chat"] = { kinds: [] };
         expect(problems(descriptor)).toContainEqual({
             key: "descriptor",
             issue: "unsupported-format",

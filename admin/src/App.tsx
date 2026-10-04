@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { HashRouter as Router, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Users as UsersIcon, FileText, CheckSquare, Menu, X, Shield, LogOut, Image, PenTool, Inbox } from 'lucide-react';
+import { LayoutDashboard, Users as UsersIcon, FileText, CheckSquare, Menu, X, Shield, LogOut, Image, PenTool, Inbox, ScrollText } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Teams from './pages/Teams';
 import Content from './pages/Content';
@@ -9,330 +10,237 @@ import Gallery from './pages/Gallery';
 import FormMaker from './pages/FormMaker';
 import FormResponses from './pages/FormResponses';
 import Users from './pages/Users';
+import Audit from './pages/Audit';
 import Login from './pages/Login';
 import { ConfirmProvider } from './context/ConfirmContext';
-import { authFetch } from './api';
+import type { Me } from './app/responses';
+import { SessionProvider, openSession, useSession } from './app/ui';
+import {
+  routeApplicationsList,
+  routeAuditList,
+  routeDashboardGet,
+  routeFormsList,
+  routeGalleryList,
+  routeResponsesList,
+  routeSectionsList,
+  routeStaffList,
+  routeTeamsCreate,
+} from './api/hammer.generated';
 
-const MAX_INACTIVITY_MS = 2 * 60 * 60 * 1000; // 2 hours of inactivity
+type State =
+  | { readonly status: 'loading' }
+  | { readonly status: 'signed-out'; readonly message: string }
+  | { readonly status: 'signed-in'; readonly me: Me };
 
 function App() {
-  const [role, setRole] = useState(localStorage.getItem('admin_role') || ''); 
-  const [email, setEmail] = useState(localStorage.getItem('admin_email') || '');
-  const [team, setTeam] = useState(localStorage.getItem('admin_team') || '');
-  const [permissions, setPermissions] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('admin_permissions') || '[]');
-    } catch {
-      return [];
-    }
-  });
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [sessionMessage, setSessionMessage] = useState(() => {
-    const msg = sessionStorage.getItem('admin_session_message');
-    if (msg) {
-      sessionStorage.removeItem('admin_session_message');
-      return msg;
-    }
-    return '';
-  });
-  
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    const isAuth = localStorage.getItem('admin_auth') === 'true';
-    if (!isAuth) return false;
-    const expiresAt = Number(localStorage.getItem('admin_session_expires_at') || '0');
-    const lastActivity = Number(localStorage.getItem('admin_last_activity') || '0');
-    const now = Date.now();
+  const [state, setState] = useState<State>({ status: 'loading' });
 
-    if (!expiresAt || now > expiresAt || (lastActivity && now - lastActivity > MAX_INACTIVITY_MS)) {
-      localStorage.removeItem('admin_auth');
-      localStorage.removeItem('admin_token');
-      localStorage.removeItem('admin_role');
-      localStorage.removeItem('admin_email');
-      localStorage.removeItem('admin_team');
-      localStorage.removeItem('admin_permissions');
-      localStorage.removeItem('admin_session_expires_at');
-      localStorage.removeItem('admin_last_activity');
-      return false;
-    }
-    return true;
-  });
-
-  const closeMenu = () => setMenuOpen(false);
-
-  const handleLogout = (msg?: string) => {
-    // End the session server-side too, so a copied token stops working.
-    // Plain fetch (not authFetch): an already-expired token answers 401 and
-    // must not trigger authFetch's reload.
-    const token = localStorage.getItem('admin_token');
-    if (token) {
-      fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
-    }
-    localStorage.removeItem('admin_auth');
-    localStorage.removeItem('admin_token');
-    localStorage.removeItem('admin_role');
-    localStorage.removeItem('admin_email');
-    localStorage.removeItem('admin_team');
-    localStorage.removeItem('admin_permissions');
-    localStorage.removeItem('admin_session_expires_at');
-    localStorage.removeItem('admin_last_activity');
-    if (msg) setSessionMessage(msg);
-    setIsAuthenticated(false);
-  };
-
+  // On load the session is whatever the cookies say: hammer refreshes once if
+  // the access token has lapsed, and a null view means there is no session.
   useEffect(() => {
-    if (!isAuthenticated) return;
+    const controller = new AbortController();
+    void openSession(controller.signal).then((me) => {
+      if (controller.signal.aborted) return;
+      setState(me === null ? { status: 'signed-out', message: '' } : { status: 'signed-in', me });
+    });
+    return () => controller.abort();
+  }, []);
 
-    // Track user activity (throttled to once every 30s)
-    let lastRecorded = Date.now();
-    const updateActivity = () => {
-      const now = Date.now();
-      if (now - lastRecorded > 30000) {
-        lastRecorded = now;
-        localStorage.setItem('admin_last_activity', String(now));
-      }
-    };
-
-    window.addEventListener('click', updateActivity);
-    window.addEventListener('keydown', updateActivity);
-    window.addEventListener('scroll', updateActivity, { passive: true });
-    window.addEventListener('touchstart', updateActivity, { passive: true });
-
-    // Validate active session against backend immediately on mount/refresh
-    authFetch('/api/auth/me')
-      .then(res => {
-        if (!res.ok) {
-          handleLogout('Your account access has been revoked or your session has expired.');
-          return null;
-        }
-        return res.json();
-      })
-      .then(data => {
-        if (data && data.status === 'ok') {
-          if (data.role) {
-            setRole(data.role);
-            localStorage.setItem('admin_role', data.role);
-          }
-          if (data.team !== undefined) {
-            setTeam(data.team);
-            localStorage.setItem('admin_team', data.team);
-          }
-          if (data.permissions) {
-            setPermissions(data.permissions);
-            localStorage.setItem('admin_permissions', JSON.stringify(data.permissions));
-          }
-        }
-      })
-      .catch(() => {});
-
-    // Periodic check every 30 seconds
-    const interval = setInterval(() => {
-      const isAuth = localStorage.getItem('admin_auth') === 'true';
-      if (!isAuth) return;
-      const expiresAt = Number(localStorage.getItem('admin_session_expires_at') || '0');
-      const lastActivity = Number(localStorage.getItem('admin_last_activity') || '0');
-      const now = Date.now();
-
-      if (!expiresAt || now > expiresAt) {
-        handleLogout('Your session has expired. Please sign in again.');
-      } else if (lastActivity && now - lastActivity > MAX_INACTIVITY_MS) {
-        handleLogout('Logged out due to inactivity. Please sign in again.');
-      } else {
-        // Also verify session validity with backend
-        authFetch('/api/auth/me').then(res => {
-          if (!res.ok) {
-            handleLogout('Your account access has been revoked or your session has expired.');
-          }
-        }).catch(() => {});
-      }
-    }, 30000);
-
-    return () => {
-      window.removeEventListener('click', updateActivity);
-      window.removeEventListener('keydown', updateActivity);
-      window.removeEventListener('scroll', updateActivity);
-      window.removeEventListener('touchstart', updateActivity);
-      clearInterval(interval);
-    };
-  }, [isAuthenticated]);
-
-  if (!isAuthenticated) {
+  if (state.status === 'loading') {
+    return <div style={{ minHeight: '100vh', background: '#0E1013' }} aria-busy="true" />;
+  }
+  if (state.status === 'signed-out') {
     return (
-      <Login 
-        initialError={sessionMessage}
-        onLogin={(r: string, em?: string, perms?: string[], tm?: string) => { 
-          setRole(r); 
-          setEmail(em || ''); 
-          setPermissions(perms || []);
-          setTeam(tm || '');
-          setSessionMessage('');
-          setIsAuthenticated(true); 
-        }} 
+      <Login
+        initialError={state.message}
+        onLogin={(me) => setState({ status: 'signed-in', me })}
       />
     );
   }
+  return (
+    <SessionProvider
+      me={state.me}
+      onSignedOut={(message) => setState({ status: 'signed-out', message })}
+      onRefreshed={(me) => setState({ status: 'signed-in', me })}
+    >
+      <Shell />
+    </SessionProvider>
+  );
+}
 
-  const isSuperAdmin = role === 'superadmin' || email === 'admin@enactussams.org';
-  const hasPerm = (perm: string) => isSuperAdmin || permissions.includes(perm);
+const sectionLabel = { margin: '20px 0 6px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.5, paddingLeft: '16px' } as const;
 
-  const firstPermittedPath = isSuperAdmin || hasPerm('dashboard') ? '/'
-    : hasPerm('applications') ? '/applications'
-    : hasPerm('form_maker') ? '/form-maker'
-    : hasPerm('teams') ? '/teams'
-    : hasPerm('content') ? '/content'
-    : hasPerm('gallery') ? '/gallery'
-    : (isSuperAdmin || hasPerm('users')) ? '/users'
-    : '/';
+function Shell(): ReactNode {
+  const { me, affords, superadmin, signOut, refresh } = useSession();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = () => setMenuOpen(false);
+
+  // A permission change made by someone else reaches this tab on the next
+  // request anyway (the server bumps the epoch); re-reading the session on
+  // focus also refreshes what the navigation offers.
+  useEffect(() => {
+    const onFocus = () => refresh();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refresh]);
+
+  const can = {
+    dashboard: affords(routeDashboardGet),
+    applications: affords(routeApplicationsList),
+    responses: affords(routeResponsesList),
+    forms: affords(routeFormsList),
+    teams: affords(routeTeamsCreate),
+    content: affords(routeSectionsList),
+    gallery: affords(routeGalleryList),
+    users: affords(routeStaffList),
+    audit: affords(routeAuditList),
+  };
+  const roleLabel = superadmin ? 'SUPER ADMIN' : me.role.toUpperCase();
+  const firstPath = can.dashboard ? '/' : can.applications ? '/applications' : can.forms ? '/form-maker'
+    : can.responses ? '/form-responses' : can.teams ? '/teams' : can.content ? '/content'
+    : can.gallery ? '/gallery' : can.users ? '/users' : '/none';
+  const guard = (allowed: boolean, page: ReactNode) => (allowed ? page : <Navigate to={firstPath} replace />);
 
   return (
     <Router>
       <ConfirmProvider>
         <div style={{ display: 'flex', minHeight: '100vh', width: '100%', maxWidth: '100vw', overflowX: 'hidden', background: 'var(--bg-main)' }}>
-        
-        {/* Mobile Nav Toggle */}
-        <button 
-          className="mobile-toggle"
-          onClick={() => setMenuOpen(!menuOpen)}
-        >
-          {menuOpen ? <X /> : <Menu />}
-        </button>
+          <button className="mobile-toggle" aria-label="Menu" onClick={() => setMenuOpen(!menuOpen)}>
+            {menuOpen ? <X /> : <Menu />}
+          </button>
 
-        {/* Sidebar */}
-        <aside className={`layout-sidebar ${menuOpen ? 'open' : ''}`}>
-          <div style={{ marginBottom: '40px' }}>
-            <img src="/assets/logo-trim.png" alt="Enactus SAMS" style={{ width: '120px', objectFit: 'contain' }} />
-            <p className="font-mono" style={{ margin: '8px 0 0 0', fontSize: '11px', opacity: 0.5, letterSpacing: '0.1em' }}>
-              SAMS / MAADI / {isSuperAdmin ? 'SUPERADMIN' : role.toUpperCase()}
-            </p>
-            {team && !isSuperAdmin && (
-              <p className="font-mono" style={{ margin: '4px 0 0 0', fontSize: '10px', color: '#FFC629', letterSpacing: '0.08em', fontWeight: 700, textTransform: 'uppercase' }}>
-                TEAM: {team}
+          <aside className={`layout-sidebar ${menuOpen ? 'open' : ''}`}>
+            <div style={{ marginBottom: '40px' }}>
+              <img src="/assets/logo-trim.png" alt="Enactus SAMS" style={{ width: '120px', objectFit: 'contain' }} />
+              <p className="font-mono" style={{ margin: '8px 0 0 0', fontSize: '11px', opacity: 0.5, letterSpacing: '0.1em' }}>
+                SAMS / MAADI / {roleLabel}
               </p>
-            )}
-          </div>
-
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, overflowY: 'auto' }}>
-            {hasPerm('dashboard') && (
-              <NavLink to="/" onClick={closeMenu} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-                <LayoutDashboard size={18} /> Dashboard
-              </NavLink>
-            )}
-            
-            {(hasPerm('applications') || hasPerm('form_maker') || hasPerm('teams')) && (
-              <>
-                <div style={{ margin: '20px 0 6px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.5, paddingLeft: '16px' }} className="font-mono">
-                  Recruitment & Forms
-                </div>
-                
-                {hasPerm('applications') && (
-                  <NavLink to="/applications" onClick={closeMenu} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-                    <CheckSquare size={18} /> Application Responses
-                  </NavLink>
-                )}
-
-                {(hasPerm('applications') || hasPerm('form_maker')) && (
-                  <NavLink to="/form-responses" onClick={closeMenu} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-                    <Inbox size={18} /> Form Responses
-                  </NavLink>
-                )}
-
-                {hasPerm('form_maker') && (
-                  <NavLink to="/form-maker" onClick={closeMenu} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-                    <PenTool size={18} /> Form Maker
-                  </NavLink>
-                )}
-
-                {hasPerm('teams') && (
-                  <NavLink to="/teams" onClick={closeMenu} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-                    <UsersIcon size={18} /> Manage Teams
-                  </NavLink>
-                )}
-              </>
-            )}
-
-            {(hasPerm('content') || hasPerm('gallery')) && (
-              <>
-                <div style={{ margin: '20px 0 6px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.5, paddingLeft: '16px' }} className="font-mono">
-                  Site Content
-                </div>
-                {hasPerm('content') && (
-                  <NavLink to="/content" onClick={closeMenu} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-                    <FileText size={18} /> Content CMS
-                  </NavLink>
-                )}
-                {hasPerm('gallery') && (
-                  <NavLink to="/gallery" onClick={closeMenu} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-                    <Image size={18} /> Gallery
-                  </NavLink>
-                )}
-              </>
-            )}
-
-            {(isSuperAdmin || hasPerm('users')) && (
-              <>
-                <div style={{ margin: '20px 0 6px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.5, paddingLeft: '16px' }} className="font-mono">
-                  Administration
-                </div>
-                <NavLink to="/users" onClick={closeMenu} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-                  <Shield size={18} /> Access Control
-                </NavLink>
-              </>
-            )}
-          </nav>
-
-          <div style={{ marginTop: 'auto', paddingTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{
-              background: '#FFC629',
-              border: '2.5px solid #0E1013',
-              padding: '12px 14px',
-              boxShadow: '3px 3px 0px #0E1013',
-              color: '#0E1013',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px'
-            }}>
-              <span className="font-mono" style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.12em', opacity: 0.8, fontWeight: 700 }}>
-                LOGGED IN AS
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-                <span className="font-mono" style={{ fontSize: '13px', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  {isSuperAdmin ? 'SUPER ADMIN' : role.toUpperCase()}
-                </span>
-                {team && !isSuperAdmin && (
-                  <span style={{ background: '#0E1013', color: '#FFC629', fontSize: '10px', padding: '2px 6px', fontWeight: 700, fontFamily: 'IBM Plex Mono', textTransform: 'uppercase' }}>
-                    {team}
-                  </span>
-                )}
-              </div>
-              <span style={{ fontSize: '12px', fontWeight: 600, opacity: 0.85, wordBreak: 'break-all' }}>
-                {email}
-              </span>
+              {me.team && !superadmin && (
+                <p className="font-mono" style={{ margin: '4px 0 0 0', fontSize: '10px', color: '#FFC629', letterSpacing: '0.08em', fontWeight: 700, textTransform: 'uppercase' }}>
+                  TEAM: {me.team}
+                </p>
+              )}
             </div>
 
-            <button className="nav-link" style={{ width: '100%', color: '#E53935', background: 'transparent', border: 'none', cursor: 'pointer' }} onClick={() => handleLogout()}>
-              <LogOut size={18} /> Sign Out
-            </button>
-          </div>
-        </aside>
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, overflowY: 'auto' }}>
+              {can.dashboard && (
+                <NavLink to="/" end onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                  <LayoutDashboard size={18} /> Dashboard
+                </NavLink>
+              )}
 
-        {/* Main Content */}
-        <main className="layout-main">
-          <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-            <Routes>
-              <Route path="/" element={hasPerm('dashboard') ? <Dashboard /> : <Navigate to={firstPermittedPath} replace />} />
-              <Route path="/applications" element={hasPerm('applications') ? <Applications role={role} /> : <Navigate to={firstPermittedPath} replace />} />
-              <Route path="/form-responses" element={hasPerm('applications') || hasPerm('form_maker') ? <FormResponses /> : <Navigate to={firstPermittedPath} replace />} />
-              <Route path="/form-maker" element={hasPerm('form_maker') ? <FormMaker /> : <Navigate to={firstPermittedPath} replace />} />
-              <Route path="/teams" element={hasPerm('teams') ? <Teams /> : <Navigate to={firstPermittedPath} replace />} />
-              <Route path="/content" element={hasPerm('content') ? <Content /> : <Navigate to={firstPermittedPath} replace />} />
-              <Route path="/gallery" element={hasPerm('gallery') ? <Gallery /> : <Navigate to={firstPermittedPath} replace />} />
-              <Route path="/users" element={(isSuperAdmin || hasPerm('users')) ? <Users /> : <Navigate to={firstPermittedPath} replace />} />
-              <Route path="*" element={<Navigate to={firstPermittedPath} replace />} />
-            </Routes>
-          </div>
-        </main>
-      </div>
+              {(can.applications || can.forms || can.responses || can.teams) && (
+                <>
+                  <div style={sectionLabel} className="font-mono">Recruitment & Forms</div>
+                  {can.applications && (
+                    <NavLink to="/applications" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                      <CheckSquare size={18} /> Application Responses
+                    </NavLink>
+                  )}
+                  {can.responses && (
+                    <NavLink to="/form-responses" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                      <Inbox size={18} /> Form Responses
+                    </NavLink>
+                  )}
+                  {can.forms && (
+                    <NavLink to="/form-maker" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                      <PenTool size={18} /> Form Maker
+                    </NavLink>
+                  )}
+                  {can.teams && (
+                    <NavLink to="/teams" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                      <UsersIcon size={18} /> Manage Teams
+                    </NavLink>
+                  )}
+                </>
+              )}
+
+              {(can.content || can.gallery) && (
+                <>
+                  <div style={sectionLabel} className="font-mono">Site Content</div>
+                  {can.content && (
+                    <NavLink to="/content" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                      <FileText size={18} /> Content CMS
+                    </NavLink>
+                  )}
+                  {can.gallery && (
+                    <NavLink to="/gallery" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                      <Image size={18} /> Gallery
+                    </NavLink>
+                  )}
+                </>
+              )}
+
+              {(can.users || can.audit) && (
+                <>
+                  <div style={sectionLabel} className="font-mono">Administration</div>
+                  {can.users && (
+                    <NavLink to="/users" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                      <Shield size={18} /> Access Control
+                    </NavLink>
+                  )}
+                  {can.audit && (
+                    <NavLink to="/audit" onClick={closeMenu} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                      <ScrollText size={18} /> Audit Log
+                    </NavLink>
+                  )}
+                </>
+              )}
+            </nav>
+
+            <div style={{ marginTop: 'auto', paddingTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ background: '#FFC629', border: '2.5px solid #0E1013', padding: '12px 14px', boxShadow: '3px 3px 0px #0E1013', color: '#0E1013', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span className="font-mono" style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.12em', opacity: 0.8, fontWeight: 700 }}>
+                  LOGGED IN AS
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                  <span className="font-mono" style={{ fontSize: '13px', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    {roleLabel}
+                  </span>
+                  {me.team && !superadmin && (
+                    <span style={{ background: '#0E1013', color: '#FFC629', fontSize: '10px', padding: '2px 6px', fontWeight: 700, fontFamily: 'IBM Plex Mono', textTransform: 'uppercase' }}>
+                      {me.team}
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontSize: '12px', fontWeight: 600, opacity: 0.85, wordBreak: 'break-all' }}>{me.email}</span>
+              </div>
+
+              <button className="nav-link" style={{ width: '100%', color: '#E53935', background: 'transparent', border: 'none', cursor: 'pointer' }} onClick={signOut}>
+                <LogOut size={18} /> Sign Out
+              </button>
+            </div>
+          </aside>
+
+          <main className="layout-main">
+            <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+              <Routes>
+                <Route path="/" element={guard(can.dashboard, <Dashboard />)} />
+                <Route path="/applications" element={guard(can.applications, <Applications />)} />
+                <Route path="/form-responses" element={guard(can.responses, <FormResponses />)} />
+                <Route path="/form-maker" element={guard(can.forms, <FormMaker />)} />
+                <Route path="/teams" element={guard(can.teams, <Teams />)} />
+                <Route path="/content" element={guard(can.content, <Content />)} />
+                <Route path="/gallery" element={guard(can.gallery, <Gallery />)} />
+                <Route path="/users" element={guard(can.users, <Users />)} />
+                <Route path="/audit" element={guard(can.audit, <Audit />)} />
+                <Route path="/none" element={<NoAccess />} />
+                <Route path="*" element={<Navigate to={firstPath} replace />} />
+              </Routes>
+            </div>
+          </main>
+        </div>
       </ConfirmProvider>
     </Router>
+  );
+}
+
+function NoAccess(): ReactNode {
+  return (
+    <div className="card">
+      <h1 className="heading-lg">No access yet.</h1>
+      <p>Your account has no sections assigned. Ask whoever manages Access Control to grant you one.</p>
+    </div>
   );
 }
 

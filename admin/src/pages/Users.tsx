@@ -1,429 +1,189 @@
-import { useState, useEffect } from 'react';
-import { Trash2, Shield, X, Users as UsersIcon, Edit2 } from 'lucide-react';
+import { useState } from 'react';
+import { UserPlus, Ban, CheckCircle, X } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
-import { authFetch } from '../api';
+import { api, platform } from '../app/platform';
+import type { StaffAccount } from '../app/responses';
+import { ErrorBanner, describe, run, useLoad, useSession } from '../app/ui';
+import { routeStaffCreate, routeStaffDisable, routeStaffList, routeStaffUpdate, routeTeamsList } from '../api/hammer.generated';
 
-const ALL_PERMISSIONS = [
-  { key: 'dashboard', label: 'Dashboard & Analytics' },
-  { key: 'applications', label: 'Form Responses / Applications' },
-  { key: 'form_maker', label: 'Form Maker / Builder' },
-  { key: 'teams', label: 'Manage Teams' },
-  { key: 'content', label: 'Content CMS' },
-  { key: 'gallery', label: 'Gallery' },
-  { key: 'users', label: 'Access Control (User Management)' },
-];
+// The grantable permissions (src/config/perms.h kGrantable) and their words.
+// Implied ones (media upload, reading form responses) follow from these
+// server-side and are never granted directly.
+const kPermissions = [
+  { name: 'dashboard', label: 'Dashboard' },
+  { name: 'applications', label: 'Applications' },
+  { name: 'form_maker', label: 'Form Maker' },
+  { name: 'teams', label: 'Teams' },
+  { name: 'content', label: 'Content CMS' },
+  { name: 'gallery', label: 'Gallery' },
+  { name: 'users', label: 'Access Control' },
+] as const;
 
-const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
-  HR: ['applications', 'form_maker'],
-  member: ['dashboard', 'gallery'],
-  manager: ['dashboard', 'applications', 'form_maker', 'teams', 'gallery'],
-  'vice manager': ['dashboard', 'applications', 'form_maker', 'teams', 'gallery'],
-  director: ['dashboard', 'applications', 'form_maker', 'teams', 'content', 'gallery'],
-  'high board': ['dashboard', 'applications', 'form_maker', 'teams', 'content', 'gallery'],
-};
+const kRoles = ['member', 'HR', 'manager', 'vice manager', 'director', 'high board'] as const;
+
+type Editing = { account: StaffAccount | null; email: string; password: string; role: string; team: string; permissions: string[]; superadmin: boolean };
 
 export default function Users() {
   const { confirm } = useConfirm();
-  const [users, setUsers] = useState<any[]>([]);
-  const [teams, setTeams] = useState<any[]>([]);
-  const [newEmail, setNewEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newRole, setNewRole] = useState('manager');
-  const [selectedTeam, setSelectedTeam] = useState('');
-  const [showPermModal, setShowPermModal] = useState(false);
-  const [pendingPerms, setPendingPerms] = useState<string[]>([]);
+  const { me, superadmin } = useSession();
+  const staff = useLoad((signal) => api.call(routeStaffList, { signal }), []);
+  const teams = useLoad((signal) => api.call(routeTeamsList, { signal }), []);
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  // Edit user state
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingUser, setEditingUser] = useState<any | null>(null);
-  const [editRole, setEditRole] = useState('member');
-  const [editTeam, setEditTeam] = useState('');
-  const [editPerms, setEditPerms] = useState<string[]>([]);
-  const [editPassword, setEditPassword] = useState('');
+  // A non-superadmin may grant only what they hold; the server refuses the rest.
+  const grantable = kPermissions.filter((p) => superadmin || me.permissions.includes(p.name));
 
-  const fetchUsers = () => {
-    authFetch('/api/users')
-      .then(res => res.json())
-      .then(data => setUsers(data.users || []))
-      .catch(err => console.error(err));
-  };
-
-  const fetchTeams = () => {
-    Promise.all([
-      authFetch('/api/teams').then(r => r.json()).catch(() => ({ teams: [] })),
-      authFetch('/api/content').then(r => r.json()).catch(() => ({ content: {} }))
-    ]).then(([teamsData, contentData]) => {
-      const dbTeams = (teamsData && teamsData.teams) ? teamsData.teams : [];
-      const recruitmentTeams = (contentData && contentData.content && contentData.content.recruitmentTeams)
-        ? contentData.content.recruitmentTeams.map((name: string) => ({ name, id: name }))
-        : [];
-
-      const map = new Map<string, any>();
-      dbTeams.forEach((t: any) => {
-        if (t && t.name) map.set(t.name.trim().toLowerCase(), { ...t, name: t.name.trim() });
-      });
-      recruitmentTeams.forEach((t: any) => {
-        if (t && t.name) {
-          const key = t.name.trim().toLowerCase();
-          if (!map.has(key)) map.set(key, t);
-        }
-      });
-
-      const merged = Array.from(map.values());
-      setTeams(merged);
-      if (merged.length > 0 && !selectedTeam) {
-        setSelectedTeam(merged[0].name);
+  const save = async () => {
+    if (editing === null) return;
+    setSaving(true);
+    setError(null);
+    const controller = new AbortController();
+    if (editing.account === null) {
+      const email = editing.email.trim();
+      const credential = await platform.enrolment.credential(email, editing.password, controller.signal, 'enroll');
+      if (!credential.ok) {
+        setSaving(false);
+        setError(describe(credential.error));
+        return;
       }
-    }).catch(err => console.error(err));
-  };
-
-  useEffect(() => { 
-    fetchUsers(); 
-    fetchTeams();
-  }, []);
-
-  const [error, setError] = useState('');
-
-  const handleAddClick = () => {
-    if (!newEmail || !newPassword) { 
-      setError('Email and password are required.'); 
-      return; 
+      const result = await api.call(routeStaffCreate, {
+        body: {
+          email,
+          credential: credential.value,
+          role: editing.role,
+          team: editing.team,
+          permissions: editing.permissions,
+          ...(superadmin && editing.superadmin ? { superadmin: true } : {}),
+        },
+        signal: controller.signal,
+      });
+      setSaving(false);
+      if (!result.ok) { setError(describe(result.error)); return; }
+    } else {
+      const account = editing.account;
+      const body: Record<string, unknown> = { version: account.version, role: editing.role, team: editing.team, permissions: editing.permissions };
+      if (superadmin && editing.superadmin !== (account.type === 'superadmin')) body.superadmin = editing.superadmin;
+      const result = await api.call(routeStaffUpdate, { params: { id: account.id }, body, signal: controller.signal });
+      setSaving(false);
+      if (!result.ok) { setError(describe(result.error)); return; }
     }
-    setError('');
-    setPendingPerms(ROLE_DEFAULT_PERMISSIONS[newRole] || []);
-    if ((newRole === 'manager' || newRole === 'vice manager') && teams.length > 0 && !selectedTeam) {
-      setSelectedTeam(teams[0].name);
+    setEditing(null);
+    staff.reload();
+  };
+
+  const toggleActive = async (account: StaffAccount) => {
+    setError(null);
+    if (account.status === 'active') {
+      const ok = await confirm({ title: 'Disable account', message: `Disable ${account.email}? They are signed out everywhere immediately.`, type: 'danger', confirmText: 'Disable' });
+      if (!ok) return;
+      const result = await run((signal) => api.call(routeStaffDisable, { params: { id: account.id }, body: {}, signal }));
+      if (!result.ok) setError(describe(result.error));
+    } else {
+      const result = await run((signal) => api.call(routeStaffUpdate, { params: { id: account.id }, body: { version: account.version, active: true }, signal }));
+      if (!result.ok) setError(describe(result.error));
     }
-    setShowPermModal(true);
-  };
-
-  const handleConfirmAdd = () => {
-    const isManagerRole = newRole === 'manager' || newRole === 'vice manager';
-    const payload = {
-      email: newEmail,
-      password: newPassword,
-      role: newRole,
-      team: isManagerRole ? selectedTeam : '',
-      permissions: pendingPerms
-    };
-
-    authFetch('/api/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).then(() => {
-      setNewEmail(''); 
-      setNewPassword(''); 
-      setNewRole('manager');
-      setSelectedTeam(teams[0]?.name || '');
-      setShowPermModal(false); 
-      fetchUsers();
-      fetchTeams();
-    });
-  };
-
-  const handleStartEdit = (user: any) => {
-    setEditingUser(user);
-    setEditRole(user.role || 'member');
-    setEditTeam(user.team || (teams[0]?.name || ''));
-    setEditPerms(user.permissions || []);
-    setEditPassword('');
-    setShowEditModal(true);
-  };
-
-  const handleConfirmEdit = () => {
-    if (!editingUser) return;
-    const isManagerRole = editRole === 'manager' || editRole === 'vice manager';
-    const payload: any = {
-      action: 'update',
-      email: editingUser.email,
-      role: editRole,
-      team: isManagerRole ? editTeam : '',
-      permissions: editPerms
-    };
-    if (editPassword.trim()) {
-      payload.password = editPassword.trim();
-    }
-
-    authFetch('/api/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).then(() => {
-      setShowEditModal(false);
-      setEditingUser(null);
-      fetchUsers();
-      fetchTeams();
-    });
-  };
-
-  const togglePerm = (key: string) => {
-    setPendingPerms(prev => prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]);
-  };
-
-  const toggleEditPerm = (key: string) => {
-    setEditPerms(prev => prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]);
-  };
-
-  const handleDelete = async (email: string) => {
-    const ok = await confirm({
-      title: 'Revoke User Access?',
-      message: `Are you sure you want to remove ${email}? They will immediately lose all access permissions to the administrative panel.`,
-      confirmText: 'Remove Access',
-      cancelText: 'Cancel',
-      type: 'danger'
-    });
-    if (!ok) return;
-    authFetch('/api/users', {
-      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    }).then(() => {
-      fetchUsers();
-      fetchTeams();
-    });
-  };
-
-  const roleColor: Record<string, string> = {
-    superadmin: '#FFC629',
-    director: '#60A5FA',
-    'high board': '#8B5CF6',
-    manager: '#4ADE80',
-    'vice manager': '#FACC15',
-    HR: '#F472B6',
-    member: '#D4D4D4',
+    staff.reload();
   };
 
   return (
-    <div className="fade-in">
-      <div style={{ marginBottom: '32px' }}>
-        <h1 className="heading-lg">Access Control</h1>
-        <p className="font-mono" style={{ opacity: 0.7, marginTop: '8px' }}>Manage admin users, roles, team assignments, and panel access permissions.</p>
-      </div>
-
-      <div className="card" style={{ marginBottom: '32px' }}>
-        <h2 className="heading-sm" style={{ marginBottom: '24px' }}>Add New User</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '16px', alignItems: 'flex-end' }}>
-          <div>
-            <label className="font-mono" style={{ fontSize: '12px', display: 'block', marginBottom: '8px' }}>Email</label>
-            <input className="input-field" type="email" placeholder="user@enactus.org" value={newEmail} onChange={e => setNewEmail(e.target.value)} style={{ width: '100%' }} />
-          </div>
-          <div>
-            <label className="font-mono" style={{ fontSize: '12px', display: 'block', marginBottom: '8px' }}>Password</label>
-            <input className="input-field" type="password" placeholder="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={{ width: '100%' }} />
-          </div>
-          <div>
-            <label className="font-mono" style={{ fontSize: '12px', display: 'block', marginBottom: '8px' }}>Role</label>
-            <select className="input-field" value={newRole} onChange={e => setNewRole(e.target.value)} style={{ width: '100%' }}>
-              <option value="director">Director</option>
-              <option value="high board">High Board</option>
-              <option value="manager">Manager</option>
-              <option value="vice manager">Vice Manager</option>
-              <option value="HR">HR</option>
-              <option value="member">Member</option>
-            </select>
-          </div>
-          <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px', height: '54px', justifyContent: 'center' }} onClick={handleAddClick}>
-            <Shield size={16} /> Add User
-          </button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'end', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <span className="heading-sm">07 — Administration</span>
+          <h1 className="heading-lg">Access Control.</h1>
         </div>
-        {error && (
-          <div style={{ marginTop: '16px', background: '#FFF0F0', border: '2px solid #E53935', padding: '10px 14px', color: '#E53935', fontWeight: 700, fontSize: '13px' }}>
-            {error}
-          </div>
-        )}
+        <button className="btn-primary" style={{ display: 'flex', gap: '8px', alignItems: 'center' }} onClick={() => { setError(null); setEditing({ account: null, email: '', password: '', role: 'member', team: '', permissions: [], superadmin: false }); }}>
+          <UserPlus size={16} /> New account
+        </button>
       </div>
+      <ErrorBanner message={staff.error ?? (editing === null ? error : null)} />
 
       <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
-        <div style={{ padding: '24px 24px 8px 24px' }}>
-          <h2 className="heading-sm" style={{ marginBottom: '8px' }}>Active Users</h2>
-        </div>
-        <div style={{ width: '100%', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
-          <thead>
-            <tr style={{ borderBottom: '3px solid #0E1013', textAlign: 'left' }}>
-              <th className="font-mono" style={{ padding: '12px 16px', fontSize: '12px', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Email</th>
-              <th className="font-mono" style={{ padding: '12px 16px', fontSize: '12px', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Role</th>
-              <th className="font-mono" style={{ padding: '12px 16px', fontSize: '12px', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Team</th>
-              <th className="font-mono" style={{ padding: '12px 16px', fontSize: '12px', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Panels</th>
-              <th className="font-mono" style={{ padding: '12px 16px', fontSize: '12px', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Action</th>
-            </tr>
-          </thead>
+        <table className="table">
+          <thead><tr><th>Account</th><th>Role</th><th>Access</th><th>Status</th><th /></tr></thead>
           <tbody>
-            {users.map((u, i) => (
-              <tr key={i} style={{ borderBottom: '2px solid rgba(14,16,19,0.1)' }}>
-                <td style={{ padding: '16px', fontWeight: 700 }}>{u.email}</td>
-                <td style={{ padding: '16px' }}>
-                  <span style={{ background: roleColor[u.role] || '#D4D4D4', color: '#0E1013', padding: '4px 10px', border: '2px solid #0E1013', fontFamily: 'IBM Plex Mono', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', boxShadow: '2px 2px 0px #0E1013' }}>
-                    {u.role}
-                  </span>
+            {(staff.data?.staff ?? []).map((account) => (
+              <tr key={account.id} style={{ opacity: account.status === 'active' ? 1 : 0.55 }}>
+                <td>
+                  <div style={{ fontWeight: 800 }}>{account.email}</div>
+                  {account.type === 'superadmin' && <span className="badge badge-accepted">Superadmin</span>}
                 </td>
-                <td style={{ padding: '16px' }}>
-                  {u.team ? (
-                    <span style={{ background: '#0E1013', color: '#FFC629', padding: '4px 10px', border: '1.5px solid #0E1013', fontFamily: 'IBM Plex Mono', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
-                      {u.team}
-                    </span>
-                  ) : (
-                    <span className="font-mono" style={{ fontSize: '11px', opacity: 0.4 }}>—</span>
-                  )}
-                </td>
-                <td style={{ padding: '16px' }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                    {u.role === 'superadmin' ? (
-                      <span className="font-mono" style={{ fontSize: '11px', color: '#B45309', background: '#FEF3C7', padding: '2px 8px', border: '1.5px solid #0E1013', fontWeight: 700 }}>⚡ Full Access</span>
-                    ) : (u.permissions || []).length === 0 ? (
-                      <span className="font-mono" style={{ fontSize: '11px', opacity: 0.5 }}>None assigned</span>
-                    ) : (u.permissions || []).map((p: string) => (
-                      <span key={p} style={{ background: '#F7F5F0', border: '1.5px solid #0E1013', padding: '2px 8px', fontSize: '11px', fontFamily: 'IBM Plex Mono', fontWeight: 600 }}>{p}</span>
-                    ))}
-                  </div>
-                </td>
-                <td style={{ padding: '16px' }}>
-                  {u.role !== 'superadmin' && u.email !== 'admin@enactussams.org' && (
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button className="btn-outline" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', background: '#FFF' }} onClick={() => handleStartEdit(u)}>
-                        <Edit2 size={14} /> Edit
-                      </button>
-                      <button className="btn-danger" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} onClick={() => handleDelete(u.email)}>
-                        <Trash2 size={14} /> Revoke
-                      </button>
-                    </div>
+                <td>{account.role}{account.team && <div className="font-mono" style={{ fontSize: '11px' }}>{account.team}</div>}</td>
+                <td style={{ fontSize: '12px' }}>{account.type === 'superadmin' ? 'Everything' : account.permissions.map((p) => kPermissions.find((k) => k.name === p)?.label ?? p).join(', ') || '—'}</td>
+                <td className="font-mono" style={{ fontSize: '12px', textTransform: 'uppercase' }}>{account.status}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button className="btn-outline" onClick={() => { setError(null); setEditing({ account, email: account.email, password: '', role: account.role || 'member', team: account.team, permissions: [...account.permissions], superadmin: account.type === 'superadmin' }); }}>Edit</button>{' '}
+                  {account.id !== me.id && (
+                    <button className={account.status === 'active' ? 'btn-danger' : 'btn-outline'} aria-label={account.status === 'active' ? 'Disable account' : 'Enable account'} onClick={() => toggleActive(account)}>
+                      {account.status === 'active' ? <Ban size={14} /> : <CheckCircle size={14} />}
+                    </button>
                   )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        </div>
       </div>
 
-      {/* CREATE USER PERMISSION MODAL */}
-      {showPermModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(14,16,19,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#FFF', border: '3px solid #0E1013', padding: '40px', maxWidth: '520px', width: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '10px 10px 0px #0E1013', position: 'relative' }}>
-            <button onClick={() => setShowPermModal(false)} style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', cursor: 'pointer' }}>
-              <X size={22} />
-            </button>
-            <span className="heading-sm" style={{ display: 'block', marginBottom: '8px' }}>Configure Access</span>
-            <h2 style={{ margin: '0 0 4px 0', fontSize: '22px', fontWeight: 900, letterSpacing: '-0.02em' }}>{newEmail}</h2>
-            <p className="font-mono" style={{ margin: '0 0 24px 0', fontSize: '12px', opacity: 0.6 }}>ROLE: {newRole.toUpperCase()}</p>
-
-            {(newRole === 'manager' || newRole === 'vice manager') && (
-              <div style={{ marginBottom: '24px', background: '#F7F5F0', padding: '16px', border: '2px solid #0E1013' }}>
-                <label className="font-mono" style={{ fontSize: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', textTransform: 'uppercase' }}>
-                  <UsersIcon size={14} /> Which team are they the {newRole} of?
-                </label>
-                <select
-                  className="input-field"
-                  value={selectedTeam}
-                  onChange={e => setSelectedTeam(e.target.value)}
-                  style={{ width: '100%', background: '#FFF' }}
-                >
-                  <option value="">-- Select Team --</option>
-                  {teams.map(t => (
-                    <option key={t.id || t.name} value={t.name}>{t.name}</option>
-                  ))}
-                </select>
-                <p className="font-mono" style={{ fontSize: '11px', opacity: 0.6, margin: '8px 0 0 0' }}>
-                  Once saved, this user will be listed as the {newRole} in the Teams section.
-                </p>
-              </div>
+      {editing && (
+        <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(14,16,19,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px' }} onClick={() => setEditing(null)}>
+          <form
+            className="card"
+            style={{ maxWidth: '560px', width: '100%', maxHeight: '90vh', overflowY: 'auto', background: '#FFF', display: 'grid', gap: '14px' }}
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => { e.preventDefault(); void save(); }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <h2 style={{ margin: 0, fontWeight: 900 }}>{editing.account === null ? 'New account' : editing.account.email}</h2>
+              <button type="button" className="btn-outline" aria-label="Close" onClick={() => setEditing(null)}><X size={16} /></button>
+            </div>
+            {editing.account === null && (
+              <>
+                <input className="input-field" type="email" required placeholder="Email" autoComplete="off" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} />
+                <input className="input-field" type="password" required minLength={12} maxLength={128} placeholder="Temporary password (12+ characters)" autoComplete="new-password" value={editing.password} onChange={(e) => setEditing({ ...editing, password: e.target.value })} />
+                <p className="font-mono" style={{ fontSize: '11px', opacity: 0.6, margin: 0 }}>Hashed in this browser before it is sent. Share it with them privately; they can change it after signing in.</p>
+              </>
             )}
-
-            <p style={{ margin: '0 0 16px 0', fontWeight: 700 }}>Choose what this user should be able to see and access:</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '32px' }}>
-              {ALL_PERMISSIONS.map(p => (
-                <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer', padding: '12px 16px', border: pendingPerms.includes(p.key) ? '2.5px solid #0E1013' : '2.5px solid rgba(14,16,19,0.15)', background: pendingPerms.includes(p.key) ? '#FFC629' : '#F7F5F0', boxShadow: pendingPerms.includes(p.key) ? '3px 3px 0px #0E1013' : 'none', transition: 'all 0.1s' }}>
-                  <input type="checkbox" checked={pendingPerms.includes(p.key)} onChange={() => togglePerm(p.key)} style={{ width: '18px', height: '18px', accentColor: '#0E1013', cursor: 'pointer' }} />
-                  <span style={{ fontWeight: 700, fontSize: '15px' }}>{p.label}</span>
-                </label>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button className="btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleConfirmAdd}>Save & Create User</button>
-              <button className="btn-outline" onClick={() => setShowPermModal(false)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* EDIT USER MODAL */}
-      {showEditModal && editingUser && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(14,16,19,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#FFF', border: '3px solid #0E1013', padding: '40px', maxWidth: '520px', width: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '10px 10px 0px #0E1013', position: 'relative' }}>
-            <button onClick={() => { setShowEditModal(false); setEditingUser(null); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', cursor: 'pointer' }}>
-              <X size={22} />
-            </button>
-            <span className="heading-sm" style={{ display: 'block', marginBottom: '8px' }}>Edit Permissions & Role</span>
-            <h2 style={{ margin: '0 0 4px 0', fontSize: '22px', fontWeight: 900, letterSpacing: '-0.02em' }}>{editingUser.email}</h2>
-
-            <div style={{ marginTop: '20px', marginBottom: '20px' }}>
-              <label className="font-mono" style={{ fontSize: '12px', display: 'block', marginBottom: '8px', fontWeight: 700, textTransform: 'uppercase' }}>Role</label>
-              <select className="input-field" value={editRole} onChange={e => {
-                setEditRole(e.target.value);
-                if (e.target.value === 'manager' || e.target.value === 'vice manager') {
-                  if (!editTeam && teams.length > 0) setEditTeam(teams[0].name);
-                }
-              }} style={{ width: '100%', background: '#FFF' }}>
-                <option value="director">Director</option>
-                <option value="high board">High Board</option>
-                <option value="manager">Manager</option>
-                <option value="vice manager">Vice Manager</option>
-                <option value="HR">HR</option>
-                <option value="member">Member</option>
+            <label style={{ display: 'grid', gap: '4px' }}>
+              <span className="font-mono" style={{ fontSize: '11px', fontWeight: 700 }}>ROLE</span>
+              <select className="input-field" value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })}>
+                {kRoles.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
-            </div>
-
-            {(editRole === 'manager' || editRole === 'vice manager') && (
-              <div style={{ marginBottom: '20px', background: '#F7F5F0', padding: '16px', border: '2px solid #0E1013' }}>
-                <label className="font-mono" style={{ fontSize: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', textTransform: 'uppercase' }}>
-                  <UsersIcon size={14} /> Assigned Team
-                </label>
-                <select
-                  className="input-field"
-                  value={editTeam}
-                  onChange={e => setEditTeam(e.target.value)}
-                  style={{ width: '100%', background: '#FFF' }}
-                >
-                  <option value="">-- Select Team --</option>
-                  {teams.map(t => (
-                    <option key={t.id || t.name} value={t.name}>{t.name}</option>
-                  ))}
-                </select>
-                <p className="font-mono" style={{ fontSize: '11px', opacity: 0.6, margin: '8px 0 0 0' }}>
-                  This user will only have management controls for this team.
-                </p>
-              </div>
-            )}
-
-            <div style={{ marginBottom: '24px' }}>
-              <label className="font-mono" style={{ fontSize: '12px', display: 'block', marginBottom: '8px', fontWeight: 700, textTransform: 'uppercase' }}>
-                New Password (leave blank to keep current)
-              </label>
-              <input
-                className="input-field"
-                type="password"
-                placeholder="••••••••"
-                value={editPassword}
-                onChange={e => setEditPassword(e.target.value)}
-                style={{ width: '100%' }}
-              />
-            </div>
-
-            <p style={{ margin: '0 0 16px 0', fontWeight: 700 }}>Customize Panel Permissions:</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '32px' }}>
-              {ALL_PERMISSIONS.map(p => (
-                <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer', padding: '12px 16px', border: editPerms.includes(p.key) ? '2.5px solid #0E1013' : '2.5px solid rgba(14,16,19,0.15)', background: editPerms.includes(p.key) ? '#FFC629' : '#F7F5F0', boxShadow: editPerms.includes(p.key) ? '3px 3px 0px #0E1013' : 'none', transition: 'all 0.1s' }}>
-                  <input type="checkbox" checked={editPerms.includes(p.key)} onChange={() => toggleEditPerm(p.key)} style={{ width: '18px', height: '18px', accentColor: '#0E1013', cursor: 'pointer' }} />
-                  <span style={{ fontWeight: 700, fontSize: '15px' }}>{p.label}</span>
+            </label>
+            <label style={{ display: 'grid', gap: '4px' }}>
+              <span className="font-mono" style={{ fontSize: '11px', fontWeight: 700 }}>TEAM {editing.role === 'manager' || editing.role === 'vice manager' ? '(limits them to this team)' : ''}</span>
+              <select className="input-field" value={editing.team} onChange={(e) => setEditing({ ...editing, team: e.target.value })}>
+                <option value="">No team</option>
+                {(teams.data?.teams ?? []).map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+              </select>
+            </label>
+            <fieldset style={{ border: '2px solid #0E1013', padding: '12px', display: 'grid', gap: '6px' }}>
+              <legend className="font-mono" style={{ fontSize: '11px', fontWeight: 700 }}>ACCESS</legend>
+              {grantable.map((p) => (
+                <label key={p.name} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={editing.permissions.includes(p.name)}
+                    onChange={(e) => setEditing({ ...editing, permissions: e.target.checked ? [...editing.permissions, p.name] : editing.permissions.filter((x) => x !== p.name) })}
+                  />
+                  {p.label}
                 </label>
               ))}
+              {superadmin && (
+                <label style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px', fontWeight: 800 }}>
+                  <input type="checkbox" checked={editing.superadmin} onChange={(e) => setEditing({ ...editing, superadmin: e.target.checked })} />
+                  Superadmin (full access, including other superadmins)
+                </label>
+              )}
+            </fieldset>
+            <ErrorBanner message={error} />
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn-outline" onClick={() => setEditing(null)}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
             </div>
-
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button className="btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleConfirmEdit}>Save Changes</button>
-              <button className="btn-outline" onClick={() => { setShowEditModal(false); setEditingUser(null); }}>Cancel</button>
-            </div>
-          </div>
+          </form>
         </div>
       )}
     </div>

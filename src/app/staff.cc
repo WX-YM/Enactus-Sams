@@ -422,9 +422,16 @@ void staff_update(const http::HttpRequestPtr& req, http::Responder&& respond,
     std::optional<std::string_view> role;
     std::optional<std::string_view> team;
     std::optional<bool> superadmin;
+    std::optional<bool> active;
     input::Reason reason = bind.integer("version", 1, INT64_MAX, version);
     if (!input::is_ok(reason)) {
         respond(http::invalid(req, "version", reason));
+        return;
+    }
+    if (reason = bind.optional_boolean("active", active); !input::is_ok(reason) || active == std::optional<bool>{false}) {
+        // Disabling has its own route (DELETE), which refuses to disable the
+        // caller; this flag only brings a disabled account back.
+        respond(http::invalid(req, "active", input::is_ok(reason) ? input::Reason::NotAllowed : reason));
         return;
     }
     if (reason = bind.optional_text("role", kRoleRules, role);
@@ -471,7 +478,7 @@ void staff_update(const http::HttpRequestPtr& req, http::Responder&& respond,
         role.has_value() ? std::optional<std::string>{std::string{*role}} : std::nullopt;
     const std::optional<std::string> new_team =
         team.has_value() ? std::optional<std::string>{std::string{*team}} : std::nullopt;
-    http::db_or_shed(req, respond, [req, respond, actor, target, version, granted, superadmin,
+    http::db_or_shed(req, respond, [req, respond, actor, target, version, granted, superadmin, active,
                                     new_role, new_team](mongocxx::client& client) {
         Services& s = services();
         const auto verdict = s.limiter.check_account(anvil::uuid::to_string(actor->user_id),
@@ -514,6 +521,14 @@ void staff_update(const http::HttpRequestPtr& req, http::Responder&& respond,
                                                        UserType::SuperAdmin);
             if (!changed) {
                 respond(http::failure(req, changed.error()));
+                return;
+            }
+        }
+        if (active.has_value() && current.status != UserStatus::Active) {
+            const auto enabled = s.staff.set_status(client, target, UserStatus::Active, UserType::SuperAdmin,
+                                                    anvil::db::now_ms());
+            if (!enabled) {
+                respond(http::failure(req, enabled.error()));
                 return;
             }
         }
